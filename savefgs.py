@@ -1,46 +1,13 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+import numpy as np
 
+def savefgs(files, f, g, wl, observation):
 
-def savefgs(outpathname, inputfilename, exptotal, f, g, wl, obs):
-    
-    filenameobs = outpathname  +  'data/obs_'  +  inputfilename  +  '.dat' 
-    filenamef = outpathname  +  'data/f_'  +  inputfilename  +  '.dat' 
-    filenameg = outpathname  +  'data/g_'  +  inputfilename  +  '.dat' 
-    filenamewl = outpathname  +  'data/wl_'  +  inputfilename  +  '.dat' 
-    
-    lun = 3 
-    fromatstring = '(' +string(long( exptotal )) +  '(d30.15,x))' 
-    # fromatstring='('+string(long(ExpTotal))+'(D20.15,x))'
-    fromatstring = strcompress(fromatstring, remove_all=True) 
-    openw(lun, filenamef, get_lun=True, width=250) 
-    printf(lun ,transpose( obs ), format=fromatstring) 
-    close(all=True) 
-    
-    
-    lun = 3 
-    fromatstring = '(' +string(long( exptotal )) +  '(d30.15,x))' 
-    # fromatstring='('+string(long(ExpTotal))+'(D20.15,x))'
-    fromatstring = strcompress(fromatstring, remove_all=True) 
-    openw(lun, filenamef, get_lun=True, width=250) 
-    printf(lun ,transpose( f ), format=fromatstring) 
-    close(all=True) 
-    
-    lun = 4 
-    fromatstring = '(' +string(long( exptotal )) +  '(d30.15,x))' 
-    fromatstring = strcompress(fromatstring, remove_all=True) 
-    openw(lun, filenameg, get_lun=True, width=250) 
-    printf(lun ,transpose( g ), format=fromatstring) 
-    close(all=True) 
-    
-    lun = 5 
-    fromatstring = '(' +string(long( 1 )) +  '(d30.15,x))' 
-    fromatstring = strcompress(fromatstring, remove_all=True) 
-    openw(lun, filenamewl, get_lun=True, width=250) 
-    printf(lun ,transpose( wl ), format=fromatstring) 
-    close(all=True) 
-    
-    
-    return 1 
-    
+    filenameobs = files.output + 'data/obs_' + files.infile + '.dat'
+    filenamef = files.output + 'data/f_' + files.infile + '.dat'
+    filenameg = files.output + 'data/g_' + files.infile + '.dat'
+    filenamewl = files.output + 'data/wl_' + files.infile + '.dat'
+
+    np.savetxt(filenameobs, np.transpose(observation))
+    np.savetxt(filenamef, np.transpose(f))
+    np.savetxt(filenameg, np.transpose(g))
+    np.savetxt(filenamewl, np.transpose(wl))

@@ -1,8 +1,5 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
-
 from createobservation import createobservation
+from inversemethod import inversemethod
 
 # ;aaRun.pro
 print('test') 

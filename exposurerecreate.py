@@ -1,6 +1,5 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+from idl_lib import plot, oplot
+from numpy import pi, floor
 
 from limbintplanetco import limbintplanetco
 from doppler import doppler
@@ -9,23 +8,22 @@ from instprof import instprof
 from addnoise import addnoise
 
 
-def exposurerecreate(fluxspec, intspecall, obsspec, prad, srad, atmoheight, wlhr, wllr, bvelocities, pvelocities, my, n, fwhm, width):
+def exposurerecreate(fluxspec, intspecall, obsspec, wlhr, wllr, n, par):
     # calculate areas
-    sarea = _global.pi * srad**2.
-    parea = _global.pi * prad**2.
-    atmoarea = _global.pi * (prad + atmoheight) ** 2. - parea
+    sarea = pi * par.srad**2.
+    parea = pi * par.prad**2.
+    atmoarea = pi * (par.prad + par.atmoheight) ** 2. - parea
     parea = parea / sarea
     atmoarea = atmoarea / sarea
     paarea = parea + atmoarea
 
     # current MYvalue
-    my_value = my[n]
-    bvelocity = bvelocities[n]
-    pvelocity = pvelocities[n]
+    my_value = par.my[n]
+    bvelocity = par.bvelocities[n]
+    pvelocity = par.pvelocities[n]
 
     # calculate what intensity spectrum to use for this exposure
-    intspecplanet = limbintplanetco(
-        my_value, intspecall, srad, prad, atmoheight, wlhr)
+    intspecplanet = limbintplanetco(my_value, intspecall, wlhr, par)
 
     fluxspecshifted = doppler(fluxspec, wlhr, -pvelocity)
     intspecplanetshifted = doppler(intspecplanet, wlhr, -pvelocity)
@@ -40,8 +38,8 @@ def exposurerecreate(fluxspec, intspecall, obsspec, prad, srad, atmoheight, wlhr
     ob = wlinterpolateco(obsspecshifted, wlhr, wllr)
 
     # instrumental profile
-    fl = instprof(flt, fwhm, width)
-    ip = instprof(ipt, fwhm, width)
+    fl = instprof(flt, par.fwhm, par.width)
+    ip = instprof(ipt, par.fwhm, par.width)
     # Te=instProf(Tet,FWHM,width)
 
     # anti-normalization
@@ -60,7 +58,7 @@ def exposurerecreate(fluxspec, intspecall, obsspec, prad, srad, atmoheight, wlhr
 
     stack = (ob - fl + ip * paarea) / (ip)
     plot(wllr, ob, xrange=[
-         wllr[(floor(n_elements(wllr) - 1)) * 0.1], wllr[0]], yrange=[1.2, 0])
+        wllr[(floor(len(wllr) - 1)) * 0.1], wllr[0]], yrange=[1.2, 0])
     oplot(wllr, fl, color=75)
     # oplot,wllr,te,color=125
     oplot(wllr, stack + 1., color=255)

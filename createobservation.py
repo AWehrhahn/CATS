@@ -17,31 +17,31 @@ from inversemethod import inversemethod
 
 def createobservation(inputfilename):
     """ CREATE OBSERVATIONS """
-    pathname = '~/documents/idl/exospectro/newsim/simulations/'
+    files = lambda: None
+    files.infile = inputfilename
+    files.path = '~/documents/idl/exospectro/newsim/simulations/'
 
     # read input parameters
-    inpathname = pathname + 'indata/'
-    outpathname = pathname + 'outdata/'
-    sn, srad, prad, atmoheight, fwhm, width, radialvelstart, radialvelend, semimajoraxis, inclination, nexposures, starfilename, exoplanetfilename, wlfilename, wlhrfilename, period, transitduration = inputs(
-        inputfilename, inpathname)
+    files.input = files.pathname + 'indata/'
+    files.outpathname = files.pathname + 'outdata/'
+    par, files = inputs(files)
 
     # create my-vector
-    my = myvect(srad, prad, atmoheight, semimajoraxis, inclination, nexposures)
+    par.my = myvect(par)
 
     # create velocity vector
-    bvelocities = radialvelocity(radialvelstart, radialvelend, nexposures)
+    par.bvelocities = radialvelocity(par)
 
     # create planet radial velocity from circular motion
-    pvelocities = planetvelocityco(
-        inclination, nexposures, semimajoraxis, period, srad, prad, transitduration)
+    par.pvelocities = planetvelocityco(par)
 
     # load wave lenght scale
-    wllr = readwlscale(inpathname, wlfilename)
-    wlhr = readwlscale(inpathname, wlhrfilename)
+    wllr = readwlscale(files.path, files.wl)
+    wlhr = readwlscale(files.path, files.wlhr)
 
     # load exoplanet spectrums
     print('reading exoplanet spectrum')
-    planetspec = readplanet_sc(inpathname, exoplanetfilename, wlhr)
+    planetspec = readplanet_sc(files, wlhr)
 
     # load telluric spectrum
     # print,'Reading Telluric spectrum'
@@ -49,18 +49,16 @@ def createobservation(inputfilename):
 
     # load stellar spectrum
     print('reading stellar spectra')
-    normal, fluxspec, intspecall = readstar_marcs(inpathname, starfilename,
-                                                  wlhr)
+    normal, fluxspec, intspecall = readstar_marcs(files, wlhr)
 
     # create each individual exposure, one at a time
-    observation = dblarr(n_elements(wllr), nexposures)
-    normal = dblarr(nexposures)
-    for n in np.arange(0, nexposures, 1):
-        print('create exposure number: ' + string(n + 1) +
-              ' of ' + string(long(nexposures)))
+    observation = dblarr(n_elements(wllr), par.nexposures)
+    normal = dblarr(par.nexposures) 
+    for n in range(par.nexposures):
+        print('create exposure number: ' + str(n + 1) +
+              ' of ' + str(par.nexposures))
 
-        observation2, norma = exposurecreate(fluxspec, intspecall, planetspec, wlhr, bvelocities,
-                                             pvelocities, my, n, srad, prad, atmoheight, wllr, sn, fwhm, width)
+        observation2, norma = exposurecreate(fluxspec, intspecall, planetspec, wlhr,wllr, n, par)
         observation[n, :] = observation2
         normal[n] = norma
 
@@ -68,23 +66,21 @@ def createobservation(inputfilename):
     print('data analysis')
 
     # create F and G for each exposure
-    f = dblarr(n_elements(wllr), nexposures)
-    g = dblarr(n_elements(wllr), nexposures)
-    st = dblarr(n_elements(wllr), nexposures)
-    for n in np.arange(0, nexposures - 1 + 1, 1):
+    f = dblarr(n_elements(wllr), par.nexposures)
+    g = dblarr(n_elements(wllr), par.nexposures)
+    st = dblarr(n_elements(wllr), par.nexposures)
+    for n in range(par.nexposures):
         print('recreate exposure number: ' + string(n + 1) +
-              ' of ' + string(long(nexposures)))
+              ' of ' + string(par.nexposures))
         obsspec = observation[n, :]
 
-        ggg, fff, stack = exposurerecreate(fluxspec, intspecall, obsspec, prad, srad, atmoheight, wlhr, wllr, bvelocities,
-                                           pvelocities, my, n, fwhm, width)
+        ggg, fff, stack = exposurerecreate(fluxspec, intspecall, obsspec, wlhr, wllr, n, par)
         f[n, :] = fff
         g[n, :] = ggg
         st[n, :] = stack
 
     # save F and G and WLlr
-    savefgs(outpathname, inputfilename,
-            nexposures, f, g, wllr, observation)
+    savefgs(files, f, g, wllr, observation)
 
     _lambda = 1000.
     solution = inversemethod(inputfilename, _lambda)

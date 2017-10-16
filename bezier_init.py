@@ -4,6 +4,8 @@ import _global
 
 
 def bezier_init(x, y, double=None):
+    #Obsolete
+    return None
     """
     # Computes automatic control points for cubic Bezier splines
     # IMPORTANT: the X array must be monotonic!!!

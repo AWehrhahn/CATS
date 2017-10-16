@@ -1,11 +1,6 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+from idl_lib import dindgen
 
-
-def radialvelocity(radialvelstart, radialvelend, nexposures):
+def radialvelocity(par):
     """ linear function from start velocity to end velocity """
-    velocities = (dindgen(nexposures)) / (nexposures - 1.) * \
-        (radialvelend - radialvelstart) + radialvelstart
-
-    return velocities
+    return (dindgen(par.nexposures)) / (par.nexposures - 1.) * \
+        (par.radialvelend - par.radialvelstart) + par.radialvelstart

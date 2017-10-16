@@ -1,30 +1,30 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+from idl_lib import dindgen
+from numpy import pi, arctan as atan, sin
 
 
-def planetvelocityco(inclination, nexposures, semimajoraxis, period, srad, prad, transitduration):
-    i = inclination * _global.pi / 180.  # radians
+def planetvelocityco(par):
+    i = par.inclination * pi / 180.  # radians
 
-    veloorbit = semimajoraxis * 2. * _global.pi / \
-        period  # planet velocity in stellar restframe
+    veloorbit = par.semimajoraxis * 2. * pi / \
+        par.period  # planet velocity in stellar restframe
 
     # each exposure's time from peri
-    sec_exps = (dindgen(nexposures) / (nexposures - 1) - 0.5) * transitduration
+    sec_exps = (dindgen(par.nexposures) /
+                (par.nexposures - 1) - 0.5) * par.transitduration
 
     # fraction of full orbit from peri that each exp is taken
-    tranitfraction = sec_exps / period
+    tranitfraction = sec_exps / par.period
     # converted fraction to angle in radians
-    anglesexp = tranitfraction * 2. * _global.pi
+    anglesexp = tranitfraction * 2. * pi
 
     # distances as seen from observer edge on, to centre of star
-    distexp = atan(anglesexp) * semimajoraxis
-    pvelocities = veloorbit * distexp / semimajoraxis
+    distexp = atan(anglesexp) * par.semimajoraxis
+    pvelocities = veloorbit * distexp / par.semimajoraxis
     # velocities as seen from us, with inclination
     pvelocities = pvelocities * sin(i)
     pvelocities = abs(pvelocities)
 
-    for ex in np.arange(nexposures / 2, nexposures - 1 + 1, 1):
+    for ex in range(par.nexposures // 2, par.nexposures):
         pvelocities[ex] = pvelocities[ex] * (-1.)
 
     return pvelocities

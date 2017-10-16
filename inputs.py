@@ -1,46 +1,57 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+"""
+Read data from configuration file
+"""
+import numpy as np
 
 
-def inputs(inputfilename, inpathname):
+def inputs(files):
     """ Read Data from inputfile in inpathname directory """
 
-    filename = inpathname + 'createobs/' + inputfilename + '.txt'
+    filename = files.input + 'createobs/' + files.infile + '.txt'
     print(filename)
-    filelength = 34
-    inputsall = make_array(1, filelength, string=True)
-    openr(1, filename)
-    inputsall = readf(1)
-    close(1)
+    inputsall = np.loadtxt(filename)
+    #Put all parameters into one object
+    par = lambda: None
 
-    sn = double(inputsall[1])
-    srad = double(inputsall[3])
-    prad = double(inputsall[5])
-    atmoheight = double(inputsall[7])
-    fwhm = double(inputsall[9])
-    width = double(inputsall[11])
-    radialvelstart = double(inputsall[13])
-    radialvelend = double(inputsall[15])
-    semimajoraxis = double(inputsall[17])
-    inclination = double(inputsall[19])
-    period = double(inputsall[21])
-    transitduration = double(inputsall[23])
-    nexposures = double(inputsall[25])
-    starfilename = inputsall[27]
-    exoplanetfilename = inputsall[29]
-    wlfilename = inputsall[31]
-    wlhrfilename = inputsall[33]
+    # Signal to Noise
+    par.sn = inputsall[1]
+    # Stellar Radius
+    par.srad = inputsall[3]
+    # Planet Radius
+    par.prad = (inputsall[5])
+    # Atmosphere height
+    par.atmoheight = (inputsall[7])
+    # FWHM from Instrument
+    par.fwhm = (inputsall[9])
+    # width, from instrument
+    par.width = (inputsall[11])
+    # Radial Velocity at the start of transit
+    par.radialvelstart = (inputsall[13])
+    # Radial Velocity at the end of transit
+    par.radialvelend = (inputsall[15])
+
+    # Orbit Parameters
+    par.semimajoraxis = (inputsall[17])
+    par.inclination = (inputsall[19])
+    par.period = (inputsall[21])
+    par.transitduration = (inputsall[23])
+    par.nexposures = (inputsall[25])
+
+    files.star = inputsall[27]
+    files.exoplanet = inputsall[29]
+    files.wl = inputsall[31]
+    files.wlhr = inputsall[33]
 
     # convert all distaces to same units (km)
     rsun = 696000.
     rjup = 71350
     au = 149597871.
     secs = 24. * 60. * 60.
-    srad = srad * rsun
-    prad = prad * rjup
-    semimajoraxis = semimajoraxis * au
-    period = period * secs
-    transitduration = transitduration * secs
+    
+    par.srad = par.srad * rsun
+    par.prad = par.prad * rjup
+    par.semimajoraxis = par.semimajoraxis * au
+    par.period = par.period * secs
+    par.transitduration = par.transitduration * secs
 
-    return sn, srad, prad, atmoheight, fwhm, width, radialvelstart, radialvelend, semimajoraxis, inclination, nexposures, starfilename, exoplanetfilename, wlfilename, wlhrfilename, period, transitduration
+    return par, files

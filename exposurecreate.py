@@ -2,6 +2,8 @@ from idl_lib import *
 from idl_lib import __array__
 import _global
 
+from numpy import pi
+
 from limbintplanetco import limbintplanetco
 from doppler import doppler
 from wlinterpolateco import wlinterpolateco
@@ -9,23 +11,22 @@ from instprof import instprof
 from addnoise import addnoise
 
 
-def exposurecreate(fluxspec, intspecall, planetspec, wlhr, bvelocities, pvelocities, my, n, srad, prad, atmoheight, wllr, sn, fwhm, width):
+def exposurecreate(fluxspec, intspecall, planetspec, wlhr,wllr, n, par):
     # calculate areas
-    sarea = _global.pi * srad**2.
-    parea = _global.pi * prad**2.
-    atmoarea = _global.pi * (prad + atmoheight) ** 2. - parea
+    sarea = pi * par.srad**2.
+    parea = pi * par.prad**2.
+    atmoarea = pi * (par.prad + par.atmoheight) ** 2. - parea
     parea = parea / sarea
     atmoarea = atmoarea / sarea
     paarea = parea + atmoarea
 
     # current MYvalue
-    my_value = my[n]
-    bvelocity = bvelocities[n]
-    pvelocity = pvelocities[n]
+    my_value = par.my[n]
+    bvelocity = par.bvelocities[n]
+    pvelocity = par.pvelocities[n]
 
     # calculate what intensity spectrum to use for this exposure
-    intspecplanet = limbintplanetco(
-        my_value, intspecall, srad, prad, atmoheight, wlhr)
+    intspecplanet = limbintplanetco(my_value, intspecall, wlhr, par)
 
     # doppler shift spectra (not telluric)
     fluxspecshifted = doppler(fluxspec, wlhr, bvelocity)

@@ -1,22 +1,13 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
-
+import numpy as np
 from wlinterpolateco import wlinterpolateco
 
 
-def readplanet_sc(pathname, exoplanetfilename, wl):
+def readplanet_sc(wl, files):
 
-    filename = pathname + 'exoplanet/' + exoplanetfilename + '.dat'
+    filename = files.path + 'exoplanet/' + files.exoplanet + '.dat'
 
-    filelength = 194187.
-    indata = dblarr(2, filelength)
-    openr(1, filename)
-    indata = readf(1)
-    close(1)
+    indata = np.loadtxt(filename, ndmin=2)
 
-    # PlanetSpec=WLinterpolateCO(indata(1,*),indata(0,*),WL)
-    planetspect = abs(transpose(indata[:, 1]))
-    wlt = abs(transpose(indata[:, 0]))
-    planetspec = wlinterpolateco(planetspect, wlt, wl)
-    return planetspec
+    planetspect = abs(np.transpose(indata[:, 1]))
+    wlt = abs(np.transpose(indata[:, 0]))
+    return wlinterpolateco(planetspect, wlt, wl)

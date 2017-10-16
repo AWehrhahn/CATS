@@ -1,6 +1,6 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+from idl_lib import plot, oplot
+import numpy as np
+import matplotlib.pyplot as plt
 
 from cutawaybad import cutawaybad
 from inputs import inputs
@@ -12,36 +12,35 @@ from saveprecovered import saveprecovered
 
 
 def inversemethod(inputfilename, _lambda):
-    pathname = '~/documents/idl/exospectro/newsim/simulations/'
-    inpathname = pathname + 'indata/'
-    outpathname = pathname + 'outdata/'
+    files = lambda: None
+    files.infile = inputfilename
+    files.path = '~/documents/idl/exospectro/newsim/simulations/'
+    files.input = files.path + 'indata/'
+    files.output = files.path + 'outdata/'
 
     # read master input: number of tranits, orbital parameters etc
-    sn, srad, prad, atmoheight, fwhm, width, radialvelstart, radialvelend,    semimajoraxis, inclination, nexposures, starfilename, exoplanetfilename, wlfilename, wlhrfilename, period, transitduration = inputs(
-        inputfilename, inpathname)
+    par, files = inputs(files)
 
-    # load wave lenght scale and equation system
-    wl, f, g = readfg(outpathname, inputfilename, nexposures)
-    # help,wl
-    wl, f, g = cutawaybad(nexposures, wl, f, g, radialvelstart, radialvelend,
-                          semimajoraxis, period, srad, prad, inclination, transitduration)
-    # help,wl
+    # load wavelength scale and equation system
+    wl, f, g = readfg(files, par.nexposures)
+    wl, f, g = cutawaybad(wl, f, g, par)
 
     # create deltaWL
     dwl2 = deltawavecreate(wl)
 
+    # Calculate solution
     solution = eqvsys(f, g, wl, dwl2, _lambda)
+    solution = solution / np.max(solution)
 
-    solution = solution - min(solution) + 0.5  # normalize
-    solution = solution / max(solution)
+    # Read exo-atmosphere from datafile
+    exo = readplanet_sc(wl, files)
 
-    exo = readplanet_sc(inpathname, exoplanetfilename, wl)
+    # Plot
+    plt.plot(wl, exo)
+    plt.plot(wl, solution, 'r')
 
-    plot(wl, exo)  # ,yrange = [0., 1.1]
-    oplot(wl, solution, color=255)
-
-    solu = __array__(((wl), (solution)))
-
-    saveprecovered(outpathname, inputfilename, solu, _lambda)
+    # Save Data
+    solu = np.array([[wl], [solution]])
+    saveprecovered(files, solu, _lambda)
 
     return solu
