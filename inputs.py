@@ -2,40 +2,41 @@
 Read data from configuration file
 """
 import numpy as np
+from idl_lib import common
 
 
 def inputs(files):
     """ Read Data from inputfile in inpathname directory """
 
-    filename = files.input + 'createobs/' + files.infile + '.txt'
+    filename = files.input + 'createObs/' + files.infile #+ '.txt'
     print(filename)
-    inputsall = np.loadtxt(filename)
+    inputsall = common(filename,2)[0]
     #Put all parameters into one object
     par = lambda: None
 
     # Signal to Noise
-    par.sn = inputsall[1]
+    par.sn = float(inputsall[1])
     # Stellar Radius
-    par.srad = inputsall[3]
+    par.srad = float(inputsall[3])
     # Planet Radius
-    par.prad = (inputsall[5])
+    par.prad = float(inputsall[5])
     # Atmosphere height
-    par.atmoheight = (inputsall[7])
+    par.atmoheight = float(inputsall[7])
     # FWHM from Instrument
-    par.fwhm = (inputsall[9])
+    par.fwhm = float(inputsall[9])
     # width, from instrument
-    par.width = (inputsall[11])
+    par.width = float(inputsall[11])
     # Radial Velocity at the start of transit
-    par.radialvelstart = (inputsall[13])
+    par.radialvelstart = float(inputsall[13])
     # Radial Velocity at the end of transit
-    par.radialvelend = (inputsall[15])
+    par.radialvelend = float(inputsall[15])
 
     # Orbit Parameters
-    par.semimajoraxis = (inputsall[17])
-    par.inclination = (inputsall[19])
-    par.period = (inputsall[21])
-    par.transitduration = (inputsall[23])
-    par.nexposures = (inputsall[25])
+    par.semimajoraxis = float(inputsall[17])
+    par.inclination = float(inputsall[19])
+    par.period = float(inputsall[21])
+    par.transitduration = float(inputsall[23])
+    par.nexposures = float(inputsall[25])
 
     files.star = inputsall[27]
     files.exoplanet = inputsall[29]

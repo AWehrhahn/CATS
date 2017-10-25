@@ -1,5 +1,6 @@
 from idl_lib import plot, oplot
 import numpy as np
+import os.path
 import matplotlib.pyplot as plt
 
 from cutawaybad import cutawaybad
@@ -14,7 +15,7 @@ from saveprecovered import saveprecovered
 def inversemethod(inputfilename, _lambda):
     files = lambda: None
     files.infile = inputfilename
-    files.path = '~/documents/idl/exospectro/newsim/simulations/'
+    files.path = os.path.expanduser('~/Documents/IDL/exoSpectro/NewSim/simulations/')
     files.input = files.path + 'indata/'
     files.output = files.path + 'outdata/'
 
@@ -33,10 +34,10 @@ def inversemethod(inputfilename, _lambda):
     solution = solution / np.max(solution)
 
     # Read exo-atmosphere from datafile
-    exo = readplanet_sc(wl, files)
+    #exo = readplanet_sc(wl, files)
 
     # Plot
-    plt.plot(wl, exo)
+    #plt.plot(wl, exo)
     plt.plot(wl, solution, 'r')
 
     # Save Data

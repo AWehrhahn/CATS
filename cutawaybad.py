@@ -21,9 +21,9 @@ def cutawaybad(wl, f, g, par):
     wlmax = max(wl) * (np.sqrt((1. + min_vel / c)/(1.-min_vel/c)))
     wlmin = min(wl) * (np.sqrt((1. + max_vel / c)/(1.-max_vel/c)))
 
-    index = where(wl > wlmin and wl < wlmax)
+    index = where(np.logical_and(wl > wlmin, wl < wlmax))
     wl = wl[index]
-    f = f[:, index]
-    g = g[:, index]
+    f = f[index, :]
+    g = g[index, :]
 
     return wl, f, g

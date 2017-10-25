@@ -1,6 +1,4 @@
-from idl_lib import *
-from idl_lib import __array__
-import _global
+from idl_lib import dblarr, oplot, plot, n_elements, string
 
 from inputs import inputs
 from myvect import myvect

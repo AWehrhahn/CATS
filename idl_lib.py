@@ -883,7 +883,8 @@ def indgen(*args, increment=1, start=0, dtype=np.int):
     return an integer array with size n,
     where each element is equal to its index + start
     """
-    n = np.prod(args) * increment
+    args = [int(a) for a in args]
+    n = int(np.prod(args)) * increment
     return np.arange(start, start + n, increment, dtype=dtype).reshape(args)
 
 
@@ -1178,7 +1179,7 @@ def common(table, n):
                 if len(res[j]) > len(res[m]):
                     res[m].append(res[m][-1])
 
-    return (np.array(r) for r in res)
+    return [np.array(r) for r in res]
 
 
 """

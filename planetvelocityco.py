@@ -24,7 +24,7 @@ def planetvelocityco(par):
     pvelocities = pvelocities * sin(i)
     pvelocities = abs(pvelocities)
 
-    for ex in range(par.nexposures // 2, par.nexposures):
+    for ex in range(int(par.nexposures // 2), int(par.nexposures)):
         pvelocities[ex] = pvelocities[ex] * (-1.)
 
     return pvelocities
