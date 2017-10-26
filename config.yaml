@@ -1,0 +1,23 @@
+# Configuration file for test.py
+
+# Define locations of stellar config files, as well as input and output folders
+# Only use '/' as path seperator, even on Windows systems
+path_stellar_db: ./stellar_db/
+path_exoplanet_db: /DATA/exoplanetdb/
+path_input_data: /DATA/ESO_Archive/
+path_output_data: /DATA/output/
+path_cache: /DATA/Cache/
+path_exoSpectro: /DATA/exoSpectro/
+
+# Specifics
+name_target: test
+dir_input: input
+dir_output: output
+
+# File names
+file_observation: obs.dat
+file_telluric: tell.dat
+file_parameters: par.yaml
+file_star_flux: star/starF.flx
+file_star_data: star/starI{0}.int
+star_intensities: ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']
