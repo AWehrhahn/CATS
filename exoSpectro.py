@@ -8,6 +8,7 @@ import os.path
 import numpy as np
 from scipy.interpolate import interp1d
 import pandas as pd
+import matplotlib.pyplot as plt
 from Config import config as Config
 
 # Step 1: Load data
@@ -25,13 +26,19 @@ def load_observation():
     """ Load observation spectrum """
     obs_file = os.path.join(input_dir, config['file_observation'])
     obs = pd.read_table(obs_file, header=None, delim_whitespace=True)
-    return obs
+    wl_grid = obs[0]
+    del obs[0]
+    return wl_grid, obs
 
 
-def load_tellurics():
+def load_tellurics(wl_grid):
     """ Load telluric spectrum """
     tell_file = os.path.join(input_dir, config['file_telluric'])
     tell = pd.read_table(tell_file, header=None, delim_whitespace=True)
+    # Skip interpolation, because they have the same wavelenght grid anyway
+    print('Skip interpolation of tellurics as wavelength grid is the same')
+    del tell[0]
+    #tell = pd.DataFrame([interp1d(tell[0], tell[k], kind=config['interpolation_method'])(wl_grid) for k in range(1, tell.shape[1])])
     return tell
 
 
@@ -60,7 +67,7 @@ def load_star_model(wl_grid):
     star_flux_file = os.path.join(input_dir, config['file_star_flux'])
     star_intensities = config['star_intensities']
     star_data_file = {i: os.path.join(
-        input_dir, config['file_star_data'].format(i)) for i in star_intensities}
+        input_dir, config['file_star_data'].format(str(i))) for i in star_intensities}
 
     # Skip first row as that wavelength is missing in intensity data
     star_flux = pd.read_table(star_flux_file, header=None,
@@ -82,7 +89,7 @@ def load_star_model(wl_grid):
 
     def interpolation(d):
         """ interpolate d onto wl_grid """
-        return interp1d(star_flux[0], d)(wl_grid)
+        return interp1d(star_flux[0], d, kind=config['interpolation_method'])(wl_grid)
 
     tmp = {i: interpolation(star_data[i]) for i in star_intensities}
     star_data = pd.DataFrame.from_dict(tmp)
@@ -104,13 +111,12 @@ output_dir = os.path.join(data_dir, config['dir_output'])
 # Load Observation data
 # Wavelength, obs1, obs2, .... ????
 print('Loading observation data')
-obs = load_observation()
-wl_grid = obs[0]
+wl_grid, obs = load_observation()
 
 # Load Telluric data
 # Wavelength, obs1, obs2, .... ????
 print('Loading telluric data')
-tell = load_tellurics()
+tell = load_tellurics(wl_grid)
 
 # Load stellar and planetary orbital parameters
 print('Loading orbital parameters')
@@ -123,7 +129,7 @@ star_flux, star_data = load_star_model(wl_grid)
 
 print('Loading complete')
 
-# Step 2: Calculate intermidiate products F and G
+# Step 2: Calculate intermediate products F and G
 # G = Telluric * I_atm
 # F = -Obs + Flux_star * Telluric - (R_planet/R_star)**2 * Telluric * I_planet
 
@@ -131,23 +137,18 @@ print('Loading complete')
 def myvect(par):
     # TODO What does this describe actually?
     # Something about the position of the planet relative to the star
-    n = par['n_exposures']
-    inc = par['inc']
-    sma = par['sma']
-    rs = par['r_star']
-    rp = par['r_planet']
 
-    i = inc * np.pi / 180
-    d = np.sin(np.pi / 2 - i) * sma
-    total_distance = 2 * np.sqrt(rs**2 - d**2)
+    i = par['inc'] * np.pi / 180
+    d = np.sin(np.pi / 2 - i) * par['sma']
+    total_distance = 2 * np.sqrt(par['r_star']**2 - d**2)
 
-    distances = np.arange(n, dtype=np.float) / (n - 1) * 2 * \
-        (total_distance / 2 - rp) / rs
+    distances = np.arange(par['n_exposures'], dtype=np.float) / (par['n_exposures'] - 1) * 2 * \
+        (total_distance / 2 - par['r_planet']) / par['r_star']
     distances = distances - np.sum(distances) / len(distances)
 
     # distance from centre of stellar disk to centre of planet
     distance_center = np.sqrt(
-        np.abs(d / rs)**2 + np.abs(distances)**2)
+        np.abs(d / par['r_star'])**2 + np.abs(distances)**2)
 
     #alternatively: np.sqrt(1-x**2)
     # but seriously why?
@@ -155,46 +156,50 @@ def myvect(par):
 
 
 def atmosphere_calc(par, my, n):
-    d = np.sin(np.arccos(my))
+    # TODO figure out what is happening here
+    d = np.sin(np.arccos(my)) #distance from the center of the stellar disk to the centre of the planet
     r = (par['r_planet'] + par['h_atm'] / 2) / par['r_star']
 
     phi = np.arange(n, dtype=np.float) / n * 2 * np.pi
-    x = np.sqrt(d**2 + r**2 - 2 * d * r * np.cos(phi))
+    x = np.sqrt(d**2 + r**2 - 2 * d * r * np.cos(phi)) #Some kind of vector thingy
 
-    return np.where(x < 1, np.cos(np.arcsin(x)), 0)
+    # Use the where keyword to avoid unnecessary calculations
+    tmp = x < 1
+    return np.where(tmp, np.cos(np.arcsin(x, where=tmp), where=tmp), 0)
 
 
 def intensity_interpolation(my, i):
-    # Interpolate between two starI files ???
-
-    # find nearest files
-    myi = 10 * my
-    i1 = np.floor(myi)
-    i2 = np.ceil(myi)
-    diff = myi - i1
-
-    factor_1 = 1 - diff
-    factor_2 = diff
-
-    return i[i1, :] * factor_1 + i[i2, :] * factor_2
+    """ Interpolate values of my between starI files i """
+    return interp1d(i.keys(), i.values, kind=config['interpolation_method'], fill_value=0, bounds_error=False)(my)
 
 
-def intensity_atmosphere(par, my, wl, star_data, n=20):
-    # par: paramters
-    # my: my value (not vector)
-    # wl: wavelenght grid
-    # star_data: star intensity data
-    # n: number of points in the atmosphere
+def intensity_atmosphere(par, my, star_data, n=20):
+    """
+    Calculate the specific intensties blocked by the planetary atmosphere
+    par: paramters
+    my: my value
+    star_data: star intensity data
+    n: number of points in the atmosphere
+    """
+    # if my is a vector return a list of values
+    if isinstance(my, (list, np.ndarray)):
+        return np.array([intensity_atmosphere(par, my[k], star_data, n=n) for k in range(len(my))])
+
     atmo = atmosphere_calc(par, my, n)
     # create mean intensity spectra for all atmosphere points
-    i = np.zeros(len(wl), dtype=np.float)
-    for k in range(int(n)):
-        i = i + intensity_interpolation(atmo[k], star_data)
+    i = intensity_interpolation(atmo, star_data)
+    i = np.sum(i, axis=1)
     return i / n
 
 
 print('Calculate intermidiary products')
 my = myvect(par)
-for n in range(par['n_exposures']):
-    I_atm = intensity_atmosphere(par, my[n], wl_grid, star_data, n=20)
+print('Calculate specific intensities for the planetary atmosphere')
+I_atm = intensity_atmosphere(par, my, star_data, n=20)
+#TODO shift to exoplanet restframe
+
+plt.plot(wl_grid, I_atm[0, :])
+plt.show()
+
+pass
 # I_planet =
