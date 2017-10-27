@@ -22,5 +22,7 @@ file_star_flux: star/starF.flx
 file_star_data: star/starI{0}.int
 star_intensities: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+file_intermediary: intermediary.npz
+
 # Setup
 interpolation_method: linear
