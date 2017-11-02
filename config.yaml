@@ -14,9 +14,11 @@ name_target: Venus
 dir_input: input
 dir_output: output
 # Flag to recalculate everything, even if intermediary products exist
-renew_all: false
+renew_all: true
 
 # File names
+file_atmosphere: Venus.dat      #"29. Planet atmosphere filename"
+
 file_observation: obs.dat
 file_telluric: tell.dat
 file_parameters: par.yaml
