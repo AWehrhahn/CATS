@@ -10,7 +10,7 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: Venus
+name_target: nikolai
 dir_input: input
 dir_output: output
 # Flag to recalculate everything, even if intermediary products exist

@@ -8,17 +8,17 @@ from scipy.interpolate import interp1d
 
 import yaml
 try:
-    from yaml import CLoader as Loader #, CDumper as Dumper
+    from yaml import CLoader as Loader  # , CDumper as Dumper
 except ImportError:
     print('LibYaml not installed, ')
-    from yaml import Loader #, Dumper
+    from yaml import Loader  # , Dumper
 
 
 class read_write:
     """ wrapper class for IO handling """
 
-    def __init__(self):
-        self.config = self.load_config()
+    def __init__(self, config_file='config.yaml'):
+        self.config = self.load_config(config_file)
 
         # exctract important parameters from config
         self.target = self.config['name_target']
@@ -73,7 +73,8 @@ class read_write:
 
     def load_input(self, wl_grid):
         """ load input spectrum """
-        input_file = os.path.join(self.input_dir, self.config['file_atmosphere'])
+        input_file = os.path.join(
+            self.input_dir, self.config['file_atmosphere'])
         input_spectrum = pd.read_table(
             input_file, header=None, delim_whitespace=True).values.swapaxes(0, 1)
 
@@ -91,25 +92,27 @@ class read_write:
         #obs = interp1d(wl_tmp, obs, kind=config['interpolation_method'], fill_value='extrapolate')(wl_grid)
         return obs, wl_tmp
 
-    def load_tellurics(self, wl_grid, n_exposures):
+    def load_tellurics(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
         tell_file = os.path.join(self.input_dir, self.config['file_telluric'])
         tell = pd.read_table(tell_file, header=None, delim_whitespace=True)
         wl_tmp = tell[0]
         tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
                   axis=1, inplace=True)
-        # Skip interpolation, because they have the same wavelenght grid anyway
-        #print('Skip interpolation of tellurics as wavelength grid is the same')
+
         tell = tell.values.swapaxes(0, 1)
-        tell = interp1d(
-            wl_tmp, tell, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_grid)
-        return tell
+        if apply_interp:
+            tell = interp1d(
+                wl_tmp, tell, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_grid)
+            return tell
+        else:
+            return wl_tmp.values, tell
 
     def interpolation(self, wl_old, spec, wl_new):
         """ interpolate spec onto wl_grid """
         return interp1d(wl_old, spec, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_new)
 
-    def load_star_model(self, wl_grid, fwhm, width):
+    def load_star_model(self, wl_grid, fwhm, width, apply_normal=True, apply_broadening=True, apply_interp=True):
         """ Load stellar model data and apply normalization and wavelength interploation """
         # Prepare file names
         star_flux_file = os.path.join(
@@ -129,18 +132,28 @@ class read_write:
             star_data[i][:, 0] *= 0.1
 
         # Interpolate to wavelength grid
+        if apply_normal:
+            normalization = self.interpolation(
+                star_flux[:, 0], star_flux[:, 1] / star_flux[:, 2], wl_grid)
+        if apply_interp:
+            star_flux = self.interpolation(
+                star_flux[:, 0], star_flux[:, 1], wl_grid)
+        else:
+            star_flux = star_flux[:, 1]
 
-        normalization = self.interpolation(
-            star_flux[:, 0], star_flux[:, 1] / star_flux[:, 2], wl_grid)
-        star_flux = self.interpolation(
-            star_flux[:, 0], star_flux[:, 1], wl_grid)
-        star_flux = self.instrument_profile(star_flux, fwhm, width)
+        if apply_broadening:
+            star_flux = self.instrument_profile(star_flux, fwhm, width)
 
-        tmp = {i: self.interpolation(
-            star_data[i][:, 0], star_data[i][:, 1], wl_grid) for i in star_intensities}
+        if apply_interp:
+            tmp = {i: self.interpolation(
+                star_data[i][:, 0], star_data[i][:, 1], wl_grid) for i in star_intensities}
+        else:
+            tmp = {i: star_data[i][:, 1] for i in star_intensities}
         for i in star_intensities:
-            tmp[i] *= normalization
-            tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
+            if apply_normal:
+                tmp[i] *= normalization
+            if apply_broadening:
+                tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
 
         tmp[0.0] = np.zeros(len(wl_grid), dtype=float)
         star_data = pd.DataFrame.from_dict(tmp)
@@ -187,4 +200,5 @@ class read_write:
         """ save F and G for further use """
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-        np.savez(self.intermediary_file, F=F, G=G, wl=wl_grid, tell=tell, obs=obs)
+        np.savez(self.intermediary_file, F=F, G=G,
+                 wl=wl_grid, tell=tell, obs=obs)
