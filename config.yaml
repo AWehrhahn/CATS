@@ -10,9 +10,11 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: test
+name_target: Venus
 dir_input: input
 dir_output: output
+# Flag to recalculate everything, even if intermediary products exist
+renew_all: false
 
 # File names
 file_observation: obs.dat
@@ -22,7 +24,12 @@ file_star_flux: star/starF.flx
 file_star_data: star/starI{0}.int
 star_intensities: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
+# Intermediary data file
 file_intermediary: intermediary.npz
 
+# Output spectrum file name
+file_spectrum: spectrum.png
+file_data_out: solution.dat
+
 # Setup
-interpolation_method: linear
+interpolation_method: quadratic
