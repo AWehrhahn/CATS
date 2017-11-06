@@ -12,7 +12,7 @@ class solution:
     # Brute Force Solution: try different values for lambda and find the best
     # What is the best lambda ??? Which metric is used to determine that?
 
-    def solve(self, wl_grid, F, G, lam):
+    def solve(self, wl, f, g, lamb):
         """
         Solve the mimimazation problem to find the planetary spectrum
         wl_grid: Wavelength scale
@@ -20,22 +20,18 @@ class solution:
         G: intermediary product G
         lam: regularization parameter lambda
         """
-        # Determine delta wavelength steps
-        delta_wl = np.zeros_like(wl_grid)
-        delta_wl[1:] = 1 / np.diff(wl_grid)**2
-        delta_wl[0] = delta_wl[1]
 
-        # Solve the tridiagonal problem [a,b,c] * x = r
-        a = - lam * delta_wl
-        b = np.sum(G**2, axis=0) + 2 * delta_wl * lam
-        r = np.sum(F * G, axis=0)
+        a = c = np.full(len(wl), - lamb, dtype=np.float32)
 
-        # First and last element only have one other element in their respective sums
-        # Therefore compensate by removing something like it
-        b[0] -= lam * delta_wl[0]
-        b[-1] -= lam * delta_wl[-1]
+        b = np.sum(f, axis=0)
+        r = np.sum(g, axis=0)
+        b[:-1] += lamb
+        b[1:] += lamb
 
-        ab = np.array([a, b, a])
+        ab = np.array([a, b, c])
+        # func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
+        #               (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
+        #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
         return solve_banded((1, 1), ab, r)
 
 """

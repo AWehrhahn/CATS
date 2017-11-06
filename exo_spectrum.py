@@ -6,13 +6,11 @@ Based on work by Nikolai Piskunov (Uppsala University)
 
 import numpy as np
 
-#from scipy.interpolate import interp1d
-from scipy.linalg import solve_banded
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
 
 from read_write import read_write
-#from solution import solution
+from solution import solution
 
 
 def rebin(a, newshape):
@@ -28,85 +26,50 @@ def rebin(a, newshape):
     indices = coordinates.astype('i')
     return a[tuple(indices)]
 
+def normalize2d(arr, axis=1):
+    """ normalize array arr """
+    #TODO fix dimensionality
+    arr -= np.min(arr, axis=axis)[:, None]
+    arr /= np.max(arr, axis=axis)[:, None]
+    return arr
 
-def generate_spectrum(wl, kearth, flux, inten):
+def normalize1d(arr):
+    arr -= np.min(arr)
+    arr /= np.max(arr)
+    return arr    
+
+def generate_spectrum(wl, telluric, flux, intensity):
     """ Generate a fake spectrum """
     # Load planet spectrum
     planet = rw.load_input(wl)
-    k_planet = gaussbroad(planet, sigma)
+    planet = gaussbroad(planet, sigma)
     x = np.arange(len(wl), dtype=np.float32)
     rand = np.random.rand(3, n_phase).astype(np.float32)
 
     # Amplitude
-    ampl = rand[0] / snr
+    amplitude = rand[0] / snr
     # Period in pixels
     period = 500 + 1500 * rand[1]
     # Phase in radians
     phase = np.pi * rand[2]
     # Generate correlated noise
-    err = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
-                 phase[:, None]) * ampl[:, None]
+    error = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
+                 phase[:, None]) * amplitude[:, None]
     # Observed spectrum
-    s_p = (flux[None, :] - inten * sigma_p + inten *
-           sigma_a * k_planet[None, :]) * kearth * (1 + err)
+    obs = (flux[None, :] - intensity * sigma_p + intensity *
+           sigma_a * planet[None, :]) * telluric * (1 + error)
     # Generate noise
-    noise1 = np.random.randn(n_phase, len(wl)) / snr
+    noise = np.random.randn(n_phase, len(wl)) / snr
 
-    obs = gaussbroad(s_p, sigma) * (1 + noise1)
+    obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
 
 
-def solve(lamb):
-    """
-    Solve minimization problem for given lambda
-    Obsolete
-    """
-    lam = np.full(len(wl), lamb)
-
-    a = np.zeros(len(wl))
-    c = np.zeros(len(wl))
-    b = np.zeros(len(wl))
-    r = np.zeros(len(wl))
-
-    a[:-1] = -lam[:-1]
-    c[1:] = -lam[1:]
-
-    for iphase in range(n_phase):
-        g = obs[iphase, :] / ff[iphase, :] - so[iphase, :] / \
-            ff[iphase, :] + sigma_p / sigma_a * ke[iphase, :]
-        b = b + ke[iphase, :]
-        r = r + g
-
-    b[:-1] = b[:-1] + lam[:-1]
-    b[1:] = b[1:] + lam[1:]
-
-    ab = np.array([a, b, c])
-    sol = solve_banded((1, 1), ab, r)
-
-    # func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
-    #               (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
-    #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
-    return sol  # , func, reg
-
-
-def solve2(wl, f, g, lamb):
-    """
-    Solve minimization problem for given lambda
-    """
-    a = c = np.full(len(wl), - lamb, dtype=np.float32)
-
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
-    b[:-1] += lamb
-    b[1:] += lamb
-
-    ab = np.array([a, b, c])
-    return solve_banded((1, 1), ab, r)
-
-
 # Step 1: Read data
+print("Loading data")
 rw = read_write(dtype=np.float32)
 par = rw.load_parameters()
+#TODO get values for sigma_a and sigma_p from orbital parameters
 # Relative area of the atmosphere of the planet projected into the star
 sigma_a = 2.6539e-6
 # Relative area of the stelar disk covered by the planet
@@ -114,74 +77,56 @@ sigma_p = 8.3975e-5 + sigma_a
 snr = 1e3                       # Signal to Noise Ratio
 fwhm = par['fwhm']              # Instrumental FWHM in pixels
 sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
-n_phase = 200                   # Number of phases
-nmu = 10
-imu = np.around((np.arange(n_phase) / (n_phase - 1))
-                * (nmu - 1) * 0.1 + 0.1, decimals=1)
+
 
 # Load wavelength scale
+"""
 s = rw.load_bin()
 wl = s[0]
-# obs = rw.load_observation('all')
+n_phase = 200           # Number of observations
+"""
+obs, wl = rw.load_observation('all')
+n_phase = obs.shape[0]
+
+# Load stellar model
 flux, star_int = rw.load_star_model(
     wl, fwhm, 0, apply_normal=False, apply_broadening=False)
-wl_tell, tell = rw.load_tellurics(wl, 1, apply_interp=False)
-tell = tell[0]
+nmu = star_int.shape[1] - 1
+imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
+
+#Load Tellurics
+wl_tell, tell = rw.load_tellurics(wl, 60, apply_interp=False)
+tell = tell[59]
 
 
+print("Calculating intermediary data")
 # Doppler shift telluric spectrum
 # Doppler shift
 speed_of_light = 3e5  # km/s
 velocity = np.linspace(0.5, n_phase + 0.5, num=n_phase, dtype=np.float32)
 dop = 1 - velocity / speed_of_light
 # Interpolate telluric spectrum
-kearth = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
+tell = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
 # Stellar spectrum blocked by planet / atmosphere
-inten = star_int[imu].values.swapaxes(0, 1)  # TODO
+intensity = star_int[imu].values.swapaxes(0, 1)  # TODO
 
 # Generate fake spectrum
-obs = generate_spectrum(wl, kearth, flux, inten)
+obs_fake = generate_spectrum(wl, tell, flux, intensity)
+obs = obs_fake
 
-# Broaden everything 
-#gaussbroad = lambda x,y: x
-ke = gaussbroad(kearth, sigma)
-i_atm = gaussbroad(sigma_a * inten, sigma)
-i_planet = gaussbroad(sigma_p * inten, sigma)
-so = gaussbroad(flux[None, :] * kearth, sigma)
+# Broaden everything
+tell = gaussbroad(tell, sigma)
+i_atm = gaussbroad(sigma_a * intensity, sigma)
+i_planet = gaussbroad(sigma_p * intensity, sigma)
+flux = gaussbroad(flux[None, :], sigma) #Add an extra dimension
 
+f = tell
+g = obs / i_atm - flux/ i_atm * tell + i_planet / i_atm * tell
 
-f = ke
-g = obs / i_atm - so / i_atm + i_planet / i_atm * ke
-
+print("Calculating solution")
 # Find best lambda
 lamb = 1000
-
-sol2 = solve2(wl, f, g, lamb)
-
-#sol, func, reg = solve(lamb)
-
-"""
-nlambda = 20
-llambda = np.zeros(nlambda)
-dev = np.zeros(nlambda)
-
-for l in range(nlambda):
-    lamb = lamb + 50
-    sol, func, reg = solve(lamb)
-
-    dev[l] = np.sum((sol - k_planet)**2)
-    llambda[l] = lamb
-
-    print('Lambda = ', lamb, ' Reconstruction = ',
-          dev[l], ' Total = ', func + reg)
-
-
-imin = np.argmin(dev)
-lamb = llambda[imin]
-
-# Recreate for plotting
-sol, func, reg = solve(lamb)
-"""
+sol2 = solution().solve(wl, f, g, lamb)
 
 nn = len(wl) / 370
 ww = rebin(wl, (nn,))
