@@ -22,7 +22,7 @@ class solution:
         """
         # Determine delta wavelength steps
         delta_wl = np.zeros_like(wl_grid)
-        delta_wl[1:] = 1 / (wl_grid[1:] - wl_grid[:-1])**2
+        delta_wl[1:] = 1 / np.diff(wl_grid)**2
         delta_wl[0] = delta_wl[1]
 
         # Solve the tridiagonal problem [a,b,c] * x = r

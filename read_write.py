@@ -4,7 +4,6 @@ Load various kinds of data from disk
 import os.path
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
 
 import yaml
 try:
@@ -17,8 +16,9 @@ except ImportError:
 class read_write:
     """ wrapper class for IO handling """
 
-    def __init__(self, config_file='config.yaml'):
+    def __init__(self, config_file='config.yaml', dtype=np.float):
         self.config = self.load_config(config_file)
+        self.dtype = dtype
 
         # exctract important parameters from config
         self.target = self.config['name_target']
@@ -76,16 +76,19 @@ class read_write:
         input_file = os.path.join(
             self.input_dir, self.config['file_atmosphere'])
         input_spectrum = pd.read_table(
-            input_file, header=None, delim_whitespace=True).values.swapaxes(0, 1)
+            input_file, header=None, delim_whitespace=True, dtype=self.dtype).values.swapaxes(0, 1)
 
         return self.interpolation(input_spectrum[0], input_spectrum[1], wl_grid)
 
-    def load_observation(self, n_exposures):
+    def load_observation(self, n_exposures='all'):
         """ Load observation spectrum """
         obs_file = os.path.join(
             self.input_dir, self.config['file_observation'])
-        obs = pd.read_table(obs_file, header=None, delim_whitespace=True)
+        obs = pd.read_table(obs_file, header=None,
+                            delim_whitespace=True, dtype=self.dtype)
         wl_tmp = obs[0].values
+        if n_exposures == 'all':
+            n_exposures = obs.shape[1] - 1
         obs.drop([0, *range(n_exposures + 1, obs.shape[1])],
                  axis=1, inplace=True)
         obs = obs.values.swapaxes(0, 1)
@@ -95,22 +98,27 @@ class read_write:
     def load_tellurics(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
         tell_file = os.path.join(self.input_dir, self.config['file_telluric'])
-        tell = pd.read_table(tell_file, header=None, delim_whitespace=True)
+        tell = pd.read_table(tell_file, header=None,
+                             delim_whitespace=True, dtype=self.dtype)
         wl_tmp = tell[0]
         tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
                   axis=1, inplace=True)
 
         tell = tell.values.swapaxes(0, 1)
         if apply_interp:
-            tell = interp1d(
-                wl_tmp, tell, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_grid)
+            tell = np.interp(wl_grid, wl_tmp, tell)
             return tell
         else:
             return wl_tmp.values, tell
 
     def interpolation(self, wl_old, spec, wl_new):
         """ interpolate spec onto wl_grid """
-        return interp1d(wl_old, spec, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_new)
+        if not np.all(np.diff(wl_old) > 0):
+            arg = np.argsort(wl_old)
+            wl_old = wl_old[arg]
+            spec = spec[arg]
+        # interp1d(wl_old, spec, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_new)
+        return np.interp(wl_new, wl_old, spec)
 
     def load_star_model(self, wl_grid, fwhm, width, apply_normal=True, apply_broadening=True, apply_interp=True):
         """ Load stellar model data and apply normalization and wavelength interploation """
@@ -122,9 +130,9 @@ class read_write:
             self.input_dir, self.config['file_star_data'].format(str(i))) for i in star_intensities}
 
         star_flux = pd.read_table(star_flux_file, header=None,
-                                  delim_whitespace=True, usecols=(0, 1, 2)).values
-        star_data = {i: pd.read_table(star_data_file[i], header=None, delim_whitespace=True, usecols=(0,
-                                                                                                      1,)).values for i in star_intensities}
+                                  delim_whitespace=True, usecols=(0, 1, 2), dtype=self.dtype).values
+        star_data = {i: pd.read_table(star_data_file[i], header=None, delim_whitespace=True, usecols=(
+            0, 1,), dtype=self.dtype).values for i in star_intensities}
 
         # fix wavelenghts
         star_flux[:, 0] = star_flux[:, 0] * 0.1  # convert to nm
@@ -155,7 +163,7 @@ class read_write:
             if apply_broadening:
                 tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
 
-        tmp[0.0] = np.zeros(len(wl_grid), dtype=float)
+        tmp[0.0] = np.zeros(len(wl_grid), dtype=self.dtype)
         star_data = pd.DataFrame.from_dict(tmp)
         #star_flux = pd.DataFrame(star_flux)
 
@@ -167,11 +175,11 @@ class read_write:
         height = 0.08
         # x = -width ... +width
         x = np.arange(-width, width +
-                      1, step=1, dtype=np.float)
+                      1, step=1, dtype=self.dtype)
         # Gaussian
         y = height * np.exp(-0.5 * (x * 2.67 / fwhm)**2)
 
-        extspec = np.zeros(len(spectrum) + 2 * width, dtype=float)
+        extspec = np.zeros(len(spectrum) + 2 * width, dtype=self.dtype)
         extspec[:width] = spectrum[0]
         extspec[width:-width] = spectrum
         extspec[-width:] = spectrum[-1]
@@ -202,3 +210,8 @@ class read_write:
             os.makedirs(self.output_dir)
         np.savez(self.intermediary_file, F=F, G=G,
                  wl=wl_grid, tell=tell, obs=obs)
+
+    def load_bin(self, filename='spectra0023IntFluxPlanetEarthContinum.bin'):
+        """ load a binary data file """
+        s = np.fromfile(os.path.join(self.input_dir, filename)).reshape((-1, 6)).swapaxes(0, 1)
+        return s.astype(self.dtype)

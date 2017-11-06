@@ -6,12 +6,13 @@ Based on work by Nikolai Piskunov (Uppsala University)
 
 import numpy as np
 
-from scipy.interpolate import interp1d
+#from scipy.interpolate import interp1d
 from scipy.linalg import solve_banded
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
 
 from read_write import read_write
+#from solution import solution
 
 
 def rebin(a, newshape):
@@ -28,9 +29,37 @@ def rebin(a, newshape):
     return a[tuple(indices)]
 
 
+def generate_spectrum(wl, kearth, flux, inten):
+    """ Generate a fake spectrum """
+    # Load planet spectrum
+    planet = rw.load_input(wl)
+    k_planet = gaussbroad(planet, sigma)
+    x = np.arange(len(wl), dtype=np.float32)
+    rand = np.random.rand(3, n_phase).astype(np.float32)
+
+    # Amplitude
+    ampl = rand[0] / snr
+    # Period in pixels
+    period = 500 + 1500 * rand[1]
+    # Phase in radians
+    phase = np.pi * rand[2]
+    # Generate correlated noise
+    err = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
+                 phase[:, None]) * ampl[:, None]
+    # Observed spectrum
+    s_p = (flux[None, :] - inten * sigma_p + inten *
+           sigma_a * k_planet[None, :]) * kearth * (1 + err)
+    # Generate noise
+    noise1 = np.random.randn(n_phase, len(wl)) / snr
+
+    obs = gaussbroad(s_p, sigma) * (1 + noise1)
+    return obs
+
+
 def solve(lamb):
     """
     Solve minimization problem for given lambda
+    Obsolete
     """
     lam = np.full(len(wl), lamb)
 
@@ -54,14 +83,29 @@ def solve(lamb):
     ab = np.array([a, b, c])
     sol = solve_banded((1, 1), ab, r)
 
-    func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
-                   (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
-    reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
-    return sol, func, reg
+    # func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
+    #               (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
+    #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
+    return sol  # , func, reg
+
+
+def solve2(wl, f, g, lamb):
+    """
+    Solve minimization problem for given lambda
+    """
+    a = c = np.full(len(wl), - lamb, dtype=np.float32)
+
+    b = np.sum(f, axis=0)
+    r = np.sum(g, axis=0)
+    b[:-1] += lamb
+    b[1:] += lamb
+
+    ab = np.array([a, b, c])
+    return solve_banded((1, 1), ab, r)
 
 
 # Step 1: Read data
-rw = read_write()
+rw = read_write(dtype=np.float32)
 par = rw.load_parameters()
 # Relative area of the atmosphere of the planet projected into the star
 sigma_a = 2.6539e-6
@@ -69,55 +113,60 @@ sigma_a = 2.6539e-6
 sigma_p = 8.3975e-5 + sigma_a
 snr = 1e3                       # Signal to Noise Ratio
 fwhm = par['fwhm']              # Instrumental FWHM in pixels
-sigma = 1 / 2.355 * fwhm          # Sigma of Gaussian
+sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
 n_phase = 200                   # Number of phases
 nmu = 10
 imu = np.around((np.arange(n_phase) / (n_phase - 1))
                 * (nmu - 1) * 0.1 + 0.1, decimals=1)
 
-_, wl = rw.load_observation(1)
-planet = rw.load_input(wl)
+# Load wavelength scale
+s = rw.load_bin()
+wl = s[0]
+# obs = rw.load_observation('all')
 flux, star_int = rw.load_star_model(
     wl, fwhm, 0, apply_normal=False, apply_broadening=False)
 wl_tell, tell = rw.load_tellurics(wl, 1, apply_interp=False)
 tell = tell[0]
 
+
+# Doppler shift telluric spectrum
+# Doppler shift
+speed_of_light = 3e5  # km/s
+velocity = np.linspace(0.5, n_phase + 0.5, num=n_phase, dtype=np.float32)
+dop = 1 - velocity / speed_of_light
+# Interpolate telluric spectrum
+kearth = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
+# Stellar spectrum blocked by planet / atmosphere
+inten = star_int[imu].values.swapaxes(0, 1)  # TODO
+
 # Generate fake spectrum
-k_planet = gaussbroad(planet, sigma)
-obs = np.zeros((n_phase, len(wl)))  # observation
-ff = np.zeros((n_phase, len(wl)))   # star_data
-so = np.zeros((n_phase, len(wl)))   # stellar_flux
-ke = np.zeros((n_phase, len(wl)))   # telluric
+obs = generate_spectrum(wl, kearth, flux, inten)
 
-x = np.arange(len(wl))
-for iphase in range(n_phase):
-    phase = np.random.rand(30)
-    ampl = phase[9] / snr * 0             # Amplitude
-    period = 500 + 1500 * phase[19]       # Period in pixels
-    phase = 2 * np.pi * phase[29]         # Phase in radians
-    err = np.cos(x / period * 4 * np.pi + phase) * \
-        ampl   # Generate correlated noise
-    dop = 1 - (1 * iphase / (n_phase - 1) + 0.5) / 3e5          # Doppler shift
-    kearth = interp1d(wl_tell, tell, fill_value='extrapolate')(wl * dop)
-    inten = star_int[imu[iphase]].values
-    s_p = (flux - inten * sigma_p + inten *
-           sigma_a * k_planet) * kearth * (1 + err)
-    noise1 = np.random.randn(len(wl)) / snr
+# Broaden everything 
+#gaussbroad = lambda x,y: x
+ke = gaussbroad(kearth, sigma)
+i_atm = gaussbroad(sigma_a * inten, sigma)
+i_planet = gaussbroad(sigma_p * inten, sigma)
+so = gaussbroad(flux[None, :] * kearth, sigma)
 
-    obs[iphase, :] = gaussbroad(s_p, sigma)
-    obs[iphase, :] *= 1 + noise1
-    ke[iphase, :] = gaussbroad(kearth, sigma)
-    ff[iphase, :] = gaussbroad(sigma_a * inten, sigma)
-    so[iphase, :] = gaussbroad(flux * kearth, sigma)
+
+f = ke
+g = obs / i_atm - so / i_atm + i_planet / i_atm * ke
 
 # Find best lambda
-lamb = 9e10
+lamb = 1000
+
+sol2 = solve2(wl, f, g, lamb)
+
+#sol, func, reg = solve(lamb)
+
+"""
 nlambda = 20
 llambda = np.zeros(nlambda)
 dev = np.zeros(nlambda)
 
 for l in range(nlambda):
-    lamb = lamb + 1e7
+    lamb = lamb + 50
     sol, func, reg = solve(lamb)
 
     dev[l] = np.sum((sol - k_planet)**2)
@@ -132,12 +181,14 @@ lamb = llambda[imin]
 
 # Recreate for plotting
 sol, func, reg = solve(lamb)
+"""
 
 nn = len(wl) / 370
 ww = rebin(wl, (nn,))
-
+planet = rw.load_input(wl)
 # Plot
-plt.plot(ww, rebin(k_planet, (nn,)), label='Best fit')
+#plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
+plt.plot(ww, rebin(sol2, (nn, )), label='Solution')
 plt.plot(ww, rebin(planet, (nn, )), 'r', label='Input Spectrum')
 plt.title('Lambda = %s, S//N = %s' % (lamb, snr))
 plt.legend(loc='best')
