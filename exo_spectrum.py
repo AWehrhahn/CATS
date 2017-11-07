@@ -5,6 +5,7 @@ Based on work by Nikolai Piskunov (Uppsala University)
 """
 
 import numpy as np
+import os.path
 
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
@@ -42,14 +43,18 @@ def normalize1d(arr):
     arr /= np.max(arr)
     return arr
 
+
 def interpolate_intensity(mu, i):
     """ interpolate the stellar intensity for given limb distance mu """
     return interp1d(i.keys().values, i.values, kind=rw.config['interpolation_method'], fill_value='extrapolate', bounds_error=False)(mu).swapaxes(0, 1)
 
+
 def calc_mu(phase):
     """ calculate the distance from the center of the planet to the center of the star as seen from earth """
     return par['sma'] / par['r_star'] * \
-        np.sqrt(np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2)
+        np.sqrt(np.cos(par['inc'])**2 +
+                np.sin(par['inc'])**2 * np.sin(phase)**2)
+
 
 def generate_spectrum(wl, telluric, flux, intensity):
     """ Generate a fake spectrum """
@@ -86,12 +91,13 @@ def generate_spectrum(wl, telluric, flux, intensity):
 print("Loading data")
 rw = read_write(dtype=np.float32)
 par = rw.load_parameters()
-# TODO get values for sigma_a and sigma_p from orbital parameters
+
+# Relative area of the stelar disk covered by the planet and atmosphere
+sigma_p = ((par['h_atm'] + par['r_planet']) / par['r_star'])**2
 # Relative area of the atmosphere of the planet projected into the star
-sigma_a = 2.6539e-6
-# Relative area of the stelar disk covered by the planet
-sigma_p = 8.3975e-5 + sigma_a
-snr = 1e3                       # Signal to Noise Ratio
+sigma_a = sigma_p - (par['r_planet'] / par['r_star'])**2
+
+snr = par['snr']                       # Signal to Noise Ratio
 fwhm = par['fwhm']              # Instrumental FWHM in pixels
 sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
 
@@ -112,8 +118,8 @@ nmu = len(star_int)
 imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
 
 # Load Tellurics
-wl_tell, tell = rw.load_tellurics(wl, 60, apply_interp=False)
-tell = tell[59]
+wl_tell, tell = rw.load_tellurics(wl, n_phase // 2 + 1, apply_interp=False)
+tell = tell[n_phase // 2]  # central tellurics, has no rv shift ?
 
 
 print("Calculating intermediary data")
@@ -128,14 +134,19 @@ tell = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
 # intensity = {i: star_int[i].swapaxes(0, 1) for i in star_int.keys()}  # TODO
 
 # Generate fake spectrum
+obs = normalize2d(obs * star_int[0.0][None, :])
 obs_fake = generate_spectrum(wl, tell, flux, star_int)
-obs = obs_fake
 
-#TODO extract phase from observation
+# TODO extract phase from observation
 phase_max = par['r_star'] / par['sma']
 phase = np.linspace(-phase_max, phase_max, n_phase)
 mu = calc_mu(phase)
 intensity = interpolate_intensity(mu, star_int)
+
+#test = -np.max(intensity * sigma_p, axis=1)
+#obs = test[:, None] * obs
+obs = obs_fake
+
 
 # Broaden everything
 tell = gaussbroad(tell, sigma)
@@ -148,17 +159,23 @@ g = obs / i_atm - flux / i_atm * tell + i_planet / i_atm * tell
 
 print("Calculating solution")
 # Find best lambda
-lamb = 1000
+lamb = 1e6
 sol2 = solution().solve(wl, f, g, lamb)
 #sol2 = normalize1d(sol2)
 
-nn = len(wl) / 370
-ww = rebin(wl, (nn,))
 planet = rw.load_input(wl)
 # Plot
 #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
-plt.plot(wl, sol2, label='Solution')
 plt.plot(wl, planet, 'r', label='Input Spectrum')
+plt.plot(wl, sol2, label='Solution')
 plt.title('Lambda = %s, S//N = %s' % (lamb, snr))
 plt.legend(loc='best')
+
+# save plot
+output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])
+plt.savefig(output_file, bbox_inches='tight')
+# save data
+output_file = os.path.join(rw.output_dir, rw.config['file_data_out'])
+np.savetxt(output_file, sol2)
+
 plt.show()
