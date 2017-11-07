@@ -6,6 +6,7 @@ Based on work by Nikolai Piskunov (Uppsala University)
 
 import numpy as np
 
+from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
 
@@ -26,17 +27,29 @@ def rebin(a, newshape):
     indices = coordinates.astype('i')
     return a[tuple(indices)]
 
+
 def normalize2d(arr, axis=1):
     """ normalize array arr """
-    #TODO fix dimensionality
+    # TODO fix dimensionality
     arr -= np.min(arr, axis=axis)[:, None]
     arr /= np.max(arr, axis=axis)[:, None]
     return arr
 
+
 def normalize1d(arr):
+    """ normalize array arr """
     arr -= np.min(arr)
     arr /= np.max(arr)
-    return arr    
+    return arr
+
+def interpolate_intensity(mu, i):
+    """ interpolate the stellar intensity for given limb distance mu """
+    return interp1d(i.keys().values, i.values, kind=rw.config['interpolation_method'], fill_value='extrapolate', bounds_error=False)(mu).swapaxes(0, 1)
+
+def calc_mu(phase):
+    """ calculate the distance from the center of the planet to the center of the star as seen from earth """
+    return par['sma'] / par['r_star'] * \
+        np.sqrt(np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2)
 
 def generate_spectrum(wl, telluric, flux, intensity):
     """ Generate a fake spectrum """
@@ -51,10 +64,14 @@ def generate_spectrum(wl, telluric, flux, intensity):
     # Period in pixels
     period = 500 + 1500 * rand[1]
     # Phase in radians
-    phase = np.pi * rand[2]
+    phase_max = par['r_star'] / par['sma']
+    phase = np.linspace(-phase_max, phase_max, n_phase)
+    mu = calc_mu(phase)
+    intensity = interpolate_intensity(mu, intensity)
+    #phase = np.pi * rand[2]
     # Generate correlated noise
     error = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
-                 phase[:, None]) * amplitude[:, None]
+                   phase[:, None]) * amplitude[:, None]
     # Observed spectrum
     obs = (flux[None, :] - intensity * sigma_p + intensity *
            sigma_a * planet[None, :]) * telluric * (1 + error)
@@ -69,7 +86,7 @@ def generate_spectrum(wl, telluric, flux, intensity):
 print("Loading data")
 rw = read_write(dtype=np.float32)
 par = rw.load_parameters()
-#TODO get values for sigma_a and sigma_p from orbital parameters
+# TODO get values for sigma_a and sigma_p from orbital parameters
 # Relative area of the atmosphere of the planet projected into the star
 sigma_a = 2.6539e-6
 # Relative area of the stelar disk covered by the planet
@@ -91,10 +108,10 @@ n_phase = obs.shape[0]
 # Load stellar model
 flux, star_int = rw.load_star_model(
     wl, fwhm, 0, apply_normal=False, apply_broadening=False)
-nmu = star_int.shape[1] - 1
+nmu = len(star_int)
 imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
 
-#Load Tellurics
+# Load Tellurics
 wl_tell, tell = rw.load_tellurics(wl, 60, apply_interp=False)
 tell = tell[59]
 
@@ -108,33 +125,40 @@ dop = 1 - velocity / speed_of_light
 # Interpolate telluric spectrum
 tell = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
 # Stellar spectrum blocked by planet / atmosphere
-intensity = star_int[imu].values.swapaxes(0, 1)  # TODO
+# intensity = {i: star_int[i].swapaxes(0, 1) for i in star_int.keys()}  # TODO
 
 # Generate fake spectrum
-obs_fake = generate_spectrum(wl, tell, flux, intensity)
+obs_fake = generate_spectrum(wl, tell, flux, star_int)
 obs = obs_fake
+
+#TODO extract phase from observation
+phase_max = par['r_star'] / par['sma']
+phase = np.linspace(-phase_max, phase_max, n_phase)
+mu = calc_mu(phase)
+intensity = interpolate_intensity(mu, star_int)
 
 # Broaden everything
 tell = gaussbroad(tell, sigma)
 i_atm = gaussbroad(sigma_a * intensity, sigma)
 i_planet = gaussbroad(sigma_p * intensity, sigma)
-flux = gaussbroad(flux[None, :], sigma) #Add an extra dimension
+flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
 
 f = tell
-g = obs / i_atm - flux/ i_atm * tell + i_planet / i_atm * tell
+g = obs / i_atm - flux / i_atm * tell + i_planet / i_atm * tell
 
 print("Calculating solution")
 # Find best lambda
 lamb = 1000
 sol2 = solution().solve(wl, f, g, lamb)
+#sol2 = normalize1d(sol2)
 
 nn = len(wl) / 370
 ww = rebin(wl, (nn,))
 planet = rw.load_input(wl)
 # Plot
 #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
-plt.plot(ww, rebin(sol2, (nn, )), label='Solution')
-plt.plot(ww, rebin(planet, (nn, )), 'r', label='Input Spectrum')
+plt.plot(wl, sol2, label='Solution')
+plt.plot(wl, planet, 'r', label='Input Spectrum')
 plt.title('Lambda = %s, S//N = %s' % (lamb, snr))
 plt.legend(loc='best')
 plt.show()

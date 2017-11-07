@@ -60,6 +60,9 @@ class read_write:
         par['period'] = par['period'] * secs
         par['duration'] = par['duration'] * secs
 
+        #Convert to radians
+        par['inc'] = np.deg2rad(par['inc'])
+
         # Derived values
         par['A_planet'] = np.pi * par['r_planet']**2
         par['A_star'] = np.pi * par['r_star']**2
@@ -143,6 +146,23 @@ class read_write:
         if apply_normal:
             normalization = self.interpolation(
                 star_flux[:, 0], star_flux[:, 1] / star_flux[:, 2], wl_grid)
+
+        if apply_interp:
+            tmp = {i: self.interpolation(
+                star_data[i][:, 0], star_data[i][:, 1], wl_grid) for i in star_intensities}
+            tmp[0.0] = self.interpolation(star_flux[:,0], star_flux[:, 2], wl_grid)
+        else:
+            tmp = {i: star_data[i][:, 1] for i in star_intensities}
+            tmp[0.0] = np.copy(star_flux[:, 2])
+        for i in tmp.keys():
+            if apply_normal:
+                tmp[i] *= normalization
+            if apply_broadening:
+                tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
+
+        
+        star_data = pd.DataFrame.from_dict(tmp)
+        #star_flux = pd.DataFrame(star_flux)
         if apply_interp:
             star_flux = self.interpolation(
                 star_flux[:, 0], star_flux[:, 1], wl_grid)
@@ -151,21 +171,6 @@ class read_write:
 
         if apply_broadening:
             star_flux = self.instrument_profile(star_flux, fwhm, width)
-
-        if apply_interp:
-            tmp = {i: self.interpolation(
-                star_data[i][:, 0], star_data[i][:, 1], wl_grid) for i in star_intensities}
-        else:
-            tmp = {i: star_data[i][:, 1] for i in star_intensities}
-        for i in star_intensities:
-            if apply_normal:
-                tmp[i] *= normalization
-            if apply_broadening:
-                tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
-
-        tmp[0.0] = np.zeros(len(wl_grid), dtype=self.dtype)
-        star_data = pd.DataFrame.from_dict(tmp)
-        #star_flux = pd.DataFrame(star_flux)
 
         return star_flux, star_data
 
