@@ -126,38 +126,24 @@ class intermediary:
 
     def doppler_shift(self, spectrum, wl, vel):
         """ Shift spectrum by velocity vel """
-        if isinstance(vel, np.ndarray) and isinstance(spectrum, np.ndarray):
-            if spectrum.ndim > 1:
-                return np.array([self.doppler_shift(spectrum[k], wl, vel[k]) for k in range(len(vel))])
-            else:
-                return np.array([self.doppler_shift(spectrum, wl, vel[k]) for k in range(len(vel))])
         c0 = 299792  # speed of light in km/s
         # new shifted wavelength grid
-        wl_doppler = wl * (1 + vel / c0)
-        return interp1d(wl_doppler, spectrum, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False)(wl)
+        doppler = 1 - vel / c0
+        wl_doppler = wl[None, :] * doppler[:, None]
+        return np.interp(wl_doppler, wl, spectrum)
+        #return interp1d(wl, spectrum, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False)(wl_doppler)
 
     def rv_star(self, par):
         """ linearly distribute radial velocities during transit """
         return np.linspace(0, par['rv_end'] - par['rv_start'], par['n_exposures']) + par['rv_start']
 
-    def rv_planet(self, par):
+    def rv_planet(self, par, phases):
         """ calculate radial velocities of the planet along the orbit """
-        # TODO use times from individual observations, i.e. the values in the fits headers, instead of assuming equidistant spread
-        i = np.deg2rad(par['inc'])
-        v_orbit = par['sma'] * 2 * np.pi / par['period']
+        # Orbital speed
+        v_orbit = par['sma'] * np.sin(par['inc']) * 2 * np.pi / par['period']
+        # Modulate with phase
+        return v_orbit * np.sin(phases)
 
-        # angle of full orbit from periastron that each exposure is taken, exposure time / period
-        angle_exposure = np.linspace(-np.pi, np.pi,
-                                     par['n_exposures']) * par['duration'] / par['period']
-        # Calculate radial velocities
-        vel_p = np.abs(v_orbit * np.arctan(angle_exposure) * np.sin(i))
-
-        # invert velocities of second half
-        vel_p[par['n_exposures'] // 2:] = - vel_p[par['n_exposures'] // 2:]
-
-        return vel_p
-
-    # TODO clean up and optimization
     def brightness_correction(self, par, obs, star_flux, tell, I_planet, I_atm):
         """ calculate the brightness correction factor """
         res = np.zeros((2, 200, par['n_exposures']))

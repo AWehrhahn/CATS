@@ -4,14 +4,16 @@ author: Ansgar Wehrhahn (ansgar.wehrhahn@physics.uu.se)
 Based on work by Nikolai Piskunov (Uppsala University)
 """
 
-import numpy as np
 import os.path
+import numpy as np
 
 from scipy.interpolate import interp1d
-from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
+from scipy.ndimage.filters import gaussian_filter1d as gaussbroad, maximum_filter1d
+from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
 from read_write import read_write
+from intermediary import intermediary
 from solution import solution
 
 
@@ -111,7 +113,7 @@ def maximum_phase():
         par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
 
 
-def specific_intensities(phase, intensity,n_radii=11, n_angle=7):
+def specific_intensities(phase, intensity, n_radii=11, n_angle=7):
     """
     Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
     over the different phases of transit
@@ -173,92 +175,114 @@ def generate_spectrum(wl, telluric, flux, intensity):
     return obs
 
 
-# Step 1: Read data
-print("Loading data")
-rw = read_write(dtype=np.float32)
-par = rw.load_parameters()
+if __name__ == '__main__':
+    # Step 1: Read data
+    print("Loading data")
+    rw = read_write(dtype=np.float32)
+    par = rw.load_parameters()
 
-# Relative area of the stelar disk covered by the planet and atmosphere
-sigma_p = par['A_planet+atm']
-# Relative area of the atmosphere of the planet projected into the star
-sigma_a = par['A_atm']
+    # Relative area of the stelar disk covered by the planet and atmosphere
+    sigma_p = par['A_planet+atm']
+    # Relative area of the atmosphere of the planet projected into the star
+    sigma_a = par['A_atm']
 
-snr = par['snr']                       # Signal to Noise Ratio
-fwhm = par['fwhm']              # Instrumental FWHM in pixels
-sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
+    snr = par['snr']                       # Signal to Noise Ratio
+    fwhm = par['fwhm']              # Instrumental FWHM in pixels
+    sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
+
+    # Load wavelength scale and observation
+    obs, wl = rw.load_observation('all')
+    n_phase = obs.shape[0]
+
+    # Load stellar model
+    #flux, star_int = rw.load_marcs(wl)
+    flux, star_int = rw.load_star_model(
+        wl, fwhm, 0, apply_normal=False, apply_broadening=False)
+
+    nmu = len(star_int.keys()) - 1
+    imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
+    # Load Tellurics
+    wl_tell, tell = rw.load_tellurics(wl, n_phase // 2 + 1, apply_interp=False)
+    tell = tell[n_phase // 2]  # central tellurics, has no rv shift ?
+
+    print("Calculating intermediary data")
+    # Extract orbital phase
+    # TODO extract phase from observation
+    phase_max = maximum_phase()
+    phase = np.linspace(-phase_max, phase_max, n_phase)
+
+    # Doppler shift telluric spectrum
+    # Doppler shift
+    iy = intermediary(rw.config)
+    velocity = iy.rv_star(par) + iy.rv_planet(par, phase)
+    tell = iy.doppler_shift(tell, wl_tell, velocity)
+
+    # Specific intensities
+    i_planet, i_atm = specific_intensities(phase, star_int)
+
+    # Use only fake observation, for now
+    # Generate fake spectrum
+    obs_fake = generate_spectrum(wl, tell, flux, star_int)
+    obs = obs_fake
+
+    # Broaden everything
+    tell = gaussbroad(tell, sigma)
+    i_atm = gaussbroad(sigma_a * i_atm, sigma)
+    i_planet = gaussbroad(sigma_p * i_planet, sigma)
+    flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
+
+    #tell = normalize2d(tell)
+    #flux = normalize2d(flux)
+
+    f = tell
+    g = -obs / i_atm - flux / i_atm * tell + i_planet / i_atm * tell
+
+    print("Calculating solution")
+    # Find best lambda
+    # Step 1: make a test run without smoothing
+    """
+    lamb = np.zeros(len(wl), dtype=np.float32)
+    lamb[:40000] = 1e3  # almost no smoothing
+    lamb[40000:100000] = 1e6
+    lamb[100000:130000] = 1e3
+    lamb[130000:] = 1e6
+    """
+    lamb = 1
+    sol2 = solution().solve(wl, f, g, lamb)
+    
+    # Step 2: find noise levels at each wavelength, aka required smoothing
+    width = 500
+    diff = np.zeros(len(wl))
+    diff[1:] = np.exp(np.abs(np.diff(sol2)))
+    diff[0] = diff[1]
+    diff = maximum_filter1d(diff, width) #Use largest value in sorounding
+    diff = np.clip(diff, 0, 20, out=diff) #Stop it from going infinite
+    diff = np.exp(diff)
+    sigma = width / 2.355 /2
+    diff = gaussbroad(diff, sigma)
+
+    #lamb = np.zeros(len(wl), dtype=np.float32)
+    lamb = diff * 1e3/2
+
+    # Step 3: Calculate solution again, this time with smoothing
+    sol2 = solution().solve(wl, f, g, lamb)
+    sol2 = savgol_filter(sol2, 501, 2)
 
 
-# Load wavelength scale
-"""
-s = rw.load_bin()
-wl = s[0]
-n_phase = 200           # Number of observations
-"""
-obs, wl = rw.load_observation('all')
-n_phase = obs.shape[0]
+    planet = rw.load_input(wl)
+    # Plot
+    #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
+    plt.plot(wl, planet, 'r', label='Input Spectrum')
+    plt.plot(wl, sol2, label='Solution')
+    plt.title('Lambda = %s, S//N = %s' % (lamb, snr))
+    plt.legend(loc='best')
 
-# Load stellar model
-#flux, star_int = rw.load_marcs(wl)
-flux, star_int = rw.load_star_model(
-    wl, fwhm, 0, apply_normal=False, apply_broadening=False)
+    # save plot
+    output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])
+    plt.savefig(output_file, bbox_inches='tight')
+    # save data
+    output_file = os.path.join(rw.output_dir, rw.config['file_data_out'])
+    np.savetxt(output_file, sol2)
 
-nmu = len(star_int.keys()) - 1
-imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
-# Load Tellurics
-wl_tell, tell = rw.load_tellurics(wl, n_phase // 2 + 1, apply_interp=False)
-tell = tell[n_phase // 2]  # central tellurics, has no rv shift ?
-
-
-print("Calculating intermediary data")
-# Doppler shift telluric spectrum
-# Doppler shift
-speed_of_light = 3e5  # km/s
-velocity = np.linspace(0.5, n_phase + 0.5, num=n_phase, dtype=np.float32)
-dop = 1 - velocity / speed_of_light
-# Interpolate telluric spectrum
-tell = np.interp(wl[None, :] * dop[:, None], wl_tell, tell)
-
-# Use only fake observation, for now
-# Generate fake spectrum
-obs_fake = generate_spectrum(wl, tell, flux, star_int)
-obs = obs_fake
-
-# TODO extract phase from observation
-phase_max = maximum_phase()
-phase = np.linspace(-phase_max, phase_max, n_phase)
-i_planet, i_atm = specific_intensities(phase, star_int)
-
-# Broaden everything
-tell = gaussbroad(tell, sigma)
-i_atm = gaussbroad(sigma_a * i_atm, sigma)
-i_planet = gaussbroad(sigma_p * i_planet, sigma)
-flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
-
-#tell = normalize2d(tell)
-#flux = normalize2d(flux)
-
-f = tell
-g = -obs / i_atm - flux / i_atm * tell + i_planet / i_atm * tell
-
-print("Calculating solution")
-# Find best lambda
-lamb = 1000
-sol2 = solution().solve(wl, f, g, lamb)
-#sol2 = normalize1d(sol2)
-
-planet = rw.load_input(wl)
-# Plot
-#plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
-plt.plot(wl, planet, 'r', label='Input Spectrum')
-plt.plot(wl, sol2, label='Solution')
-plt.title('Lambda = %s, S//N = %s' % (lamb, snr))
-plt.legend(loc='best')
-
-# save plot
-output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])
-plt.savefig(output_file, bbox_inches='tight')
-# save data
-output_file = os.path.join(rw.output_dir, rw.config['file_data_out'])
-np.savetxt(output_file, sol2)
-
-plt.show()
+    plt.show()
+    pass

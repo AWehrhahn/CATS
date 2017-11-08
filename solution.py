@@ -20,13 +20,16 @@ class solution:
         G: intermediary product G
         lam: regularization parameter lambda
         """
-
-        a = c = np.full(len(wl), - lamb, dtype=np.float32)
+        if isinstance(lamb, (int, float)):
+            lamb = np.full(len(wl), lamb, dtype=np.float32)
+        a,c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=np.float32)
+        a[1:] = -lamb[:-1]
+        c[:-1] = -lamb[1:]
 
         b = np.sum(f, axis=0)
         r = np.sum(g, axis=0)
-        b[:-1] += lamb
-        b[1:] += lamb
+        b[:-1] += lamb[:-1]
+        b[1:] += lamb[1:]
 
         ab = np.array([a, b, c])
         # func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
