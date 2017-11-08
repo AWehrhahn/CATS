@@ -60,24 +60,29 @@ class read_write:
         par['period'] = par['period'] * secs
         par['duration'] = par['duration'] * secs
 
-        #Convert to radians
+        # Convert to radians
         par['inc'] = np.deg2rad(par['inc'])
 
-        # Derived values
-        par['A_planet'] = np.pi * par['r_planet']**2
-        par['A_star'] = np.pi * par['r_star']**2
-        par['A_atm'] = np.pi * \
-            (par['r_planet'] + par['h_atm'])**2 - par['A_planet']
+        # Derived values, the pi factor gets canceled out
+        par['A_planet'] = par['r_planet']**2
+        par['A_star'] = par['r_star']**2
+        par['A_atm'] = (par['r_planet'] + par['h_atm'])**2 - par['A_planet']
         par['A_planet'] = par['A_planet'] / par['A_star']
         par['A_atm'] = par['A_atm'] / par['A_star']
         par['A_planet+atm'] = par['A_planet'] + par['A_atm']
 
+        self.file_atmosphere = par['file_atmosphere']
+
         return par
 
-    def load_input(self, wl_grid):
+    def load_input(self, wl_grid, filename=None):
         """ load input spectrum """
+        if filename is None:
+            if not hasattr(self, 'file_atmosphere'):
+                self.load_parameters()
+            filename = self.file_atmosphere
         input_file = os.path.join(
-            self.input_dir, self.config['file_atmosphere'])
+            self.input_dir, filename)
         input_spectrum = pd.read_table(
             input_file, header=None, delim_whitespace=True, dtype=self.dtype).values.swapaxes(0, 1)
 
@@ -129,6 +134,7 @@ class read_write:
         star_flux_file = os.path.join(
             self.input_dir, self.config['file_star_flux'])
         star_intensities = self.config['star_intensities']
+        del star_intensities[0]
         star_data_file = {i: os.path.join(
             self.input_dir, self.config['file_star_data'].format(str(i))) for i in star_intensities}
 
@@ -150,7 +156,8 @@ class read_write:
         if apply_interp:
             tmp = {i: self.interpolation(
                 star_data[i][:, 0], star_data[i][:, 1], wl_grid) for i in star_intensities}
-            tmp[0.0] = self.interpolation(star_flux[:,0], star_flux[:, 2], wl_grid)
+            tmp[0.0] = self.interpolation(
+                star_flux[:, 0], star_flux[:, 2], wl_grid)
         else:
             tmp = {i: star_data[i][:, 1] for i in star_intensities}
             tmp[0.0] = np.copy(star_flux[:, 2])
@@ -160,7 +167,6 @@ class read_write:
             if apply_broadening:
                 tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
 
-        
         star_data = pd.DataFrame.from_dict(tmp)
         #star_flux = pd.DataFrame(star_flux)
         if apply_interp:
@@ -173,6 +179,21 @@ class read_write:
             star_flux = self.instrument_profile(star_flux, fwhm, width)
 
         return star_flux, star_data
+
+    def load_marcs(self, wl_grid, apply_interp=True):
+        """ load MARCS flux files """
+        flux_file = os.path.join(self.input_dir, self.config['file_star_marcs'])
+        wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
+        flux = pd.read_table(flux_file, delim_whitespace=True,
+                             header=None, names=['Flux']).values[:, 0]
+        wl = pd.read_table(wl_file, delim_whitespace=True,
+                           header=None, names=['WL']).values[:, 0]
+        if apply_interp:
+            flux = self.interpolation(wl, 1-flux, wl_grid)
+
+        star_int = {i: flux for i in self.config['star_intensities']}
+        star_int = pd.DataFrame.from_dict(star_int)
+        return flux, star_int
 
     # Only apply instrumental profile to artificial spectra
     def instrument_profile(self, spectrum, fwhm, width):
@@ -218,5 +239,7 @@ class read_write:
 
     def load_bin(self, filename='spectra0023IntFluxPlanetEarthContinum.bin'):
         """ load a binary data file """
-        s = np.fromfile(os.path.join(self.input_dir, filename)).reshape((-1, 6)).swapaxes(0, 1)
+        s = np.fromfile(os.path.join(self.input_dir, filename)
+                        ).reshape((-1, 6)).swapaxes(0, 1)
         return s.astype(self.dtype)
+
