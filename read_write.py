@@ -4,6 +4,9 @@ Load various kinds of data from disk
 import os.path
 import numpy as np
 import pandas as pd
+import astropy.io.fits as fits
+
+import matplotlib.pyplot as plt
 
 import yaml
 try:
@@ -71,18 +74,17 @@ class read_write:
         par['A_atm'] = par['A_atm'] / par['A_star']
         par['A_planet+atm'] = par['A_planet'] + par['A_atm']
 
-        self.file_atmosphere = par['file_atmosphere']
+        # Overwrite standard values
+        for k in par.keys():
+            if k in self.config.keys():
+                self.config[k] = par[k]
 
         return par
 
-    def load_input(self, wl_grid, filename=None):
+    def load_input(self, wl_grid):
         """ load input spectrum """
-        if filename is None:
-            if not hasattr(self, 'file_atmosphere'):
-                self.load_parameters()
-            filename = self.file_atmosphere
         input_file = os.path.join(
-            self.input_dir, filename)
+            self.input_dir, self.config['file_atmosphere'])
         input_spectrum = pd.read_table(
             input_file, header=None, delim_whitespace=True, dtype=self.dtype).values.swapaxes(0, 1)
 
@@ -92,32 +94,73 @@ class read_write:
         """ Load observation spectrum """
         obs_file = os.path.join(
             self.input_dir, self.config['file_observation'])
-        obs = pd.read_table(obs_file, header=None,
-                            delim_whitespace=True, dtype=self.dtype)
-        wl_tmp = obs[0].values
-        if n_exposures == 'all':
-            n_exposures = obs.shape[1] - 1
-        obs.drop([0, *range(n_exposures + 1, obs.shape[1])],
-                 axis=1, inplace=True)
-        obs = obs.values.swapaxes(0, 1)
-        #obs = interp1d(wl_tmp, obs, kind=config['interpolation_method'], fill_value='extrapolate')(wl_grid)
-        return obs, wl_tmp
+
+        ext = os.path.splitext(obs_file)[1]
+        if ext in ['.csv', '.dat']:
+            obs = pd.read_table(obs_file, header=None,
+                                delim_whitespace=True, dtype=self.dtype)
+            wl_tmp = obs[0].values
+            if n_exposures == 'all':
+                n_exposures = obs.shape[1] - 1
+            obs.drop([0, *range(n_exposures + 1, obs.shape[1])],
+                     axis=1, inplace=True)
+            obs = obs.values.swapaxes(0, 1)
+            #obs = interp1d(wl_tmp, obs, kind=config['interpolation_method'], fill_value='extrapolate')(wl_grid)
+            return obs, wl_tmp
+        if ext in ['.ech', '.fits']:
+            hdulist = fits.open(obs_file)
+            tbdata = hdulist[1].data
+            columns = hdulist[1].columns
+            names = columns.names
+            wave = tbdata['WAVE'].reshape(-1)
+            spec = tbdata['SPEC'].reshape(-1)
+            sig = tbdata['SIG'].reshape(-1)
+            cont = tbdata['CONT'].reshape(-1)
+
+            sort = np.argsort(wave)
+            wave = wave[sort]
+            spec = spec[sort]
+            cont = cont[sort]
+            sig = sig[sort]
+
+            #plt.plot(wave, spec/cont)
+            #plt.show()
+            return spec/cont, wave
+
 
     def load_tellurics(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
         tell_file = os.path.join(self.input_dir, self.config['file_telluric'])
-        tell = pd.read_table(tell_file, header=None,
-                             delim_whitespace=True, dtype=self.dtype)
-        wl_tmp = tell[0]
-        tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
-                  axis=1, inplace=True)
+        ext = os.path.splitext(tell_file)[1]
 
-        tell = tell.values.swapaxes(0, 1)
-        if apply_interp:
-            tell = np.interp(wl_grid, wl_tmp, tell)
-            return tell
-        else:
-            return wl_tmp.values, tell
+        if ext in ['.dat', '.csv']:
+            if ext == '.dat':
+                tell = pd.read_table(tell_file, header=None,
+                                delim_whitespace=True, dtype=self.dtype)
+            elif ext == '.csv':
+                tell = pd.read_csv(tell_file, sep = ',', header = None, dtype=self.dtype)
+            wl_tmp = tell[0]
+            tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
+                    axis=1, inplace=True)
+
+            tell = tell.values.swapaxes(0, 1)
+            if apply_interp:
+                tell = np.interp(wl_grid, wl_tmp, tell)
+                return tell
+            else:
+                return wl_tmp.values, tell
+
+        if ext in ['.fits']:
+            hdulist = fits.open(tell_file)
+            tbdata = hdulist[1].data
+            wl_tell = tbdata['lam']
+            tell = tbdata['trans']
+            if apply_interp:
+                tell = np.interp(wl_grid, wl_tell, tell)
+                return tell
+            else:
+                return wl_tell, tell
+
 
     def interpolation(self, wl_old, spec, wl_new):
         """ interpolate spec onto wl_grid """

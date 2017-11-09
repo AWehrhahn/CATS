@@ -8,6 +8,9 @@ from scipy.linalg import solve_banded
 class solution:
     """ Wrapper class for the functions """
 
+    def __init__(self, dtype=np.float):
+        self.dtype = dtype
+
     # TODO try to find best value for lambda
     # Brute Force Solution: try different values for lambda and find the best
     # What is the best lambda ??? Which metric is used to determine that?
@@ -15,14 +18,15 @@ class solution:
     def solve(self, wl, f, g, lamb):
         """
         Solve the mimimazation problem to find the planetary spectrum
+        F*x - G = 0
         wl_grid: Wavelength scale
         F: intermediary product F
         G: intermediary product G
         lam: regularization parameter lambda
         """
         if isinstance(lamb, (int, float)):
-            lamb = np.full(len(wl), lamb, dtype=np.float32)
-        a,c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=np.float32)
+            lamb = np.full(len(wl), lamb, dtype=self.dtype)
+        a,c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=self.dtype)
         a[1:] = -lamb[:-1]
         c[:-1] = -lamb[1:]
 

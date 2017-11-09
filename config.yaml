@@ -10,15 +10,17 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: GJ1214
+name_target: Keck
 dir_input: input
 dir_output: output
 # Flag to recalculate everything, even if intermediary products exist
 renew_all: true
 
 # File names
+# Those can be overwritten by the parameter file (in fact everything can)
 file_observation: obs.dat
 file_telluric: tell.dat
+file_atmosphere: planet.dat
 file_parameters: par.yaml
 file_star_flux: star/starF.flx
 file_star_data: star/starI{0}.int
