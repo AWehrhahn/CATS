@@ -5,6 +5,7 @@ Based on work by Nikolai Piskunov (Uppsala University)
 """
 
 import os.path
+import subprocess
 import numpy as np
 
 from scipy.interpolate import interp1d
@@ -56,93 +57,6 @@ def normalize1d(arr):
     arr /= np.max(arr)
     return arr
 
-
-def interpolate_intensity(mu, i):
-    """ interpolate the stellar intensity for given limb distance mu """
-    return interp1d(i.keys().values, i.values, kind=rw.config['interpolation_method'], fill_value=0, bounds_error=False, copy=False)(mu).swapaxes(0, 1)
-
-
-def calc_mu(phase):
-    """ calculate the distance from the center of the planet to the center of the star as seen from earth """
-    return par['sma'] / par['r_star'] * \
-        np.sqrt(np.cos(par['inc'])**2 +
-                np.sin(par['inc'])**2 * np.sin(phase)**2)
-
-
-def calc_intensity(phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
-    """
-    Calculate the average specific intensity in a given radius range around the planet center
-    phase: Phase (in radians) of the planetary transit, with 0 at transit center
-    intensity: specific intensity profile of the host star, a pandas DataFrame with keys from 0.0 to 1.0
-    min_radius: minimum radius (in km) to sample
-    max_radius: maximum radius (in km) to sample
-    n_radii: number of radius points to sample
-    n_angle: number of angles to sample
-    spacing: how to space the samples, 'equidistant' means linear spacing between points, 'random' places them at random positions
-    """
-    # Step 1: Calculate sampling positions in the given radii
-    if spacing in ['e', 'equidistant']:
-        # equidistant spacing
-        radii = np.linspace(min_radius, max_radius, n_radii, endpoint=True)
-        # No endpoint means no overlap -> no preference (but really thats just a small difference)
-        angles = np.linspace(0, 2 * np.pi, n_angle, endpoint=False)
-    if spacing in ['r', 'random', 'mc']:
-        # random spacing (Monte-Carlo)
-        radii = np.random.random_sample(
-            n_radii) * (max_radius - min_radius) + min_radius
-        angles = np.random.random_sample(n_angle) * 2 * np.pi
-    # Step 2: Calculate mu_x and mu_y
-    mu_x = par['sma'] / par['r_star'] * np.sin(par['inc']) * np.sin(phase)
-    mu_x = mu_x[:, None, None] + \
-        (radii[:, None] * np.cos(angles)[None, :])[None, :, :]
-    mu_y = par['sma'] / par['r_star'] * \
-        np.cos(par['inc']) + radii[:, None] * np.sin(angles)[None, :]
-
-    mu = np.sqrt(mu_x**2 + mu_y[None, :, :]**2)
-    # Step 3: Average specific intensity, outer points weight more, as the area is larger
-    intens = interpolate_intensity(mu, intensity)
-    intens = np.average(intens, axis=3)
-    intens = np.average(intens, axis=2, weights=radii)
-    return intens
-
-
-def maximum_phase():
-    """ The maximum phase for which the planet is still completely inside the stellar disk """
-    # This is the inverse of calc_mu(maximum_phase()) = 1.0
-    return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
-        par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
-
-
-def specific_intensities(phase, intensity, n_radii=11, n_angle=7, mode='fast'):
-    """
-    Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
-    over the different phases of transit
-    phase: phases (in radians) of the transit, with 0 at transit center
-    intensity: specific intensity profile of the host star, a pandas DataFrame with keys from 0.0 to 1.0
-    n_radii: number of radii to sample, if tuple use n_radii[0] for i_planet and n_radii[1] for i_atm
-    n_angle: number of angles to sample, if tuple use n_angle[0] for i_planet and n_angle[1] for i_atm
-    mode: fast or precise, fast ignores the planetary disk and only uses the center of the planet, precise uses sample positions inside the radii to determine the average intensity
-    """
-    # Allow user to specify different n_radii and n_angle for i_planet and i_atm
-    if isinstance(n_radii, (float, int)):
-        n_radii = (n_radii, n_radii)
-    if isinstance(n_angle, (float, int)):
-        n_angle = (n_angle, n_angle)
-
-    if mode == 'precise':
-        i_planet = calc_intensity(
-            phase, intensity, 0, (par['r_planet'] + par['h_atm']) / par['r_star'], n_radii[0], n_angle[0])
-        i_atm = calc_intensity(
-            phase, intensity, par['r_planet'] / par['r_star'], (par['r_planet'] + par['h_atm']) / par['r_star'], n_radii[1], n_angle[1])
-        return i_planet, i_atm
-    if mode == 'fast':
-        # Alternative version that only uses the center of the planet
-        # Faster but less precise (significantly?)
-        mu = calc_mu(phase)
-        intensity = interpolate_intensity(mu, intensity)
-        return intensity, intensity
-
-
 def generate_spectrum(wl, telluric, flux, intensity):
     """ Generate a fake spectrum """
     # Load planet spectrum
@@ -156,10 +70,10 @@ def generate_spectrum(wl, telluric, flux, intensity):
     # Period in pixels
     period = 500 + 1500 * rand[1]
     # Phase in radians
-    phase_max = maximum_phase()
+    phase_max = iy.maximum_phase()
     phase = np.linspace(-phase_max, phase_max, n_phase)
     # Specific intensities
-    i_planet, i_atm = specific_intensities(phase, intensity)
+    i_planet, i_atm = iy.specific_intensities(phase, intensity)
     # Generate correlated noise
     error = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
                    phase[:, None]) * amplitude[:, None]
@@ -171,7 +85,7 @@ def generate_spectrum(wl, telluric, flux, intensity):
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
 
-    #Use stellar spectrum to continuum normalize
+    # Use stellar spectrum to continuum normalize
     #norm = star_int[0.0] / flux
     #obs = obs / norm[None, :]
     #obs = obs / np.max(obs, axis=1)[:, None]
@@ -184,6 +98,7 @@ if __name__ == '__main__':
     print("Loading data")
     rw = read_write(dtype=np.float32)
     par = rw.load_parameters()
+    iy = intermediary(rw.config, par, dtype=np.float32)
 
     # Relative area of the stelar disk covered by the planet and atmosphere
     sigma_p = par['A_planet+atm']
@@ -193,44 +108,51 @@ if __name__ == '__main__':
     snr = par['snr']                       # Signal to Noise Ratio
     fwhm = par['fwhm']              # Instrumental FWHM in pixels
     sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
+    n_phase = par['n_exposures']
 
     # Load wavelength scale and observation
-    obs, wl = rw.load_observation('all')
-    obs = obs[None, :]
-    wl = wl*10 #Convert to Angstrom
-    n_phase = par['n_exposures']
+    wl, obs = rw.load_observation('all')
+    if obs.ndim == 1:
+        obs = obs[None, :]
+
+    # Load tellurics
+    if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
+        print('Fit tellurics with molecfit')
+        rw.convert_keck_fits()
+        iy.fit_tellurics(verbose=True)
+    else:
+        print('Use existing telluric fit')
+    wl_tell, tell = rw.load_tellurics()
 
     # Load stellar model
     flux, star_int = rw.load_star_model(
-        wl * 0.25, fwhm, 0, apply_normal=True, apply_broadening=False)
+        wl * 0.25, fwhm, 0, apply_normal=False, apply_broadening=False)
+    #flux, star_int = rw.load_marcs(wl)
 
     nmu = len(star_int.keys()) - 1
     imu = np.around(np.linspace(0.1, nmu * 0.1, n_phase), decimals=1)
-    # Load Tellurics
-    wl_tell, tell = rw.load_tellurics(wl, n_phase // 2 + 1, apply_interp=False)
-    #tell = tell[len(tell)//2]  # central tellurics, has no rv shift ?
-    wl_tell *= 1e3
-    tell = 1 - tell[0]
+
     print("Calculating intermediary data")
     # Extract orbital phase
     # TODO extract phase from observation
-    phase_max = maximum_phase()
+    phase_max = iy.maximum_phase()
     phase = np.linspace(-phase_max, phase_max, n_phase)
 
     # Doppler shift telluric spectrum
     # Doppler shift
-    iy = intermediary(rw.config)
-    velocity = iy.rv_star(par) + iy.rv_planet(par, phase)
+    velocity = iy.rv_star() + iy.rv_planet(phase)
     tell = iy.doppler_shift(tell, wl_tell, velocity)
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
 
     # Specific intensities
-    i_planet, i_atm = specific_intensities(phase, star_int)
+    i_planet, i_atm = iy.specific_intensities(phase, star_int)
 
     # Use only fake observation, for now
     # Generate fake spectrum
     obs_fake = generate_spectrum(wl, tell, flux, star_int)
-    #obs = obs_fake
+    obs_fake = normalize2d(obs_fake)
+    obs = obs_fake
+
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
@@ -268,10 +190,10 @@ if __name__ == '__main__':
     # Step 3: Calculate solution again, this time with smoothing
     sol2 = sol.solve(wl, f, g, lamb)
     """
-    sol2 = np.clip(sol2, 0, 0.4)
-    sol2 = normalize1d(sol2)
+    #sol2 = np.clip(sol2, 0, 0.4)
+    #sol2 = normalize1d(sol2)
 
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl)
     # Plot
     #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
     plt.plot(wl, obs[0], 'r', label='Input Spectrum')

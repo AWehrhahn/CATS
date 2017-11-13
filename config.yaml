@@ -13,20 +13,27 @@ path_exoSpectro: /DATA/exoSpectro/
 name_target: Keck
 dir_input: input
 dir_output: output
+dir_intermediary: intermediary
 # Flag to recalculate everything, even if intermediary products exist
-renew_all: true
+renew_all: false
+
+path_molecfit: /home/ansgar/molecfit/bin/molecfit
 
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)
+file_molecfit: molecfit.par
 file_observation: obs.dat
+file_observation_intermediary: obs_new.fits
 file_telluric: tell.dat
 file_atmosphere: planet.dat
 file_parameters: par.yaml
 file_star_flux: star/starF.flx
 file_star_data: star/starI{0}.int
-file_star_marcs: star/starF_alt.flxe
+file_star_marcs: star/starF_alt.flx
 file_star_wl: star/flx_wavelengths.vac
 star_intensities: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+file_gdas: GDAS_Atmosphere.dat
 
 # Intermediary data file
 file_intermediary: intermediary.npz

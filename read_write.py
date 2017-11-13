@@ -5,6 +5,7 @@ import os.path
 import numpy as np
 import pandas as pd
 import astropy.io.fits as fits
+import dateutil as du
 
 import matplotlib.pyplot as plt
 
@@ -30,6 +31,10 @@ class read_write:
         self.input_dir = os.path.join(self.data_dir, self.config['dir_input'])
         self.output_dir = os.path.join(
             self.data_dir, self.config['dir_output'])
+        self.intermediary_dir = os.path.join(
+            self.data_dir, self.config['dir_intermediary'])
+
+        self.config['intermediary_dir'] = self.intermediary_dir
 
         self.intermediary_file = os.path.join(
             self.output_dir, self.config['file_intermediary'])
@@ -106,7 +111,7 @@ class read_write:
                      axis=1, inplace=True)
             obs = obs.values.swapaxes(0, 1)
             #obs = interp1d(wl_tmp, obs, kind=config['interpolation_method'], fill_value='extrapolate')(wl_grid)
-            return obs, wl_tmp
+            return wl_tmp, obs
         if ext in ['.ech', '.fits']:
             hdulist = fits.open(obs_file)
             tbdata = hdulist[1].data
@@ -124,11 +129,29 @@ class read_write:
             sig = sig[sort]
 
             #plt.plot(wave, spec/cont)
-            #plt.show()
-            return spec/cont, wave
+            # plt.show()
+            return wave, spec / cont
 
+    def load_obs_xypoint(self):
+        """ load an observation into a telfit xypoint structure """
+        obs_file = os.path.join(
+            self.input_dir, self.config['file_observation'])
 
-    def load_tellurics(self, wl_grid, n_exposures, apply_interp):
+        hdulist = fits.open(obs_file)
+        header = hdulist[0].header
+        data = hdulist[1].data
+        orders = []
+        for i in range(data['wave'].shape[1]):
+            order = DataStructures.xypoint(x=data['wave'][:, i, :].reshape(-1),
+                                           y=data['spec'][:, i, :].reshape(-1),
+                                           cont=data['cont'][:,
+                                                             i, :].reshape(-1),
+                                           err=data['sig'][:, i, :].reshape(-1))
+            orders.append(order)
+        hdulist.close()
+        return header, orders
+
+    def load_tellurics_old(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
         tell_file = os.path.join(self.input_dir, self.config['file_telluric'])
         ext = os.path.splitext(tell_file)[1]
@@ -136,12 +159,13 @@ class read_write:
         if ext in ['.dat', '.csv']:
             if ext == '.dat':
                 tell = pd.read_table(tell_file, header=None,
-                                delim_whitespace=True, dtype=self.dtype)
+                                     delim_whitespace=True, dtype=self.dtype)
             elif ext == '.csv':
-                tell = pd.read_csv(tell_file, sep = ',', header = None, dtype=self.dtype)
+                tell = pd.read_csv(tell_file, sep=',',
+                                   header=None, dtype=self.dtype)
             wl_tmp = tell[0]
             tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
-                    axis=1, inplace=True)
+                      axis=1, inplace=True)
 
             tell = tell.values.swapaxes(0, 1)
             if apply_interp:
@@ -161,6 +185,14 @@ class read_write:
             else:
                 return wl_tell, tell
 
+    def load_tellurics(self):
+        tell_file = self.config['file_telluric'] + '_fit.fits'
+        tell_file = os.path.join(self.config['intermediary_dir'], tell_file)
+        tell = fits.open(tell_file)
+        tbdata = tell[1].data
+        wl = tbdata['mlambda'] * 1e4  # to Angstrom
+        tell = tbdata['mtrans']
+        return wl, tell
 
     def interpolation(self, wl_old, spec, wl_new):
         """ interpolate spec onto wl_grid """
@@ -187,7 +219,7 @@ class read_write:
             0, 1,), dtype=self.dtype).values for i in star_intensities}
 
         # fix wavelenghts
-        star_flux[:, 0] = star_flux[:, 0] * 0.1  # convert to nm
+        star_flux[:, 0] = star_flux[:, 0] * 0.1  # convert to Ansgtrom
         for i in star_intensities:
             star_data[i][:, 0] *= 0.1
 
@@ -213,10 +245,17 @@ class read_write:
         star_data = pd.DataFrame.from_dict(tmp)
         #star_flux = pd.DataFrame(star_flux)
         if apply_interp:
-            star_flux = self.interpolation(
-                star_flux[:, 0], star_flux[:, 1], wl_grid)
+            if apply_normal:
+                star_flux = self.interpolation(
+                    star_flux[:, 0], star_flux[:, 1], wl_grid)
+            else:
+                star_flux = self.interpolation(
+                    star_flux[:, 0], star_flux[:, 2], wl_grid)
         else:
-            star_flux = star_flux[:, 1]
+            if apply_normal:
+                star_flux = star_flux[:, 1]
+            else:
+                star_flux = star_flux[:, 2]
 
         if apply_broadening:
             star_flux = self.instrument_profile(star_flux, fwhm, width)
@@ -225,14 +264,15 @@ class read_write:
 
     def load_marcs(self, wl_grid, apply_interp=True):
         """ load MARCS flux files """
-        flux_file = os.path.join(self.input_dir, self.config['file_star_marcs'])
+        flux_file = os.path.join(
+            self.input_dir, self.config['file_star_marcs'])
         wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
         flux = pd.read_table(flux_file, delim_whitespace=True,
                              header=None, names=['Flux']).values[:, 0]
         wl = pd.read_table(wl_file, delim_whitespace=True,
                            header=None, names=['WL']).values[:, 0]
         if apply_interp:
-            flux = self.interpolation(wl, 1-flux, wl_grid)
+            flux = self.interpolation(wl, flux, wl_grid)
 
         star_int = {i: flux for i in self.config['star_intensities']}
         star_int = pd.DataFrame.from_dict(star_int)
@@ -286,3 +326,65 @@ class read_write:
                         ).reshape((-1, 6)).swapaxes(0, 1)
         return s.astype(self.dtype)
 
+    def convert_keck_fits(self):
+        """ convert a keck file into something that MolecFit can use """
+        hdulist = fits.open(os.path.join(
+            self.input_dir, self.config['file_observation']))
+        header = hdulist[0].header
+        primary = fits.PrimaryHDU(header=header)
+        wave = hdulist[1].data['WAVE']
+        spec = hdulist[1].data['SPEC'] / hdulist[1].data['CONT']
+        sig = hdulist[1].data['SIG'] / hdulist[1].data['CONT']
+
+        wave = wave.reshape(-1)
+        spec = spec.reshape(-1)
+        sig = sig.reshape(-1)
+
+        sort = np.argsort(wave)
+        wave = wave[sort]
+        spec = spec[sort]
+        sig = sig[sort]
+
+        col1 = fits.Column(name='WAVE', format='D', array=wave)
+        col2 = fits.Column(name='SPEC', format='E', array=spec)
+        col3 = fits.Column(name='SIG', format='E', array=sig)
+        cols = fits.ColDefs([col1, col2, col3])
+        tbhdu = fits.BinTableHDU.from_columns(cols)
+
+        new = fits.HDUList([primary, tbhdu])
+        new.writeto(os.path.join(self.intermediary_dir,
+                                 self.config['file_observation_intermediary']), overwrite=True)
+
+        # Update molecfit parameter file
+        mfit = os.path.join(self.input_dir, self.config['file_molecfit'])
+        with open(mfit, 'r') as f:
+            p = f.readlines()
+
+        def find(data, label):
+            return [i for i, k in enumerate(data) if k.startswith(label)][0]
+
+        index = find(p, 'filename:')
+        p[index] = 'filename: ' + os.path.join(
+            self.intermediary_dir, self.config['file_observation_intermediary']) + '\n'
+
+        index = find(p, 'output_name:')
+        p[index] = 'output_name: ' + self.config['file_telluric'] + '\n'
+
+        index = find(p, 'rhum:')
+        p[index] = 'rhum: ' + str(header['relhum'] * 100) + '\n'
+
+        index = find(p, 'telalt:')
+        p[index] = 'telalt: ' + str(abs(float(header['AZ']))) + '\n'
+
+        index = find(p, 'utc:')
+        utc = header['utc']
+        utc = du.parser.parse(utc).time()
+        utc = int(60 * 60 * utc.hour + 60 * utc.minute +
+                  utc.second + 1e-3 * utc.microsecond)
+        p[index] = 'utc: ' + str(utc) + '\n'
+
+        mfit = os.path.join(self.intermediary_dir,
+                            self.config['file_molecfit'])
+        with open(mfit, 'w') as f:
+            for item in p:
+                f.write(item)
