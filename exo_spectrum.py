@@ -9,7 +9,7 @@ import subprocess
 import numpy as np
 
 from scipy.interpolate import interp1d
-from scipy.ndimage.filters import gaussian_filter1d as gaussbroad, maximum_filter1d
+from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import fsolve
 import matplotlib.pyplot as plt
 
@@ -57,88 +57,99 @@ def normalize1d(arr):
     arr /= np.max(arr)
     return arr
 
+
 def generate_spectrum(wl, telluric, flux, intensity, phase):
     """ Generate a fake spectrum """
     snr = par['snr']                       # Signal to Noise Ratio
 
     # Load planet spectrum
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl * 0.25)
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
     i_planet, i_atm = iy.specific_intensities(phase, intensity)
     # Observed spectrum
-    obs = (flux[None, :] - i_planet * sigma_p + i_atm *
-           sigma_a * planet[None, :]) * telluric
+    obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
+           par['A_atm'] * i_atm * planet[None, :]) * telluric
     # Generate noise
     noise = np.random.randn(len(phase), len(wl)) / snr
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
 
+
 if __name__ == '__main__':
     # Step 1: Read data
     print("Loading data")
     rw = read_write(dtype=np.float32)
+    print('   - Orbital parameters')
     par = rw.load_parameters()
     iy = intermediary(rw.config, par, dtype=np.float32)
 
-    # Relative area of the stelar disk covered by the planet and atmosphere
-    sigma_p = par['A_planet+atm']
-    # Relative area of the atmosphere of the planet projected into the star
-    sigma_a = par['A_atm']
-
-    sigma = 1 / 2.355 * par['fwhm']        # Sigma of Instrumental FWHM in pixels
+    # Sigma of Instrumental FWHM in pixels
+    sigma = 1 / 2.355 * par['fwhm']
     n_exposures = par['n_exposures']       # Number of observations per transit
 
     # Load wavelength scale and observation and phase information
+    print('   - Observation')
     wl, obs, phase = rw.load_observation('all')
     if obs.ndim == 1:
         obs = obs[None, :]
 
     # Load tellurics
+    print('   - Tellurics')
     if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
-        print('Fit tellurics with molecfit')
+        print('      Fit tellurics with molecfit')
         rw.convert_keck_fits()
         iy.fit_tellurics(verbose=True)
     else:
-        print('Use existing telluric fit')
+        print('      Use existing telluric fit')
     wl_tell, tell = rw.load_tellurics()
 
     # Load stellar model
+    print('   - Stellar model')
     flux, star_int = rw.load_star_model(wl * 0.25)
 
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
+    print('   - Doppler shift tellurics')
     velocity = iy.rv_star() + iy.rv_planet(phase)
     tell = iy.doppler_shift(tell, wl_tell, velocity)
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
 
     # Specific intensities
+    print('   - Stellar specific intensities covered by planet and atmosphere')
     i_planet, i_atm = iy.specific_intensities(phase, star_int)
 
     # Use only fake observation, for now
     # Generate fake spectrum
+    print('   - Synthetic observation')
     obs = generate_spectrum(wl, tell, flux, star_int, phase)
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
-    i_atm = gaussbroad(sigma_a * i_atm, sigma)
-    i_planet = gaussbroad(sigma_p * i_planet, sigma)
+    i_atm = gaussbroad(par['A_atm'] * i_atm, sigma)
+    i_planet = gaussbroad(par['A_planet+atm'] * i_planet, sigma)
     flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
 
+    # Sum (f * X - g)**2 = min
+    # Avoid division
+    print('   - Intermediary products f and g')
     f = tell * i_atm
-    g = obs - flux * tell + i_planet * tell
+    g = obs - (flux - i_planet) * tell
 
     print("Calculating solution")
     # Find best lambda
     sol = solution(dtype=np.float32)
     # maximum value of the solution should be 1, then there are no spikes
     lamb = 1e2
-    func = lambda x: sol.solve(wl, f, g, np.abs(x)).max() - 1
-    lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
-    sol2 = sol.solve(wl, f, g, np.abs(lamb))
 
+    def func(x): return sol.solve(wl, f, g, np.abs(x)).max() - 1
+    lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
+    lamb = np.abs(lamb[0])
+    sol2 = sol.solve(wl, f, g, lamb)
+    print('   -', mesg)
+    print('   - Best fit lambda: ', lamb)
     """
     # Step 2: find noise levels at each wavelength, aka required smoothing
     # TODO find some good consistent way to do this
@@ -159,14 +170,12 @@ if __name__ == '__main__':
     sol2 = sol.solve(wl, f, g, lamb)
     """
 
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl * 0.25)
     # Plot
-    #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
-    plt.plot(wl, planet, 'r', label='Planet')
-    #plt.plot(wl, normalize1d(obs[0]), label='Observation')
     plt.plot(wl, tell[0], label='Telluric')
+    plt.plot(wl, planet, 'r', label='Planet')
     plt.plot(wl, sol2, label='Solution')
-    plt.title('Lambda = %s, S/N = %s' % (np.mean(lamb), par['snr']))
+    plt.title('Lambda = %.3f, S/N = %s' % (np.mean(lamb), par['snr']))
     plt.legend(loc='best')
 
     # save plot

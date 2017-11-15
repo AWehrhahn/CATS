@@ -2,9 +2,12 @@
 Load various kinds of data from disk
 """
 import os.path
+import warnings
 import numpy as np
 import pandas as pd
 import astropy.io.fits as fits
+from astropy.utils.exceptions import AstropyUserWarning
+warnings.simplefilter('ignore', category=AstropyUserWarning)
 import dateutil as du
 
 import matplotlib.pyplot as plt
