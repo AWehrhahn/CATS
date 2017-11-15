@@ -10,7 +10,7 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: Keck
+name_target: Venus
 dir_input: input
 dir_output: output
 dir_intermediary: intermediary
@@ -24,7 +24,7 @@ path_molecfit: /home/ansgar/molecfit/bin/molecfit
 file_molecfit: molecfit.par
 file_observation: obs.dat
 file_observation_intermediary: obs_new.fits
-file_telluric: tell.dat
+file_telluric: tell
 file_atmosphere: planet.dat
 file_parameters: par.yaml
 file_star_flux: star/starF.flx

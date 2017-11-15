@@ -153,7 +153,7 @@ class read_write:
 
     def load_tellurics_old(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
-        tell_file = os.path.join(self.input_dir, self.config['file_telluric'])
+        tell_file = os.path.join(self.input_dir, self.config['file_telluric'] + '.dat')
         ext = os.path.splitext(tell_file)[1]
 
         if ext in ['.dat', '.csv']:

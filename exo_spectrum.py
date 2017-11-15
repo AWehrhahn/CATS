@@ -10,7 +10,6 @@ import numpy as np
 
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad, maximum_filter1d
-from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
 from read_write import read_write
@@ -60,7 +59,7 @@ def normalize1d(arr):
 def generate_spectrum(wl, telluric, flux, intensity):
     """ Generate a fake spectrum """
     # Load planet spectrum
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl)
     planet = gaussbroad(planet, sigma)
     x = np.arange(len(wl), dtype=np.float32)
     rand = np.random.rand(3, n_phase).astype(np.float32)
@@ -105,7 +104,7 @@ if __name__ == '__main__':
     # Relative area of the atmosphere of the planet projected into the star
     sigma_a = par['A_atm']
 
-    snr = par['snr']                       # Signal to Noise Ratio
+    snr = par['snr']                # Signal to Noise Ratio
     fwhm = par['fwhm']              # Instrumental FWHM in pixels
     sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
     n_phase = par['n_exposures']
@@ -122,11 +121,12 @@ if __name__ == '__main__':
         iy.fit_tellurics(verbose=True)
     else:
         print('Use existing telluric fit')
-    wl_tell, tell = rw.load_tellurics()
+    wl_tell, tell = rw.load_tellurics_old(wl, n_phase, apply_interp=False) #TODO
+    tell = tell[n_phase//2]
 
     # Load stellar model
     flux, star_int = rw.load_star_model(
-        wl * 0.25, fwhm, 0, apply_normal=False, apply_broadening=False)
+        wl, fwhm, 0, apply_normal=False, apply_broadening=False)
     #flux, star_int = rw.load_marcs(wl)
 
     nmu = len(star_int.keys()) - 1
@@ -145,12 +145,13 @@ if __name__ == '__main__':
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
 
     # Specific intensities
+
     i_planet, i_atm = iy.specific_intensities(phase, star_int)
 
     # Use only fake observation, for now
     # Generate fake spectrum
     obs_fake = generate_spectrum(wl, tell, flux, star_int)
-    obs_fake = normalize2d(obs_fake)
+    #obs_fake = normalize2d(obs_fake)
     obs = obs_fake
 
 
@@ -161,16 +162,16 @@ if __name__ == '__main__':
     flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
 
     f = tell
-    g = obs / i_atm - flux / i_atm * tell + i_planet / i_atm * tell
+    g = obs/i_atm - flux/i_atm * tell + i_planet/i_atm * tell
 
     print("Calculating solution")
     # Find best lambda
     # Step 1: make a test run without smoothing
     sol = solution(dtype=np.float32)
 
-    lamb = 1e4
+    lamb = 1e3
     sol2 = sol.solve(wl, f, g, lamb)
-    sol2 = normalize1d(sol2)
+    #sol2 = normalize1d(sol2)
     """
     # Step 2: find noise levels at each wavelength, aka required smoothing
     # TODO find some good consistent way to do this
@@ -190,13 +191,13 @@ if __name__ == '__main__':
     # Step 3: Calculate solution again, this time with smoothing
     sol2 = sol.solve(wl, f, g, lamb)
     """
-    #sol2 = np.clip(sol2, 0, 0.4)
+    sol2 = np.clip(sol2, 0, 1)
     #sol2 = normalize1d(sol2)
 
     planet = rw.load_input(wl)
     # Plot
     #plt.plot(ww, rebin(sol, (nn,)), label='Best fit')
-    plt.plot(wl, obs[0], 'r', label='Input Spectrum')
+    plt.plot(wl, planet, 'r', label='Input Spectrum')
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, sol2, label='Solution')
     plt.title('Lambda = %s, S//N = %s' % (np.mean(lamb), snr))
