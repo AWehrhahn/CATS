@@ -65,7 +65,7 @@ class read_write:
         par['r_star'] = par['r_star'] * r_sun
         par['r_planet'] = par['r_planet'] * r_jup
         par['sma'] = par['sma'] * au
-        par['period'] = par['period'] * secs
+        #par['period'] = par['period'] * secs
         par['duration'] = par['duration'] * secs
 
         # Convert to radians
@@ -81,8 +81,7 @@ class read_write:
 
         # Overwrite standard values
         for k in par.keys():
-            if k in self.config.keys():
-                self.config[k] = par[k]
+            self.config[k] = par[k]
 
         return par
 
@@ -114,23 +113,31 @@ class read_write:
             return wl_tmp, obs
         if ext in ['.ech', '.fits']:
             hdulist = fits.open(obs_file)
+            header = hdulist[0].header
             tbdata = hdulist[1].data
             columns = hdulist[1].columns
             names = columns.names
-            wave = tbdata['WAVE'].reshape(-1)
-            spec = tbdata['SPEC'].reshape(-1)
-            sig = tbdata['SIG'].reshape(-1)
-            cont = tbdata['CONT'].reshape(-1)
+
+            wave = tbdata[self.config['fits_wl']].reshape(-1)
+            spec = tbdata[self.config['fits_flux']].reshape(-1)
+            sig = tbdata[self.config['fits_sigma']].reshape(-1)
+            if self.config['fits_cont'] is not None:
+                cont = tbdata[self.config['fits_cont']].reshape(-1)
+                spec /= cont
 
             sort = np.argsort(wave)
             wave = wave[sort]
             spec = spec[sort]
-            cont = cont[sort]
             sig = sig[sort]
 
-            #plt.plot(wave, spec/cont)
-            # plt.show()
-            return wave, spec / cont
+            date = header[self.config['fits_date']]
+            transit = self.config['transit']
+            period = self.config['period']
+            phase = ((date-transit)/period) % 1
+            if phase > 0.5:
+                phase = - (1-phase)
+            phase = np.arcsin(phase)
+            return wave, spec, [phase]
 
     def load_obs_xypoint(self):
         """ load an observation into a telfit xypoint structure """
@@ -153,7 +160,8 @@ class read_write:
 
     def load_tellurics_old(self, wl_grid, n_exposures, apply_interp):
         """ Load telluric spectrum """
-        tell_file = os.path.join(self.input_dir, self.config['file_telluric'] + '.dat')
+        tell_file = os.path.join(
+            self.input_dir, self.config['file_telluric'] + '.dat')
         ext = os.path.splitext(tell_file)[1]
 
         if ext in ['.dat', '.csv']:
@@ -203,7 +211,7 @@ class read_write:
         # interp1d(wl_old, spec, kind=self.config['interpolation_method'], fill_value='extrapolate')(wl_new)
         return np.interp(wl_new, wl_old, spec)
 
-    def load_star_model(self, wl_grid, fwhm, width, apply_normal=True, apply_broadening=True, apply_interp=True):
+    def load_star_model(self, wl_grid, apply_normal=True, apply_interp=True):
         """ Load stellar model data and apply normalization and wavelength interploation """
         # Prepare file names
         star_flux_file = os.path.join(
@@ -239,11 +247,9 @@ class read_write:
         for i in tmp.keys():
             if apply_normal:
                 tmp[i] *= normalization
-            if apply_broadening:
-                tmp[i] = self.instrument_profile(tmp[i], fwhm, width)
 
         star_data = pd.DataFrame.from_dict(tmp)
-        #star_flux = pd.DataFrame(star_flux)
+
         if apply_interp:
             if apply_normal:
                 star_flux = self.interpolation(
@@ -256,9 +262,6 @@ class read_write:
                 star_flux = star_flux[:, 1]
             else:
                 star_flux = star_flux[:, 2]
-
-        if apply_broadening:
-            star_flux = self.instrument_profile(star_flux, fwhm, width)
 
         return star_flux, star_data
 

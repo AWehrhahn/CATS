@@ -57,31 +57,21 @@ def normalize1d(arr):
     arr /= np.max(arr)
     return arr
 
-def generate_spectrum(wl, telluric, flux, intensity):
+def generate_spectrum(wl, telluric, flux, intensity, phase):
     """ Generate a fake spectrum """
+    snr = par['snr']                       # Signal to Noise Ratio
+
     # Load planet spectrum
     planet = rw.load_input(wl*0.25)
     planet = gaussbroad(planet, sigma)
-    #x = np.arange(len(wl), dtype=np.float32)
-    #rand = np.random.rand(3, n_phase).astype(np.float32)
 
-    # Amplitude
-    #amplitude = rand[0] / snr
-    # Period in pixels
-    #period = 500 + 1500 * rand[1]
-    # Phase in radians
-    phase_max = iy.maximum_phase()
-    phase = np.linspace(-phase_max, phase_max, n_phase)
     # Specific intensities
     i_planet, i_atm = iy.specific_intensities(phase, intensity)
-    # Generate correlated noise
-    #error = np.cos(x[None, :] / period[:, None] * 2 * np.pi +
-    #               phase[:, None]) * amplitude[:, None]
     # Observed spectrum
     obs = (flux[None, :] - i_planet * sigma_p + i_atm *
            sigma_a * planet[None, :]) * telluric
     # Generate noise
-    noise = np.random.randn(n_phase, len(wl)) / snr
+    noise = np.random.randn(len(phase), len(wl)) / snr
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
@@ -98,13 +88,11 @@ if __name__ == '__main__':
     # Relative area of the atmosphere of the planet projected into the star
     sigma_a = par['A_atm']
 
-    snr = par['snr']                       # Signal to Noise Ratio
-    fwhm = par['fwhm']              # Instrumental FWHM in pixels
-    sigma = 1 / 2.355 * fwhm        # Sigma of Gaussian
-    n_phase = par['n_exposures']
+    sigma = 1 / 2.355 * par['fwhm']        # Sigma of Instrumental FWHM in pixels
+    n_exposures = par['n_exposures']       # Number of observations per transit
 
     # Load wavelength scale and observation
-    wl, obs = rw.load_observation('all')
+    wl, obs, phase = rw.load_observation('all')
     if obs.ndim == 1:
         obs = obs[None, :]
 
@@ -118,17 +106,10 @@ if __name__ == '__main__':
     wl_tell, tell = rw.load_tellurics()
 
     # Load stellar model
-    flux, star_int = rw.load_star_model(
-        wl*0.25, fwhm, 0, apply_normal=True, apply_broadening=False)
+    flux, star_int = rw.load_star_model(wl * 0.25)
 
     print("Calculating intermediary data")
-    # Extract orbital phase
-    # TODO extract phase from observation
-    phase_max = iy.maximum_phase()
-    phase = np.linspace(-phase_max, phase_max, n_phase)
-
     # Doppler shift telluric spectrum
-    # Doppler shift
     velocity = iy.rv_star() + iy.rv_planet(phase)
     tell = iy.doppler_shift(tell, wl_tell, velocity)
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
@@ -138,8 +119,7 @@ if __name__ == '__main__':
 
     # Use only fake observation, for now
     # Generate fake spectrum
-    obs = generate_spectrum(wl, tell, flux, star_int)
-
+    obs = generate_spectrum(wl, tell, flux, star_int, phase)
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
@@ -155,9 +135,9 @@ if __name__ == '__main__':
     sol = solution(dtype=np.float32)
     # maximum value of the solution should be 1, then there are no spikes
     lamb = 1e2
-    func = lambda x: sol.solve(wl, f, g, x).max() - 1
+    func = lambda x: sol.solve(wl, f, g, np.abs(x)).max() - 1
     lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
-    sol2 = sol.solve(wl, f, g, lamb)
+    sol2 = sol.solve(wl, f, g, np.abs(lamb))
 
     """
     # Step 2: find noise levels at each wavelength, aka required smoothing
@@ -186,7 +166,7 @@ if __name__ == '__main__':
     #plt.plot(wl, normalize1d(obs[0]), label='Observation')
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, sol2, label='Solution')
-    plt.title('Lambda = %s, S/N = %s' % (np.mean(lamb), snr))
+    plt.title('Lambda = %s, S/N = %s' % (np.mean(lamb), par['snr']))
     plt.legend(loc='best')
 
     # save plot
