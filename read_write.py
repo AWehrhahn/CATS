@@ -65,7 +65,7 @@ class read_write:
         par['r_star'] = par['r_star'] * r_sun
         par['r_planet'] = par['r_planet'] * r_jup
         par['sma'] = par['sma'] * au
-        #par['period'] = par['period'] * secs
+        par['period_s'] = par['period'] * secs
         par['duration'] = par['duration'] * secs
 
         # Convert to radians

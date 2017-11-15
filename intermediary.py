@@ -139,12 +139,12 @@ class intermediary:
 
     def rv_star(self):
         """ linearly distribute radial velocities during transit """
-        return np.linspace(0, self.par['rv_end'] - self.par['rv_start'], self.par['n_exposures']) + self.par['rv_start']
+        return np.linspace(self.par['rv_start'], self.par['rv_end'], self.par['n_exposures'])
 
     def rv_planet(self, phases):
         """ calculate radial velocities of the planet along the orbit """
         # Orbital speed
-        v_orbit = self.par['sma'] * np.sin(self.par['inc']) * 2 * np.pi / self.par['period']
+        v_orbit = self.par['sma'] * np.sin(self.par['inc']) * 2 * np.pi / self.par['period_s']
         # Modulate with phase
         return v_orbit * np.sin(phases)
 

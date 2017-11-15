@@ -91,7 +91,7 @@ if __name__ == '__main__':
     sigma = 1 / 2.355 * par['fwhm']        # Sigma of Instrumental FWHM in pixels
     n_exposures = par['n_exposures']       # Number of observations per transit
 
-    # Load wavelength scale and observation
+    # Load wavelength scale and observation and phase information
     wl, obs, phase = rw.load_observation('all')
     if obs.ndim == 1:
         obs = obs[None, :]
