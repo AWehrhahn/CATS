@@ -24,9 +24,12 @@ class solution:
         G: intermediary product G
         lam: regularization parameter lambda
         """
+        if isinstance(lamb, np.ndarray) and len(lamb) == 1:
+            lamb = lamb[0]
+
         if isinstance(lamb, (int, float)):
             lamb = np.full(len(wl), lamb, dtype=self.dtype)
-        a,c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=self.dtype)
+        a, c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=self.dtype)
         a[1:] = -lamb[:-1]
         c[:-1] = -lamb[1:]
 

@@ -10,7 +10,7 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: Venus
+name_target: Keck
 dir_input: input
 dir_output: output
 dir_intermediary: intermediary
