@@ -96,6 +96,15 @@ if __name__ == '__main__':
     if obs.ndim == 1:
         obs = obs[None, :]
 
+
+    # Find and remove bad pixels/areas
+    print('   - Find and remove bad pixels')
+    #Find all pixels that are always 0 or always 1
+    bpmap = np.all(obs == 0, axis=0) | np.all(obs == 1, axis=0) #Bad Pixel Map
+    #remove them
+    wl = wl[~bpmap]
+    obs = obs[:, ~bpmap]
+
     # Load tellurics
     print('   - Tellurics')
     if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
@@ -112,6 +121,9 @@ if __name__ == '__main__':
     flux, star_int = rw.load_marcs(wl)
 
     print("Calculating intermediary data")
+
+
+
     # Doppler shift telluric spectrum
     print('   - Doppler shift tellurics')
     velocity = iy.rv_star() + iy.rv_planet(phase)
@@ -183,7 +195,10 @@ if __name__ == '__main__':
     plt.plot(wl, sol2, label='Solution')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
               (par['name_planet'], np.mean(lamb), par['snr']))
+    plt.xlabel('Wavelength [Å]')
+    plt.ylabel('Intensity [norm.]')
     plt.legend(loc='best')
+
 
     # save plot
     output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])

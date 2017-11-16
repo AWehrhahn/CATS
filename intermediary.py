@@ -251,7 +251,7 @@ class intermediary:
         return np.arcsin(np.sqrt(((self.par['r_star'] - self.par['r_planet'] - self.par['h_atm']) / (
             self.par['sma'] * np.sin(self.par['inc'])))**2 - np.tan(self.par['inc'])**-2))
 
-    def specific_intensities(self, phase, intensity, n_radii=11, n_angle=7, mode='fast'):
+    def specific_intensities(self, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
         """
         Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
         over the different phases of transit
