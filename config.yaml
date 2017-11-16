@@ -17,7 +17,8 @@ dir_intermediary: intermediary
 # Flag to recalculate everything, even if intermediary products exist
 renew_all: false
 
-path_molecfit: /home/ansgar/molecfit/bin/molecfit
+#Path to molecfit executable
+path_molecfit: ~/molecfit/bin/molecfit
 
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)

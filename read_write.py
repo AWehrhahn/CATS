@@ -229,11 +229,6 @@ class read_write:
         star_data = {i: pd.read_table(star_data_file[i], header=None, delim_whitespace=True, usecols=(
             0, 1,), dtype=self.dtype).values for i in star_intensities}
 
-        # fix wavelenghts
-        star_flux[:, 0] = star_flux[:, 0] * 0.1  # convert to Ansgtrom
-        for i in star_intensities:
-            star_data[i][:, 0] *= 0.1
-
         # Interpolate to wavelength grid
         if apply_normal:
             normalization = self.interpolation(

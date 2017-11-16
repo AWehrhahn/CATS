@@ -108,7 +108,7 @@ if __name__ == '__main__':
 
     # Load stellar model
     print('   - Stellar model')
-    flux, star_int = rw.load_star_model(wl * 0.25)
+    flux, star_int = rw.load_star_model(wl)
 
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
@@ -141,22 +141,27 @@ if __name__ == '__main__':
     print("Calculating solution")
     # Find best lambda
     sol = solution(dtype=np.float32)
+    # TODO figure out if there is a better way
     # maximum value of the solution should be 1, then there are no spikes
     lamb = 1e2
+    #mesg = 'Use fixed lambda'
 
     def func(x): return sol.solve(wl, f, g, np.abs(x)).max() - 1
     lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
     lamb = np.abs(lamb[0])
+
     sol2 = sol.solve(wl, f, g, lamb)
+    sol2 = np.clip(sol2, 0, 1)
     print('   -', mesg)
     print('   - Best fit lambda: ', lamb)
+
     """
     # Step 2: find noise levels at each wavelength, aka required smoothing
     # TODO find some good consistent way to do this
-    width = 1000
+    width = 100
     sigma = width / 2.355
-    low = 1e4
-    top = 1e7
+    low = 1
+    top = 1e4
 
     diff = np.zeros(len(wl))
     diff[1:] = np.exp(np.abs(np.diff(sol2)))
@@ -175,7 +180,8 @@ if __name__ == '__main__':
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, planet, 'r', label='Planet')
     plt.plot(wl, sol2, label='Solution')
-    plt.title('Lambda = %.3f, S/N = %s' % (np.mean(lamb), par['snr']))
+    plt.title('%s\nLambda = %.3f, S/N = %s' %
+              (par['name_planet'], np.mean(lamb), par['snr']))
     plt.legend(loc='best')
 
     # save plot

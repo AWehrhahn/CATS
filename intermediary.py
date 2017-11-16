@@ -111,7 +111,8 @@ class intermediary:
         n: number of points in the atmosphere
         """
         # Sample the center of the atmosphere
-        sample_radius = np.array([self.par['r_planet'] + self.par['h_atm'] / 2])
+        sample_radius = np.array(
+            [self.par['r_planet'] + self.par['h_atm'] / 2])
         return self.calc_specific_intensity(dt, sample_radius, star_data, n=n)
 
     def intensity_planet(self, dt, star_data, n=20, m=20):
@@ -135,7 +136,7 @@ class intermediary:
         doppler = 1 - vel / c0
         wl_doppler = wl[None, :] * doppler[:, None]
         return np.interp(wl_doppler, wl, spectrum)
-        #return interp1d(wl, spectrum, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False)(wl_doppler)
+        # return interp1d(wl, spectrum, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False)(wl_doppler)
 
     def rv_star(self):
         """ linearly distribute radial velocities during transit """
@@ -144,7 +145,8 @@ class intermediary:
     def rv_planet(self, phases):
         """ calculate radial velocities of the planet along the orbit """
         # Orbital speed
-        v_orbit = self.par['sma'] * np.sin(self.par['inc']) * 2 * np.pi / self.par['period_s']
+        v_orbit = self.par['sma'] * \
+            np.sin(self.par['inc']) * 2 * np.pi / self.par['period_s']
         # Modulate with phase
         return v_orbit * np.sin(phases)
 
@@ -173,7 +175,7 @@ class intermediary:
 
     def calc_F(self, obs, flux, tell, i_planet, r_planet, r_star):
         """ Calculate the intermediary product F, which is independant of planet spectrum P """
-        return  - obs + flux * tell - (r_planet / r_star)**2 * i_planet * tell
+        return - obs + flux * tell - (r_planet / r_star)**2 * i_planet * tell
 
     def calc_G(self, i_atm, tell):
         """ Calculate the intermediary product G, which is dependant on planet spectrum P """
@@ -181,8 +183,9 @@ class intermediary:
 
     def fit_tellurics(self, verbose=False):
         """ fit tellurics using molecfit """
-        mfit = os.path.join(self.config['intermediary_dir'], self.config['file_molecfit'])
-        molecfit = self.config['path_molecfit']
+        mfit = os.path.join(
+            self.config['intermediary_dir'], self.config['file_molecfit'])
+        molecfit = os.path.expanduser(self.config['path_molecfit'])
         sp = subprocess.Popen([molecfit, mfit], stdout=subprocess.PIPE)
         if verbose:
             for line in iter(sp.stdout.readline, ''):
@@ -196,13 +199,14 @@ class intermediary:
         """ interpolate the stellar intensity for given limb distance mu """
         return interp1d(i.keys().values, i.values, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False, copy=False)(mu).swapaxes(0, 1)
 
-
     def calc_mu(self, phase):
         """ calculate the distance from the center of the planet to the center of the star as seen from earth """
-        return self.par['sma'] / self.par['r_star'] * \
+        """
+        distance = self.par['sma'] / self.par['r_star'] * \
             np.sqrt(np.cos(self.par['inc'])**2 +
                     np.sin(self.par['inc'])**2 * np.sin(phase)**2)
-
+        """
+        return np.sqrt(1 - (self.par['sma'] / self.par['r_star'])**2 * (np.cos(self.par['inc'])**2 + np.sin(self.par['inc'])**2 * np.sin(phase)**2))
 
     def calc_intensity(self, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
         """
@@ -226,27 +230,26 @@ class intermediary:
             radii = np.random.random_sample(
                 n_radii) * (max_radius - min_radius) + min_radius
             angles = np.random.random_sample(n_angle) * 2 * np.pi
-        # Step 2: Calculate mu_x and mu_y
-        mu_x = self.par['sma'] / self.par['r_star'] * np.sin(self.par['inc']) * np.sin(phase)
-        mu_x = mu_x[:, None, None] + \
+        # Step 2: Calculate d_x and d_y, distances from the stellar center
+        d_x = self.par['sma'] / self.par['r_star'] * \
+            np.sin(self.par['inc']) * np.sin(phase)
+        d_x = d_x[:, None, None] + \
             (radii[:, None] * np.cos(angles)[None, :])[None, :, :]
-        mu_y = self.par['sma'] / self.par['r_star'] * \
+        d_y = self.par['sma'] / self.par['r_star'] * \
             np.cos(self.par['inc']) + radii[:, None] * np.sin(angles)[None, :]
-
-        mu = np.sqrt(mu_x**2 + mu_y[None, :, :]**2)
+        # mu = sqrt(1 - d**2)
+        mu = np.sqrt(1 - (d_x**2 + d_y[None, :, :]**2))
         # Step 3: Average specific intensity, outer points weight more, as the area is larger
         intens = self.interpolate_intensity(mu, intensity)
         intens = np.average(intens, axis=3)
         intens = np.average(intens, axis=2, weights=radii)
         return intens
 
-
     def maximum_phase(self):
         """ The maximum phase for which the planet is still completely inside the stellar disk """
         # This is the inverse of calc_mu(maximum_phase()) = 1.0
         return np.arcsin(np.sqrt(((self.par['r_star'] - self.par['r_planet'] - self.par['h_atm']) / (
             self.par['sma'] * np.sin(self.par['inc'])))**2 - np.tan(self.par['inc'])**-2))
-
 
     def specific_intensities(self, phase, intensity, n_radii=11, n_angle=7, mode='fast'):
         """
@@ -265,8 +268,10 @@ class intermediary:
             n_angle = (n_angle, n_angle)
 
         if mode == 'precise':
+            #from r=0 to r = r_planet + r_atmosphere
             i_planet = self.calc_intensity(
                 phase, intensity, 0, (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star'], n_radii[0], n_angle[0])
+            #from r=r_planet to r=r_planet+r_atmosphere
             i_atm = self.calc_intensity(
                 phase, intensity, self.par['r_planet'] / self.par['r_star'], (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star'], n_radii[1], n_angle[1])
             return i_planet, i_atm
