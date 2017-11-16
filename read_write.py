@@ -4,6 +4,9 @@ Load various kinds of data from disk
 import os.path
 import warnings
 import numpy as np
+from scipy.constants import h, c, k
+from scipy.optimize import curve_fit
+from scipy.signal import hilbert
 import pandas as pd
 import astropy.io.fits as fits
 from astropy.utils.exceptions import AstropyUserWarning
@@ -136,9 +139,9 @@ class read_write:
             date = header[self.config['fits_date']]
             transit = self.config['transit']
             period = self.config['period']
-            phase = ((date-transit)/period) % 1
+            phase = ((date - transit) / period) % 1
             if phase > 0.5:
-                phase = - (1-phase)
+                phase = - (1 - phase)
             phase = np.arcsin(phase)
             return wave, spec, [phase]
 
@@ -265,6 +268,7 @@ class read_write:
 
     def load_marcs(self, wl_grid, apply_interp=True):
         """ load MARCS flux files """
+        #TODO automatic download of files, if not already there
         flux_file = os.path.join(
             self.input_dir, self.config['file_star_marcs'])
         wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
@@ -272,10 +276,62 @@ class read_write:
                              header=None, names=['Flux']).values[:, 0]
         wl = pd.read_table(wl_file, delim_whitespace=True,
                            header=None, names=['WL']).values[:, 0]
+
+        # normalize using black body radiation curve
+        # Planck's law
+        def bbr(wl, T): return 2 * h * c**2 * wl**-5 * \
+            (np.exp(h * c / (wl * k * T)) - 1)**-1
+        T = self.config['model_temp']
+        bbr_spec = bbr(wl * 10**-10, T)
+        bbr_spec = bbr_spec / max(bbr_spec) * max(flux)
+        # TODO better fit to flux
+        flux /= bbr_spec
+
         if apply_interp:
             flux = self.interpolation(wl, flux, wl_grid)
 
-        star_int = {i: flux for i in self.config['star_intensities']}
+        # Limb darkening
+        # I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
+        # from Claret 2000
+        file_limb_darkening = os.path.join(
+            self.input_dir, self.config['file_limb_darkening'])
+        hdulist = fits.open(file_limb_darkening)
+        lddata = hdulist[1].data
+
+        def round_to(n, precision):
+            correction = 0.5 if n >= 0 else -0.5
+            return int(n / precision + correction) * precision
+
+        # Get stellar parameters from parameters and round to next best grid value
+        T = round_to(self.config['star_temp'], 500)
+        logg = round_to(self.config['star_logg'], 0.5)
+        vmt = round_to(self.config['star_vt'], 1)
+        met = round_to(self.config['star_metallicity'], 0.1)
+
+        # Select correct coefficients
+        lddata = lddata[(lddata['Teff'] == T) & (lddata['logg'] == logg) & (
+            lddata['VT'] == vmt) & (lddata['log_M_H_'] == met)]
+        coeff = lddata['Coeff']
+        names = ['U', 'B', 'V', 'R', 'I']
+        wl = [3650, 4450, 5510, 6580, 8060]  # in Angström, from wikipedia
+        values = {j: lddata[i] for i, j in zip(names, wl)}
+        values = pd.DataFrame(data=values, index=coeff)
+
+        # Interpolate to the wavelength grid of the observation
+        # this is quite rough as there are not many wavelengths to choose from
+        a1 = np.interp(wl_grid, wl, values.loc['a1 '])
+        a2 = np.interp(wl_grid, wl, values.loc['a2 '])
+        a3 = np.interp(wl_grid, wl, values.loc['a3 '])
+        a4 = np.interp(wl_grid, wl, values.loc['a4 '])
+
+        # Apply limb darkening to each point and set values of mu, and store the results
+        def limb_darkening(mu):
+            return 1 - a1 * (1 - mu**0.5) - \
+                a2 * (1 - mu) - a3 * (1 - mu**1.5) - a4 * (1 - mu**2)
+
+        mus = self.config['star_intensities']
+        star_int = {i: flux * limb_darkening(i) for i in mus}
+
         star_int = pd.DataFrame.from_dict(star_int)
         return flux, star_int
 

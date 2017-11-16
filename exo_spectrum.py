@@ -108,7 +108,8 @@ if __name__ == '__main__':
 
     # Load stellar model
     print('   - Stellar model')
-    flux, star_int = rw.load_star_model(wl)
+    #flux, star_int = rw.load_star_model(wl)
+    flux, star_int = rw.load_marcs(wl)
 
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
