@@ -2,7 +2,7 @@
 
 # Define locations of stellar config files, as well as input and output folders
 # Only use '/' as path seperator, even on Windows systems
-path_stellar_db: ./stellar_db/
+path_stellar_db: /DATA/stellar_db/
 path_exoplanet_db: /DATA/exoplanetdb/
 path_input_data: /DATA/ESO_Archive/
 path_output_data: /DATA/output/
@@ -10,7 +10,8 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: Keck
+name_target: HD209458
+name_planet: b
 dir_input: input
 dir_output: output
 dir_intermediary: intermediary

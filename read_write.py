@@ -22,6 +22,8 @@ except ImportError:
     print('LibYaml not installed, ')
     from yaml import Loader  # , Dumper
 
+from DataSources.StellarDB import StellarDB
+
 
 class read_write:
     """ wrapper class for IO handling """
@@ -59,8 +61,39 @@ class read_write:
 
     def load_parameters(self):
         """ Load orbital parameters """
+        try:
+            sdb = StellarDB()
+            star = sdb.load(self.config['name_target'])
+            # Convert names
+            # Stellar parameters
+            star['name_star'] = star['name'][0]
+            star['r_star'] = star['radius']
+            star['star_temp'] = star['t_eff']
+            star['star_logg'] = star['logg']
+            star['star_vt'] = star['vel_turb']
+            star['star_metallicity'] = star['metallicity']
+            # Planetary parameters
+            planet = star['planets'][self.config['name_planet']]
+            star['name_planet'] = self.config['name_planet']
+            star['r_planet'] = planet['radius']
+            star['inc'] = planet['inclination']
+            star['h_atm'] = planet['atmosphere_height']
+            star['sma'] = planet['semi_major_axis']
+            star['period'] = planet['period']
+            star['transit'] = planet['transit_epoch']
+            star['duration'] = planet['transit_duration']
+        except AttributeError:
+            print('Star %s not found in StellarDB' %
+                  self.config['name_target'])
+            star = {}
+
         par_file = os.path.join(self.input_dir, self.config['file_parameters'])
         par = self.__load_yaml__(par_file)
+
+        # Overwrite StellarDB data with parameter data
+        for k in par.keys():
+            star[k] = par[k]
+        par = star
 
         # Convert all parameters into km and seconds
         r_sun = 696000      # Radius Sun
@@ -268,7 +301,7 @@ class read_write:
 
     def load_marcs(self, wl_grid, apply_interp=True):
         """ load MARCS flux files """
-        #TODO automatic download of files, if not already there
+        # marcs.astro.uu.se
         flux_file = os.path.join(
             self.input_dir, self.config['file_star_marcs'])
         wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
@@ -292,7 +325,7 @@ class read_write:
 
         # Limb darkening
         # I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
-        # from Claret 2000
+        # from Claret 2000, http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
         file_limb_darkening = os.path.join(
             self.input_dir, self.config['file_limb_darkening'])
         hdulist = fits.open(file_limb_darkening)

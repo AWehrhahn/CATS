@@ -45,7 +45,6 @@ def rebin(a, newshape):
 
 def normalize2d(arr, axis=1):
     """ normalize array arr """
-    # TODO fix dimensionality
     arr -= np.min(arr, axis=axis)[:, None]
     arr /= np.max(arr, axis=axis)[:, None]
     return arr
@@ -93,15 +92,15 @@ if __name__ == '__main__':
     # Load wavelength scale and observation and phase information
     print('   - Observation')
     wl, obs, phase = rw.load_observation('all')
-    if obs.ndim == 1:
+    if obs.ndim == 1:  # Ensure that obs is 2 dimensional
         obs = obs[None, :]
-
 
     # Find and remove bad pixels/areas
     print('   - Find and remove bad pixels')
-    #Find all pixels that are always 0 or always 1
-    bpmap = np.all(obs == 0, axis=0) | np.all(obs == 1, axis=0) #Bad Pixel Map
-    #remove them
+    # Find all pixels that are always 0 or always 1
+    bpmap = np.all(obs == 0, axis=0) | np.all(
+        obs == 1, axis=0)  # Bad Pixel Map
+    # remove them
     wl = wl[~bpmap]
     obs = obs[:, ~bpmap]
 
@@ -121,9 +120,6 @@ if __name__ == '__main__':
     flux, star_int = rw.load_marcs(wl)
 
     print("Calculating intermediary data")
-
-
-
     # Doppler shift telluric spectrum
     print('   - Doppler shift tellurics')
     velocity = iy.rv_star() + iy.rv_planet(phase)
@@ -194,11 +190,10 @@ if __name__ == '__main__':
     plt.plot(wl, planet, 'r', label='Planet')
     plt.plot(wl, sol2, label='Solution')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
-              (par['name_planet'], np.mean(lamb), par['snr']))
+              (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))
     plt.xlabel('Wavelength [Å]')
     plt.ylabel('Intensity [norm.]')
     plt.legend(loc='best')
-
 
     # save plot
     output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])
