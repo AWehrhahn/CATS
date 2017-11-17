@@ -10,7 +10,7 @@ import numpy as np
 
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
-from scipy.optimize import fsolve
+from scipy.optimize import fsolve, minimize
 import matplotlib.pyplot as plt
 
 from read_write import read_write
@@ -62,7 +62,7 @@ def generate_spectrum(wl, telluric, flux, intensity, phase):
     snr = par['snr']                       # Signal to Noise Ratio
 
     # Load planet spectrum
-    planet = rw.load_input(wl * 0.25)
+    planet = rw.load_input(wl*0.25)
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
@@ -152,13 +152,47 @@ if __name__ == '__main__':
     sol = solution(dtype=np.float32)
     # TODO figure out if there is a better way
     # maximum value of the solution should be 1, then there are no spikes
-    lamb = 1e2
+    lamb = 3.14
     #mesg = 'Use fixed lambda'
 
+    def eta(sol2):
+        return np.linalg.norm(sol2)**2
+
+    def rho(sol2):
+        return np.linalg.norm(f*sol2[None, :]-g)**2
+
+    def eta_prime(lamb, sol2):
+        a1 = np.array([f[0], np.full(len(wl), lamb, dtype=np.float32)], dtype=np.float32)
+        a2 = np.array([(f*sol2[None, :] - g)[0], np.zeros(len(wl), dtype=np.float32)], dtype=np.float32)
+        z = minimize(lambda z: np.linalg.norm(a1*z[None, :] - a2), x0 = np.ones(len(wl), dtype=np.float32), tol=1e-6)
+        z = z.x
+        eta = 4/lamb * sol2 * z
+        return eta
+
+    def curv(lamb):
+        sol2 = sol.solve(wl, f, g, lamb)
+        e = eta(sol2)
+        r = rho(sol2)
+        p = eta_prime(lamb, sol2)
+        
+        return 2*e*r/p * (lamb**2 *p*r + 2*lamb*e*r+lamb**4*e*p)/(lamb**2*e**2+r**2)**1.5
+    
+    print(curv(lamb))
+    """
+    # Using Generalized Cross Validation
+    def gcv(lamb): 
+        return np.linalg.norm(f * sol.solve(wl, f, g, np.abs(lamb)) - g) / (len(wl) - np.abs(lamb))
+    lamb = minimize(gcv, x0=lamb, method='Powell', options={'disp': True})
+    mesg = lamb.message
+    lamb = np.abs(lamb.x[0])
+    """
+
+    """
+    # Using dirty limitation of max(solution) == 1
     def func(x): return sol.solve(wl, f, g, np.abs(x)).max() - 1
     lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
     lamb = np.abs(lamb[0])
-
+    """
     sol2 = sol.solve(wl, f, g, lamb)
     sol2 = np.clip(sol2, 0, 1)
     print('   -', mesg)
@@ -184,7 +218,7 @@ if __name__ == '__main__':
     sol2 = sol.solve(wl, f, g, lamb)
     """
 
-    planet = rw.load_input(wl * 0.25)
+    planet = rw.load_input(wl*0.25)
     # Plot
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, planet, 'r', label='Planet')
