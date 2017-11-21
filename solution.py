@@ -4,6 +4,7 @@ Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 
 import numpy as np
 from scipy.linalg import solve_banded
+from scipy.optimize import minimize
 
 class solution:
     """ Wrapper class for the functions """
@@ -43,6 +44,18 @@ class solution:
         #               (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
         #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
         return solve_banded((1, 1), ab, r)
+
+    def solve2(self, wl, f, g, l):
+        """ Using Sparse Matrixes, experimental might be faster? """
+        from scipy.sparse import diags, csc_matrix
+        from scipy.sparse.linalg import spsolve
+        n = len(wl)
+        a = c = np.full(n-1, -l)
+        b = f[0] + 2 * l
+        b[0] -= l
+        b[-1] -= l
+        A = csc_matrix(diags([a, b, c], offsets=[-1, 0, 1]))
+        return spsolve(A, g[0])
 
 """
 #This just fits the input spectrum, independant of G and F

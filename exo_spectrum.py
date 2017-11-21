@@ -11,6 +11,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import fsolve, minimize
+from scipy.sparse import diags, csc_matrix
+from scipy.sparse.linalg import spsolve, inv
 import matplotlib.pyplot as plt
 
 from read_write import read_write
@@ -62,7 +64,7 @@ def generate_spectrum(wl, telluric, flux, intensity, phase):
     snr = par['snr']                       # Signal to Noise Ratio
 
     # Load planet spectrum
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl * 0.25)
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
@@ -152,50 +154,51 @@ if __name__ == '__main__':
     sol = solution(dtype=np.float32)
     # TODO figure out if there is a better way
     # maximum value of the solution should be 1, then there are no spikes
-    lamb = 3.14
+    lamb = 1e2
     #mesg = 'Use fixed lambda'
 
-    def eta(sol2):
-        return np.linalg.norm(sol2)**2
+    # We are using generalized Tikhonov regularization, with regularization matrix = differntial operator
 
-    def rho(sol2):
-        return np.linalg.norm(f*sol2[None, :]-g)**2
-
-    def eta_prime(lamb, sol2):
-        a1 = np.array([f[0], np.full(len(wl), lamb, dtype=np.float32)], dtype=np.float32)
-        a2 = np.array([(f*sol2[None, :] - g)[0], np.zeros(len(wl), dtype=np.float32)], dtype=np.float32)
-        z = minimize(lambda z: np.linalg.norm(a1*z[None, :] - a2), x0 = np.ones(len(wl), dtype=np.float32), tol=1e-6)
-        z = z.x
-        eta = 4/lamb * sol2 * z
-        return eta
-
-    def curv(lamb):
-        sol2 = sol.solve(wl, f, g, lamb)
-        e = eta(sol2)
-        r = rho(sol2)
-        p = eta_prime(lamb, sol2)
-        
-        return 2*e*r/p * (lamb**2 *p*r + 2*lamb*e*r+lamb**4*e*p)/(lamb**2*e**2+r**2)**1.5
-    
-    print(curv(lamb))
-    """
     # Using Generalized Cross Validation
-    def gcv(lamb): 
-        return np.linalg.norm(f * sol.solve(wl, f, g, np.abs(lamb)) - g) / (len(wl) - np.abs(lamb))
-    lamb = minimize(gcv, x0=lamb, method='Powell', options={'disp': True})
-    mesg = lamb.message
-    lamb = np.abs(lamb.x[0])
-    """
+    n = len(wl)
+    #I = np.matlib.identity(n)
+    a = c = np.full(n - 1, -1)
+    b = np.full(n, 2)
+    b[0] = b[-1] = 1
+    L = diags([a, b, c], offsets=[-1, 0, 1])
+    A = diags(f[0], 0)  # + lamb*L
+    b = g[0]
+    I = diags(np.ones(n), 0)
 
+    #sol_tx = spsolve(A, b)
+
+    def xl(l): 
+        return spsolve(A + l * L, b)
+
+    def t_inv(t): 
+        return np.where(t != 0, 1 / t / len(t[t != 0]), 0)
+
+    def influence(l): 
+        return (A + l * L) * np.dot(xl(l), t_inv(b))
+
+    def gcv(l): 
+        if isinstance(l, (np.ndarray, list)):
+            l = l[0]
+        return np.linalg.norm(A * xl(l) - b) / np.sum(1 - influence(l).diagonal())
+
+    sol_t = minimize(gcv, lamb, tol=1e-16, options={'disp':True})
+    sol_tx = sol_t.x
+    pass
     """
     # Using dirty limitation of max(solution) == 1
     def func(x): return sol.solve(wl, f, g, np.abs(x)).max() - 1
     lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
     lamb = np.abs(lamb[0])
     """
+
     sol2 = sol.solve(wl, f, g, lamb)
     sol2 = np.clip(sol2, 0, 1)
-    print('   -', mesg)
+    #print('   -', mesg)
     print('   - Best fit lambda: ', lamb)
 
     """
@@ -218,7 +221,7 @@ if __name__ == '__main__':
     sol2 = sol.solve(wl, f, g, lamb)
     """
 
-    planet = rw.load_input(wl*0.25)
+    planet = rw.load_input(wl * 0.25)
     # Plot
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, planet, 'r', label='Planet')
