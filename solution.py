@@ -4,7 +4,10 @@ Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 
 import numpy as np
 from scipy.linalg import solve_banded
-from scipy.optimize import minimize
+from scipy.sparse import diags, csc_matrix
+from scipy.sparse.linalg import spsolve
+from scipy.optimize import curve_fit, fsolve
+
 
 class solution:
     """ Wrapper class for the functions """
@@ -16,7 +19,7 @@ class solution:
     # Brute Force Solution: try different values for lambda and find the best
     # What is the best lambda ??? Which metric is used to determine that?
 
-    def solve(self, wl, f, g, lamb):
+    def Franklin(self, wl, f, g, lamb):
         """
         Solve the mimimazation problem to find the planetary spectrum
         F*x - G = 0
@@ -25,12 +28,14 @@ class solution:
         G: intermediary product G
         lam: regularization parameter lambda
         """
+        # http://epubs.siam.org/doi/pdf/10.1137/0509044
         if isinstance(lamb, np.ndarray) and len(lamb) == 1:
             lamb = lamb[0]
 
-        if isinstance(lamb, (int, float)):
+        if isinstance(lamb, (int, float, np.int64, np.float)):
             lamb = np.full(len(wl), lamb, dtype=self.dtype)
-        a, c = np.zeros(len(wl), dtype=np.float32), np.zeros(len(wl), dtype=self.dtype)
+        a, c = np.zeros(len(wl), dtype=np.float32), np.zeros(
+            len(wl), dtype=self.dtype)
         a[1:] = -lamb[:-1]
         c[:-1] = -lamb[1:]
 
@@ -45,38 +50,73 @@ class solution:
         #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
         return solve_banded((1, 1), ab, r)
 
-    def solve2(self, wl, f, g, l):
+    def Tikhonov(self, wl, f, g, l):
         """ Using Sparse Matrixes, experimental might be faster? """
-        from scipy.sparse import diags, csc_matrix
-        from scipy.sparse.linalg import spsolve
+        """ Also Tikhonov regularization instead of Franklin """
+
+        g = np.sum(g, axis=0)
+        f = np.sum(f, axis=0)
+
         n = len(wl)
-        a = c = np.full(n-1, -l)
-        b = f[0] + 2 * l
-        b[0] -= l
-        b[-1] -= l
-        A = csc_matrix(diags([a, b, c], offsets=[-1, 0, 1]))
-        return spsolve(A, g[0])
+        # Difference Operator D
+        D = self.__difference_matrix__(n)
 
-"""
-#This just fits the input spectrum, independant of G and F
-print('Alternative questionable apporach')
-exo2 = pd.read_table(os.path.join(
-    input_dir, par['file_atmosphere']), header=None, delim_whitespace=True).values
-exo2 = interp1d(exo2[:, 0], exo2[:, 1], kind=config['interpolation_method'],
-                fill_value='extrapolate')(wl_grid)
-exo2 = exo2 * par['h_atm'] - par['h_atm']
+        A = diags(f, offsets=0)
+        # Inverse
+        A.I = diags(1 / f, 0)
 
-# makes no difference
-#G = np.random.rand(*G.shape)
-Fexo = exo2 * G
-lambdaexo = 1500 * 3 / par['n_exposures']
-exo = solve(wl_grid, Fexo, G, lambdaexo)
+        sol_tx = spsolve(A + l**2 * A.I * D.T * D, g)
+        return sol_tx
 
-# Normalize
-exo = (exo - np.min(exo)) / np.max(exo - np.min(exo))
-exo2 = (exo2 - np.min(exo2)) / np.max(exo2 - np.min(exo2))
+    def __difference_matrix__(self, size):
+        a = c = np.full(size - 1, -1)
+        b = np.full(size, 2)
+        b[0] = b[-1] = 1
+        return diags([a, b, c], offsets=[-1, 0, 1])
 
-plt.plot(wl_grid, exo2)
-plt.plot(wl_grid, exo, 'r')
-plt.show()
-"""
+    def best_lambda(self, wl, f, g, sample_range=[50, 300], npoints=100, method='Tikhonov'):
+        """ Use the L-curve algorithm to find the best regularization parameter lambda """
+        D = self.__difference_matrix__(len(wl))
+        A = diags(f, offsets=0)
+
+        f = np.sum(f, axis=0)
+        g = np.sum(g, axis=0)
+
+        def get_point(lamb):
+            """ calculate points of the L-curve"""
+            if method == 'Tikhonov':
+                sol = self.Tikhonov(wl, f, g, lamb)
+            if method == 'Franklin':
+                sol = self.Franklin(wl, f, g, lamb)
+            x = np.sum((D * sol)**2)
+            y = np.sum(((A + lamb * D) * sol - g)**2)
+            return x, y
+
+        lamb = np.linspace(sample_range[0], sample_range[1], npoints)
+        values = [get_point(l) for l in lamb]
+        x = np.array([v[0] for v in values])
+        y = np.array([v[1] for v in values])
+
+        # Hyperbola
+        def hyperbola(x, a): 
+            return a / x
+
+        def distance(x, y): 
+            return x**2 + y**2
+        popt, _ = curve_fit(hyperbola, x, y)
+
+        # TODO find scales automatically
+        # Scales are necessary as large difference in size will make x and y incomparable
+        y_scale = 1e22
+        x_scale = 1e5
+        y_new = hyperbola(x, *popt) * y_scale
+        d = distance(x * x_scale, y_new)
+
+        return lamb[np.argmin(d)]
+
+    def best_lambda_dirty(self, wl, f, g, lamb0=100):
+        """ Using dirty limitation of max(solution) == 1 """
+        def func(x): return self.solve(wl, f, g, np.abs(x)).max() - 1
+        lamb, _, _, _ = fsolve(func, x0=lamb0, full_output=True)
+        lamb = np.abs(lamb[0])
+        return lamb

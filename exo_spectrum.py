@@ -8,11 +8,12 @@ import os.path
 import subprocess
 import numpy as np
 
+from numpy.linalg import norm
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
-from scipy.optimize import fsolve, minimize
+from scipy.optimize import fsolve, minimize, curve_fit
 from scipy.sparse import diags, csc_matrix
-from scipy.sparse.linalg import spsolve, inv
+from scipy.sparse.linalg import spsolve, inv, svds
 import matplotlib.pyplot as plt
 
 from read_write import read_write
@@ -152,54 +153,20 @@ if __name__ == '__main__':
     print("Calculating solution")
     # Find best lambda
     sol = solution(dtype=np.float32)
-    # TODO figure out if there is a better way
-    # maximum value of the solution should be 1, then there are no spikes
-    lamb = 1e2
-    #mesg = 'Use fixed lambda'
+    lamb = sol.best_lambda(wl, f, g)
 
-    # We are using generalized Tikhonov regularization, with regularization matrix = differntial operator
+    sol_tx = sol.Tikhonov(wl[:n], f[:, :n], g[:, :n], lamb)
+    sol2 = sol.Franklin(wl[:n], f[:, :n], g[:, :n], lamb)
 
-    # Using Generalized Cross Validation
-    n = len(wl)
-    #I = np.matlib.identity(n)
-    a = c = np.full(n - 1, -1)
-    b = np.full(n, 2)
-    b[0] = b[-1] = 1
-    L = diags([a, b, c], offsets=[-1, 0, 1])
-    A = diags(f[0], 0)  # + lamb*L
-    b = g[0]
-    I = diags(np.ones(n), 0)
-
-    #sol_tx = spsolve(A, b)
-
-    def xl(l): 
-        return spsolve(A + l * L, b)
-
-    def t_inv(t): 
-        return np.where(t != 0, 1 / t / len(t[t != 0]), 0)
-
-    def influence(l): 
-        return (A + l * L) * np.dot(xl(l), t_inv(b))
-
-    def gcv(l): 
-        if isinstance(l, (np.ndarray, list)):
-            l = l[0]
-        return np.linalg.norm(A * xl(l) - b) / np.sum(1 - influence(l).diagonal())
-
-    sol_t = minimize(gcv, lamb, tol=1e-16, options={'disp':True})
-    sol_tx = sol_t.x
-    pass
-    """
-    # Using dirty limitation of max(solution) == 1
-    def func(x): return sol.solve(wl, f, g, np.abs(x)).max() - 1
-    lamb, info, ier, mesg = fsolve(func, x0=lamb, full_output=True)
-    lamb = np.abs(lamb[0])
-    """
-
-    sol2 = sol.solve(wl, f, g, lamb)
-    sol2 = np.clip(sol2, 0, 1)
-    #print('   -', mesg)
     print('   - Best fit lambda: ', lamb)
+    planet = rw.load_input(wl * 0.25)
+
+    plt.plot(wl[:n], planet[:n], label='Planet')
+    plt.plot(wl[:n], sol_tx[:n], label='Miller')
+    plt.plot(wl[:n], sol2[:n], label='Nikolai')
+    plt.legend(loc='best')
+
+    plt.show()
 
     """
     # Step 2: find noise levels at each wavelength, aka required smoothing
