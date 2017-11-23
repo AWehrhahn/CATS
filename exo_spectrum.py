@@ -153,17 +153,17 @@ if __name__ == '__main__':
     print("Calculating solution")
     # Find best lambda
     sol = solution(dtype=np.float32)
+    #Find best fit lambda
     lamb = sol.best_lambda(wl, f, g)
-
-    sol_tx = sol.Tikhonov(wl[:n], f[:, :n], g[:, :n], lamb)
-    sol2 = sol.Franklin(wl[:n], f[:, :n], g[:, :n], lamb)
-
+    
+    sol_tx = sol.Tikhonov(wl, f, g, lamb)
+    sol2 = sol.Franklin(wl, f, g, lamb)
     print('   - Best fit lambda: ', lamb)
     planet = rw.load_input(wl * 0.25)
 
-    plt.plot(wl[:n], planet[:n], label='Planet')
-    plt.plot(wl[:n], sol_tx[:n], label='Miller')
-    plt.plot(wl[:n], sol2[:n], label='Nikolai')
+    plt.plot(wl, planet, label='Planet')
+    plt.plot(wl, sol_tx, label='Tikhonov')
+    plt.plot(wl, sol2, label='Franklin')
     plt.legend(loc='best')
 
     plt.show()

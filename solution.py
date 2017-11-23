@@ -54,19 +54,18 @@ class solution:
         """ Using Sparse Matrixes, experimental might be faster? """
         """ Also Tikhonov regularization instead of Franklin """
 
-        g = np.sum(g, axis=0)
-        f = np.sum(f, axis=0)
+        b = np.sum(f, axis=0)
+        r = np.sum(g, axis=0)
 
         n = len(wl)
         # Difference Operator D
         D = self.__difference_matrix__(n)
 
-        A = diags(f, offsets=0)
+        A = diags(b, 0)
         # Inverse
-        A.I = diags(1 / f, 0)
+        A.I = diags(1 / b, 0)
 
-        sol_tx = spsolve(A + l**2 * A.I * D.T * D, g)
-        return sol_tx
+        return spsolve(A + l**2 * A.I * D.T * D, r)
 
     def __difference_matrix__(self, size):
         a = c = np.full(size - 1, -1)
@@ -76,20 +75,24 @@ class solution:
 
     def best_lambda(self, wl, f, g, sample_range=[50, 300], npoints=100, method='Tikhonov'):
         """ Use the L-curve algorithm to find the best regularization parameter lambda """
-        D = self.__difference_matrix__(len(wl))
-        A = diags(f, offsets=0)
+        #http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
+        b = np.sum(f, axis=0)
+        r = np.sum(g, axis=0)
 
-        f = np.sum(f, axis=0)
-        g = np.sum(g, axis=0)
+        D = self.__difference_matrix__(len(wl))
+        A = diags(b, offsets=0)
+        A.I = diags(1 / b, 0)
 
         def get_point(lamb):
             """ calculate points of the L-curve"""
             if method == 'Tikhonov':
-                sol = self.Tikhonov(wl, f, g, lamb)
+                #    sol = self.Tikhonov(wl, f, g, lamb)
+                sol = spsolve(A + lamb**2 * A.I * D.T * D, r)
             if method == 'Franklin':
-                sol = self.Franklin(wl, f, g, lamb)
+                #    sol = self.Franklin(wl, f, g, lamb)
+                sol = spsolve(A+lamb*D, r)
             x = np.sum((D * sol)**2)
-            y = np.sum(((A + lamb * D) * sol - g)**2)
+            y = np.sum(((A + lamb * D) * sol - r)**2)
             return x, y
 
         lamb = np.linspace(sample_range[0], sample_range[1], npoints)
@@ -105,12 +108,11 @@ class solution:
             return x**2 + y**2
         popt, _ = curve_fit(hyperbola, x, y)
 
-        # TODO find scales automatically
         # Scales are necessary as large difference in size will make x and y incomparable
-        y_scale = 1e22
-        x_scale = 1e5
-        y_new = hyperbola(x, *popt) * y_scale
-        d = distance(x * x_scale, y_new)
+        y_scale = y.min()**-1
+        x_scale = x.min()**-1
+        y_new = hyperbola(x, *popt)
+        d = distance(x * x_scale, y_new * y_scale)
 
         return lamb[np.argmin(d)]
 
