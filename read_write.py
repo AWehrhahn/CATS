@@ -413,7 +413,7 @@ class read_write:
     def load_bin(self, filename='spectra0023IntFluxPlanetEarthContinum.bin'):
         """ load a binary data file """
         s = np.fromfile(os.path.join(self.input_dir, filename)
-                        ).reshape((-1, 6)).swapaxes(0, 1)
+                       ).reshape((-1, 6)).swapaxes(0, 1)
         return s.astype(self.dtype)
 
     def convert_keck_fits(self):

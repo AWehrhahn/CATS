@@ -268,10 +268,10 @@ class intermediary:
             n_angle = (n_angle, n_angle)
 
         if mode == 'precise':
-            #from r=0 to r = r_planet + r_atmosphere
+            # from r=0 to r = r_planet + r_atmosphere
             i_planet = self.calc_intensity(
                 phase, intensity, 0, (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star'], n_radii[0], n_angle[0])
-            #from r=r_planet to r=r_planet+r_atmosphere
+            # from r=r_planet to r=r_planet+r_atmosphere
             i_atm = self.calc_intensity(
                 phase, intensity, self.par['r_planet'] / self.par['r_star'], (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star'], n_radii[1], n_angle[1])
             return i_planet, i_atm
@@ -281,3 +281,7 @@ class intermediary:
             mu = self.calc_mu(phase)
             intensity = self.interpolate_intensity(mu, intensity)
             return intensity, intensity
+
+    def create_bad_pixel_map(self, obs):
+        """ Create a map of all bad pixels from the given set of observations """
+        return np.all(obs == 0, axis=0) | np.all(obs == 1, axis=0)

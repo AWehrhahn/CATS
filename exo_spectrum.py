@@ -5,8 +5,10 @@ Based on work by Nikolai Piskunov (Uppsala University)
 """
 
 import os.path
+import timeit
 import subprocess
 import numpy as np
+
 
 from numpy.linalg import norm
 from scipy.interpolate import interp1d
@@ -101,8 +103,7 @@ if __name__ == '__main__':
     # Find and remove bad pixels/areas
     print('   - Find and remove bad pixels')
     # Find all pixels that are always 0 or always 1
-    bpmap = np.all(obs == 0, axis=0) | np.all(
-        obs == 1, axis=0)  # Bad Pixel Map
+    bpmap = iy.create_bad_pixel_map(obs)
     # remove them
     wl = wl[~bpmap]
     obs = obs[:, ~bpmap]
@@ -110,11 +111,11 @@ if __name__ == '__main__':
     # Load tellurics
     print('   - Tellurics')
     if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
-        print('      Fit tellurics with molecfit')
+        print('      - Fit tellurics with molecfit')
         rw.convert_keck_fits()
         iy.fit_tellurics(verbose=True)
     else:
-        print('      Use existing telluric fit')
+        print('      - Use existing telluric fit')
     wl_tell, tell = rw.load_tellurics()
 
     # Load stellar model
@@ -151,19 +152,24 @@ if __name__ == '__main__':
     g = obs - (flux - i_planet) * tell
 
     print("Calculating solution")
-    # Find best lambda
     sol = solution(dtype=np.float32)
-    #Find best fit lambda
+    print('   - Finding optimal regularization parameter lambda')
     lamb = sol.best_lambda(wl, f, g)
-    
-    sol_tx = sol.Tikhonov(wl, f, g, lamb)
-    sol2 = sol.Franklin(wl, f, g, lamb)
-    print('   - Best fit lambda: ', lamb)
+    lamb_dirty = sol.best_lambda_dirty(wl, f, g)
+    print('      - L Curve: ', lamb)
+    print('      - Dirty Hack: ', lamb_dirty)
+
+    print('   - Solving inverse problem')
+    sol_t = sol.Tikhonov(wl, f, g, lamb)
+    sol_td = sol.Tikhonov(wl, f, g, lamb_dirty)
+    sol_f = sol.Franklin(wl, f, g, lamb)
     planet = rw.load_input(wl * 0.25)
 
+    #Plotting
     plt.plot(wl, planet, label='Planet')
-    plt.plot(wl, sol_tx, label='Tikhonov')
-    plt.plot(wl, sol2, label='Franklin')
+    plt.plot(wl, sol_t, label='Tikhonov')
+    plt.plot(wl, sol_td, label='Dirty')
+    plt.plot(wl, sol_f, label='Franklin')
     plt.legend(loc='best')
 
     plt.show()
@@ -172,7 +178,7 @@ if __name__ == '__main__':
     # Plot
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, planet, 'r', label='Planet')
-    plt.plot(wl, sol_tx, label='Solution')
+    plt.plot(wl, sol_t, label='Solution')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))
     plt.xlabel('Wavelength [Å]')
@@ -184,7 +190,7 @@ if __name__ == '__main__':
     plt.savefig(output_file, bbox_inches='tight')
     # save data
     output_file = os.path.join(rw.output_dir, rw.config['file_data_out'])
-    np.savetxt(output_file, sol2)
+    np.savetxt(output_file, sol_f)
 
     plt.show()
     pass

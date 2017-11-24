@@ -4,9 +4,9 @@ Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 
 import numpy as np
 from scipy.linalg import solve_banded
-from scipy.sparse import diags, csc_matrix
+from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from scipy.optimize import curve_fit, fsolve
+from scipy.optimize import fsolve
 
 
 class solution:
@@ -14,10 +14,6 @@ class solution:
 
     def __init__(self, dtype=np.float):
         self.dtype = dtype
-
-    # TODO try to find best value for lambda
-    # Brute Force Solution: try different values for lambda and find the best
-    # What is the best lambda ??? Which metric is used to determine that?
 
     def Franklin(self, wl, f, g, lamb):
         """
@@ -135,9 +131,9 @@ class solution:
                 p = get_point(lamb)
                 _lamb[i] = lamb
                 _x[i] = p[0]
-                _y[i] = p[1] 
+                _y[i] = p[1]
 
-                if abs(1 - p[0] / x_min) < abs(1 - p[1]/ y_min):
+                if abs(1 - p[0] / x_min) < abs(1 - p[1] / y_min):
                     l_low = lamb
                     lamb = (lamb + l_high) / 2
                 else:
@@ -168,8 +164,12 @@ class solution:
         return lamb[np.argmin(d)]
 
     def best_lambda_dirty(self, wl, f, g, lamb0=100):
-        """ Using dirty limitation of max(solution) == 1 """
-        def func(x): return self.solve(wl, f, g, np.abs(x)).max() - 1
+        """ Using dirty hack limitation of max(solution) == 1 """
+        # This is a dirty hack that has no reason to work as well as it does, 
+        # but it gets good results and is about 2 Orders of magnitudes 
+        # faster than the regular best_lambda function
+        def func(x):
+            return self.Franklin(wl, f, g, np.abs(x)).max() - 1
         lamb, _, _, _ = fsolve(func, x0=lamb0, full_output=True)
         lamb = np.abs(lamb[0])
         return lamb
