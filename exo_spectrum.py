@@ -127,7 +127,9 @@ if __name__ == '__main__':
     # Doppler shift telluric spectrum
     print('   - Doppler shift tellurics')
     velocity = iy.rv_star() + iy.rv_planet(phase)
+    #Doppler Shift
     tell = iy.doppler_shift(tell, wl_tell, velocity)
+    # Interpolate the tellurics to observation wavelength grid
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
 
     # Specific intensities

@@ -178,60 +178,6 @@ class read_write:
             phase = np.arcsin(phase)
             return wave, spec, [phase]
 
-    def load_obs_xypoint(self):
-        """ load an observation into a telfit xypoint structure """
-        obs_file = os.path.join(
-            self.input_dir, self.config['file_observation'])
-
-        hdulist = fits.open(obs_file)
-        header = hdulist[0].header
-        data = hdulist[1].data
-        orders = []
-        for i in range(data['wave'].shape[1]):
-            order = DataStructures.xypoint(x=data['wave'][:, i, :].reshape(-1),
-                                           y=data['spec'][:, i, :].reshape(-1),
-                                           cont=data['cont'][:,
-                                                             i, :].reshape(-1),
-                                           err=data['sig'][:, i, :].reshape(-1))
-            orders.append(order)
-        hdulist.close()
-        return header, orders
-
-    def load_tellurics_old(self, wl_grid, n_exposures, apply_interp):
-        """ Load telluric spectrum """
-        tell_file = os.path.join(
-            self.input_dir, self.config['file_telluric'] + '.dat')
-        ext = os.path.splitext(tell_file)[1]
-
-        if ext in ['.dat', '.csv']:
-            if ext == '.dat':
-                tell = pd.read_table(tell_file, header=None,
-                                     delim_whitespace=True, dtype=self.dtype)
-            elif ext == '.csv':
-                tell = pd.read_csv(tell_file, sep=',',
-                                   header=None, dtype=self.dtype)
-            wl_tmp = tell[0]
-            tell.drop([0, *range(n_exposures + 1, tell.shape[1])],
-                      axis=1, inplace=True)
-
-            tell = tell.values.swapaxes(0, 1)
-            if apply_interp:
-                tell = np.interp(wl_grid, wl_tmp, tell)
-                return tell
-            else:
-                return wl_tmp.values, tell
-
-        if ext in ['.fits']:
-            hdulist = fits.open(tell_file)
-            tbdata = hdulist[1].data
-            wl_tell = tbdata['lam']
-            tell = tbdata['trans']
-            if apply_interp:
-                tell = np.interp(wl_grid, wl_tell, tell)
-                return tell
-            else:
-                return wl_tell, tell
-
     def load_tellurics(self):
         tell_file = self.config['file_telluric'] + '_fit.fits'
         tell_file = os.path.join(self.config['intermediary_dir'], tell_file)
@@ -367,31 +313,6 @@ class read_write:
 
         star_int = pd.DataFrame.from_dict(star_int)
         return flux, star_int
-
-    # Only apply instrumental profile to artificial spectra
-    def instrument_profile(self, spectrum, fwhm, width):
-        """ apply instrumental profile broadening to the spectrum """
-        height = 0.08
-        # x = -width ... +width
-        x = np.arange(-width, width +
-                      1, step=1, dtype=self.dtype)
-        # Gaussian
-        y = height * np.exp(-0.5 * (x * 2.67 / fwhm)**2)
-
-        extspec = np.zeros(len(spectrum) + 2 * width, dtype=self.dtype)
-        extspec[:width] = spectrum[0]
-        extspec[width:-width] = spectrum
-        extspec[-width:] = spectrum[-1]
-
-        outspec = np.zeros(len(spectrum))
-        for i in range(len(spectrum)):
-            outspec[i] = np.sum(
-                extspec[i:i + 2 * width + 1] * y)
-
-        normali = np.sum(spectrum[width:-width]) / \
-            np.sum(outspec[width:-width])
-        outspec = outspec * normali
-        return outspec
 
     def load_intermediary(self):
         """ load intermediary data products """
