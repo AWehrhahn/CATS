@@ -168,31 +168,11 @@ if __name__ == '__main__':
 
     plt.show()
 
-    """
-    # Step 2: find noise levels at each wavelength, aka required smoothing
-    # TODO find some good consistent way to do this
-    width = 100
-    sigma = width / 2.355
-    low = 1
-    top = 1e4
-
-    diff = np.zeros(len(wl))
-    diff[1:] = np.exp(np.abs(np.diff(sol2)))
-    diff[0] = diff[1]
-    diff = gaussbroad(diff, width)
-    diff = diff**(np.log(top/low)/np.log(np.max(diff))) * low
-
-    lamb = diff
-
-    # Step 3: Calculate solution again, this time with smoothing
-    sol2 = sol.solve(wl, f, g, lamb)
-    """
-
     planet = rw.load_input(wl * 0.25)
     # Plot
     plt.plot(wl, tell[0], label='Telluric')
     plt.plot(wl, planet, 'r', label='Planet')
-    plt.plot(wl, sol2, label='Solution')
+    plt.plot(wl, sol_tx, label='Solution')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))
     plt.xlabel('Wavelength [Å]')

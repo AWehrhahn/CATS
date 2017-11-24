@@ -73,9 +73,11 @@ class solution:
         b[0] = b[-1] = 1
         return diags([a, b, c], offsets=[-1, 0, 1])
 
-    def best_lambda(self, wl, f, g, sample_range=[50, 300], npoints=100, method='Tikhonov'):
+    def best_lambda(self, wl, f, g, sample_range=[1e-5, 1e3], npoints=100, method='Franklin'):
         """ Use the L-curve algorithm to find the best regularization parameter lambda """
-        #http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
+        # http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
+        # TODO: is there a good sample range for all situations?
+        # TODO: Maybe an iterative approach works better/faster?
         b = np.sum(f, axis=0)
         r = np.sum(g, axis=0)
 
@@ -90,29 +92,78 @@ class solution:
                 sol = spsolve(A + lamb**2 * A.I * D.T * D, r)
             if method == 'Franklin':
                 #    sol = self.Franklin(wl, f, g, lamb)
-                sol = spsolve(A+lamb*D, r)
-            x = np.sum((D * sol)**2)
-            y = np.sum(((A + lamb * D) * sol - r)**2)
+                sol = spsolve(A + lamb * D, r)
+            y = np.sum((D * sol)**2)
+            x = np.sum(((A + lamb * D) * sol - r)**2)
             return x, y
 
-        lamb = np.linspace(sample_range[0], sample_range[1], npoints)
-        values = [get_point(l) for l in lamb]
-        x = np.array([v[0] for v in values])
-        y = np.array([v[1] for v in values])
+        plot = False
+        sampling = 'log'
+        if sampling == 'log':
+            sample_range = np.log(sample_range)
+            lamb = np.logspace(sample_range[0], sample_range[1], npoints)
+            tmp = [get_point(l) for l in lamb]
+            x = np.array([t[0] for t in tmp])
+            y = np.array([t[1] for t in tmp])
+            p1 = [x[0], y[0]]
+            p2 = [x[-1], y[-1]]
 
-        # Hyperbola
-        def hyperbola(x, a): 
-            return a / x
+        if sampling == 'iterative':
+            # TODO doesn't work properly
+            _lamb = np.empty(npoints)
+            _x = np.empty(npoints)
+            _y = np.empty(npoints)
 
-        def distance(x, y): 
+            l_low = sample_range[0]
+            l_high = sample_range[1]
+            lamb = (l_low + l_high) / 2
+
+            p1 = get_point(l_low)
+            p2 = get_point(l_high)
+
+            _lamb[0] = l_low
+            _lamb[1] = l_high
+            x_min = p1[0]
+            y_min = p2[1]
+
+            _x[0] = p1[0]
+            _x[1] = p2[0]
+            _y[0] = p1[1]
+            _y[1] = p2[1]
+
+            for i in range(2, npoints):
+                p = get_point(lamb)
+                _lamb[i] = lamb
+                _x[i] = p[0]
+                _y[i] = p[1] 
+
+                if abs(1 - p[0] / x_min) < abs(1 - p[1]/ y_min):
+                    l_low = lamb
+                    lamb = (lamb + l_high) / 2
+                else:
+                    l_high = lamb
+                    lamb = (lamb + l_low) / 2
+
+            sort = np.argsort(_x)
+            x = _x[sort]
+            y = _y[sort]
+            lamb = _lamb[sort]
+
+        def distance(x, y):
             return x**2 + y**2
-        popt, _ = curve_fit(hyperbola, x, y)
 
         # Scales are necessary as large difference in size will make x and y incomparable
         y_scale = y.min()**-1
         x_scale = x.min()**-1
-        y_new = hyperbola(x, *popt)
-        d = distance(x * x_scale, y_new * y_scale)
+        d = distance(x * x_scale, y * y_scale)
+
+        if plot:
+            import matplotlib.pyplot as plt
+            plt.plot(x, y, '+')
+            plt.plot(p1[0], p1[1], 'r+')
+            plt.plot(p2[0], p2[1], 'g+')
+            plt.plot(x[np.argmin(d)], y[np.argmin(d)], 'd')
+            plt.show()
 
         return lamb[np.argmin(d)]
 
