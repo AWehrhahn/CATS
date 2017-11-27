@@ -108,6 +108,10 @@ if __name__ == '__main__':
     wl = wl[~bpmap]
     obs = obs[:, ~bpmap]
 
+    obs = iy.fit_continuum(wl, obs)
+    #plt.plot(wl, obs[0], wl, np.ones_like(wl))
+    #plt.show()
+
     # Load tellurics
     print('   - Tellurics')
     if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
@@ -117,11 +121,14 @@ if __name__ == '__main__':
     else:
         print('      - Use existing telluric fit')
     wl_tell, tell = rw.load_tellurics()
-
+    #TODO use tellurics
+    tell = np.ones_like(wl_tell)
     # Load stellar model
     print('   - Stellar model')
     #flux, star_int = rw.load_star_model(wl)
     flux, star_int = rw.load_marcs(wl)
+    flux = iy.fit_continuum(wl, flux)
+    #star_int = iy.fit_continuum(wl, star_int)
 
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
@@ -131,6 +138,7 @@ if __name__ == '__main__':
     tell = iy.doppler_shift(tell, wl_tell, velocity)
     # Interpolate the tellurics to observation wavelength grid
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
+    tell = iy.fit_continuum(wl, tell)
 
     # Specific intensities
     print('   - Stellar specific intensities covered by planet and atmosphere')
@@ -139,7 +147,14 @@ if __name__ == '__main__':
     # Use only fake observation, for now
     # Generate fake spectrum
     print('   - Synthetic observation')
-    obs = generate_spectrum(wl, tell, flux, star_int, phase)
+    fake = generate_spectrum(wl, tell, flux, star_int, phase)
+    #fake = iy.fit_continuum(wl, fake)
+
+    # TODO why 30, why here? Barycentric correction?
+    obs = iy.doppler_shift(obs[0], wl, 30)
+
+    #plt.plot(wl, obs[0], wl, fake[0], wl, tell[0])
+    #plt.show()
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
@@ -152,6 +167,12 @@ if __name__ == '__main__':
     print('   - Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
+    g_fake = fake - (flux - i_planet) * tell
+
+    tmp = (flux[0] - i_planet[0]) * tell[0] 
+    #plt.plot(wl, obs[0], wl, tmp)
+    #plt.plot(wl, g[0], wl, g_fake[0])
+    #plt.show()
 
     print("Calculating solution")
     sol = solution(dtype=np.float32)
@@ -162,9 +183,9 @@ if __name__ == '__main__':
     print('      - Dirty Hack: ', lamb_dirty)
 
     print('   - Solving inverse problem')
-    sol_t = sol.Tikhonov(wl, f, g, lamb)
-    sol_td = sol.Tikhonov(wl, f, g, lamb_dirty)
-    sol_f = sol.Franklin(wl, f, g, lamb)
+    sol_t = normalize1d(sol.Tikhonov(wl, f, g, lamb))
+    sol_td = normalize1d(sol.Tikhonov(wl, f, g, lamb_dirty))
+    sol_f = normalize1d(sol.Franklin(wl, f, g_fake, lamb))
     planet = rw.load_input(wl * 0.25)
 
     #Plotting

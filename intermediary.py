@@ -6,7 +6,11 @@ specific intensities or F and G
 import os.path
 import subprocess
 import numpy as np
+import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
+
+import matplotlib.pyplot as plt
 
 
 class intermediary:
@@ -19,6 +23,8 @@ class intermediary:
 
     def doppler_shift(self, spectrum, wl, vel):
         """ Shift spectrum by velocity vel """
+        if not isinstance(vel, np.ndarray):
+            vel = np.array([vel])
         c0 = 299792  # speed of light in km/s
         # new shifted wavelength grid
         doppler = 1 - vel / c0
@@ -142,3 +148,46 @@ class intermediary:
     def create_bad_pixel_map(self, obs):
         """ Create a map of all bad pixels from the given set of observations """
         return np.all(obs == 0, axis=0) | np.all(obs == 1, axis=0)
+
+    def fit_continuum(self, wl, spectrum):
+        """ fit a continuum to the spectrum and continuum normalize it """
+        def fit_polynomial(wl, spectrum, mask):
+            poly = np.polyfit(wl[mask], spectrum[mask], degree)
+            fit = np.polyval(poly, wl)
+            mask = spectrum >= fit
+
+            # Add the x percent largest (smallest difference) points back to the fit
+            #sort = np.argsort(spectrum[~mask])[-len(spectrum[~mask]) // percent:]
+            sort = np.argsort(np.abs(spectrum[~mask] - fit[~mask]))[:len(spectrum[~mask]) // percent]
+            mask[~mask][sort] = True
+
+            #plt.plot(wl, spectrum, wl, fit)
+            #plt.plot(wl[~mask][sort], spectrum[~mask][sort], ',')
+            #plt.show()
+            return mask, fit
+
+        degree = 5 #degree of fitting polynomial
+        mask = np.ones(spectrum.shape, dtype=bool)
+        fit = np.empty(spectrum.shape)
+        percent = 5
+        while True:
+            if len(spectrum.shape) == 1:
+                mask, fit = fit_polynomial(wl, spectrum, mask)
+                count = len(spectrum[spectrum <= fit])
+            else:
+                if isinstance(spectrum, pd.DataFrame):
+                    for i in range(spectrum.shape[1]):
+                        mask[:, i], fit[:, i] = fit_polynomial(wl, spectrum.iloc[:, i], mask[:, i])
+                    count = spectrum[spectrum <= fit].count().sum()
+
+                else:
+                    for i in range(spectrum.shape[0]):
+                        mask[i], fit[i] = fit_polynomial(wl, spectrum[i], mask[i])
+                    count = np.product(spectrum[spectrum <= fit].shape)
+
+            # if 99% are lower than the fit, thats a good continuum ?
+            if count >= 0.99 * np.product(spectrum.shape):
+                break
+
+        spectrum /= fit
+        return spectrum

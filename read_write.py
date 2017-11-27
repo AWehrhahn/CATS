@@ -5,7 +5,7 @@ import os.path
 import warnings
 import numpy as np
 from scipy.constants import h, c, k
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, fsolve
 from scipy.signal import hilbert
 import pandas as pd
 import astropy.io.fits as fits
@@ -252,18 +252,27 @@ class read_write:
             self.input_dir, self.config['file_star_marcs'])
         wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
         flux = pd.read_table(flux_file, delim_whitespace=True,
-                             header=None, names=['Flux']).values[:, 0]
+                             header=None, names=['Flux'], comment='#').values[:, 0]
         wl = pd.read_table(wl_file, delim_whitespace=True,
-                           header=None, names=['WL']).values[:, 0]
+                           header=None, names=['WL'], comment='#').values[:, 0]
 
         # normalize using black body radiation curve
+        # Wien's displacement law
+        def T_wien(l_max):
+            return 2.89776829e7 / l_max
+        def wl_max(T):
+            return 2.89776829e7 / T
+
+        T = T_wien(wl[np.argmax(flux)])
+
         # Planck's law
-        def bbr(wl, T): return 2 * h * c**2 * wl**-5 * \
-            (np.exp(h * c / (wl * k * T)) - 1)**-1
-        T = self.config['model_temp']
-        bbr_spec = bbr(wl * 10**-10, T)
+        def bbr(wl, T): 
+            return 2 * h * c**2 * wl**-5 * (np.exp(h * c / (wl * k * T)) - 1)**-1
+
+        bbr_spec = bbr(wl * 1e-10, T)
         bbr_spec = bbr_spec / max(bbr_spec) * max(flux)
         # TODO better fit to flux
+
         flux /= bbr_spec
 
         if apply_interp:

@@ -36,8 +36,6 @@ file_star_marcs: starF.flx
 file_star_wl: flx_wavelengths.vac
 star_intensities: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
-file_gdas: GDAS_Atmosphere.dat
-
 # Intermediary data file
 file_intermediary: intermediary.npz
 
