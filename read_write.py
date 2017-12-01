@@ -77,7 +77,7 @@ class read_write:
             star['name_planet'] = self.config['name_planet']
             star['r_planet'] = planet['radius']
             star['inc'] = planet['inclination']
-            star['h_atm'] = planet['atmosphere_height']
+            #star['h_atm'] = planet['atmosphere_height']
             star['sma'] = planet['semi_major_axis']
             star['period'] = planet['period']
             star['transit'] = planet['transit_epoch']
@@ -111,6 +111,9 @@ class read_write:
         par['inc'] = np.deg2rad(par['inc'])
 
         # Derived values, the pi factor gets canceled out
+        par['h_atm'] = 0.1 * par['r_planet'] #TODO get a better estimate/value
+
+
         par['A_planet'] = par['r_planet']**2
         par['A_star'] = par['r_star']**2
         par['A_atm'] = (par['r_planet'] + par['h_atm'])**2 - par['A_planet']
@@ -128,10 +131,20 @@ class read_write:
         """ load input spectrum """
         input_file = os.path.join(
             self.input_dir, self.config['file_atmosphere'])
-        input_spectrum = pd.read_table(
-            input_file, header=None, delim_whitespace=True, dtype=self.dtype).values.swapaxes(0, 1)
+        ext = os.path.splitext(input_file)[1]
 
-        return self.interpolation(input_spectrum[0], input_spectrum[1], wl_grid)
+        if ext in ['.dat']:
+            input_spectrum = pd.read_table(
+                input_file, header=None, delim_whitespace=True, dtype=self.dtype).values.swapaxes(0, 1)
+            return self.interpolation(input_spectrum[0], input_spectrum[1], wl_grid)
+        if ext in ['.txt']:
+            input_spectrum = pd.read_table(
+                input_file, header=None, delim_whitespace=True, dtype=self.dtype, comment='#')
+
+            wl = input_spectrum[0].values * float(self.config['wl_mod_planet'])
+            input_spectrum = input_spectrum[1].values
+
+            return self.interpolation(wl, input_spectrum, wl_grid)
 
     def load_observation(self, n_exposures='all'):
         """ Load observation spectrum """
@@ -139,17 +152,15 @@ class read_write:
             self.input_dir, self.config['file_observation'])
 
         ext = os.path.splitext(obs_file)[1]
-        if ext in ['.csv', '.dat']:
+        if ext in ['.txt']:
             obs = pd.read_table(obs_file, header=None,
-                                delim_whitespace=True, dtype=self.dtype)
-            wl_tmp = obs[0].values
-            if n_exposures == 'all':
-                n_exposures = obs.shape[1] - 1
-            obs.drop([0, *range(n_exposures + 1, obs.shape[1])],
-                     axis=1, inplace=True)
-            obs = obs.values.swapaxes(0, 1)
-            #obs = interp1d(wl_tmp, obs, kind=config['interpolation_method'], fill_value='extrapolate')(wl_grid)
-            return wl_tmp, obs
+                                delim_whitespace=True, dtype=self.dtype, comment='#')
+            wl = obs[0].values * float(self.config['wl_mod_obs'])
+            obs = obs[1].values
+            phase = self.config['phase']
+
+            return wl, obs, [phase]
+
         if ext in ['.ech', '.fits']:
             hdulist = fits.open(obs_file)
             header = hdulist[0].header
@@ -179,13 +190,22 @@ class read_write:
             return wave, spec, [phase]
 
     def load_tellurics(self):
-        tell_file = self.config['file_telluric'] + '_fit.fits'
-        tell_file = os.path.join(self.config['intermediary_dir'], tell_file)
-        tell = fits.open(tell_file)
-        tbdata = tell[1].data
-        wl = tbdata['mlambda'] * 1e4  # to Angstrom
-        tell = tbdata['mtrans']
-        return wl, tell
+        tell_file = self.config['file_telluric']
+        ext = os.path.splitext(tell_file)[1]
+        if ext in ['.fits']:
+            tell_file = os.path.join(self.config['intermediary_dir'], tell_file)
+            tell = fits.open(tell_file)
+            tbdata = tell[1].data
+            wl = tbdata['mlambda'] * 1e4  # to Angstrom
+            tell = tbdata['mtrans']
+            return wl, tell
+        if ext in ['.txt']:
+            tell_file = os.path.join(self.input_dir, tell_file)
+            tell = pd.read_table(tell_file, header=None,
+                                delim_whitespace=True, dtype=self.dtype, comment='#')
+            wl = tell[0].values * float(self.config['wl_mod_tell'])
+            tell = tell[1].values
+            return wl, tell
 
     def interpolation(self, wl_old, spec, wl_new):
         """ interpolate spec onto wl_grid """
@@ -245,35 +265,46 @@ class read_write:
 
         return star_flux, star_data
 
-    def load_marcs(self, wl_grid, apply_interp=True):
+    def load_marcs(self, wl_grid, apply_interp=True, apply_norm=True):
         """ load MARCS flux files """
         # marcs.astro.uu.se
         flux_file = os.path.join(
             self.input_dir, self.config['file_star_marcs'])
-        wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
-        flux = pd.read_table(flux_file, delim_whitespace=True,
-                             header=None, names=['Flux'], comment='#').values[:, 0]
-        wl = pd.read_table(wl_file, delim_whitespace=True,
-                           header=None, names=['WL'], comment='#').values[:, 0]
 
-        # normalize using black body radiation curve
-        # Wien's displacement law
-        def T_wien(l_max):
-            return 2.89776829e7 / l_max
-        def wl_max(T):
-            return 2.89776829e7 / T
+        ext = os.path.splitext(flux_file)[1]
 
-        T = T_wien(wl[np.argmax(flux)])
+        if ext in ['.flx']:
+            wl_file = os.path.join(self.input_dir, self.config['file_star_wl'])
+            flux = pd.read_table(flux_file, delim_whitespace=True,
+                                header=None, names=['Flux'], comment='#').values[:, 0]
+            wl = pd.read_table(wl_file, delim_whitespace=True,
+                            header=None, names=['WL'], comment='#').values[:, 0]
 
-        # Planck's law
-        def bbr(wl, T): 
-            return 2 * h * c**2 * wl**-5 * (np.exp(h * c / (wl * k * T)) - 1)**-1
+        if ext in ['.txt']:
+            star_flux = pd.read_table(flux_file, header=None, delim_whitespace=True, dtype=self.dtype, comment='#')
 
-        bbr_spec = bbr(wl * 1e-10, T)
-        bbr_spec = bbr_spec / max(bbr_spec) * max(flux)
-        # TODO better fit to flux
+            wl = star_flux[0].values * float(self.config['wl_mod_flux'])
+            flux = star_flux[3].values
 
-        flux /= bbr_spec
+        if apply_norm:
+            # normalize using black body radiation curve
+            # Wien's displacement law
+            def T_wien(l_max):
+                return 2.89776829e7 / l_max
+            def wl_max(T):
+                return 2.89776829e7 / T
+
+            T = T_wien(wl[np.argmax(flux)])
+
+            # Planck's law
+            def bbr(wl, T): 
+                return 2 * h * c**2 * wl**-5 * (np.exp(h * c / (wl * k * T)) - 1)**-1
+
+            bbr_spec = bbr(wl * 1e-10, T)
+            bbr_spec = bbr_spec / max(bbr_spec) * max(flux)
+            # TODO better fit to flux
+
+            flux /= bbr_spec
 
         if apply_interp:
             flux = self.interpolation(wl, flux, wl_grid)
@@ -295,6 +326,8 @@ class read_write:
         logg = round_to(self.config['star_logg'], 0.5)
         vmt = round_to(self.config['star_vt'], 1)
         met = round_to(self.config['star_metallicity'], 0.1)
+        if met == 0.4:
+            met = 0.3
 
         # Select correct coefficients
         lddata = lddata[(lddata['Teff'] == T) & (lddata['logg'] == logg) & (

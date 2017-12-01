@@ -69,7 +69,7 @@ class solution:
         b[0] = b[-1] = 1
         return diags([a, b, c], offsets=[-1, 0, 1])
 
-    def best_lambda(self, wl, f, g, sample_range=[1e-5, 1e3], npoints=100, method='Franklin'):
+    def best_lambda(self, wl, f, g, sample_range=[1e-5, 1e3], npoints=300, method='Franklin', plot=False, sampling='log'):
         """ Use the L-curve algorithm to find the best regularization parameter lambda """
         # http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
         # TODO: is there a good sample range for all situations?
@@ -93,7 +93,6 @@ class solution:
             x = np.sum(((A + lamb * D) * sol - r)**2)
             return x, y
 
-        plot = False
         sampling = 'log'
         if sampling == 'log':
             sample_range = np.log(sample_range)

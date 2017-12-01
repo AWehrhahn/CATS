@@ -64,10 +64,8 @@ def normalize1d(arr):
 
 def generate_spectrum(wl, telluric, flux, intensity, phase):
     """ Generate a fake spectrum """
-    snr = par['snr']                       # Signal to Noise Ratio
-
     # Load planet spectrum
-    planet = rw.load_input(wl * 0.25)
+    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
@@ -76,7 +74,7 @@ def generate_spectrum(wl, telluric, flux, intensity, phase):
     obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
            par['A_atm'] * i_atm * planet[None, :]) * telluric
     # Generate noise
-    noise = np.random.randn(len(phase), len(wl)) / snr
+    noise = np.random.randn(len(phase), len(wl)) / par['snr']
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
@@ -94,6 +92,11 @@ if __name__ == '__main__':
     sigma = 1 / 2.355 * par['fwhm']
     n_exposures = par['n_exposures']       # Number of observations per transit
 
+    # TODO: For Fake Data from PSG (NASA):
+    # TODO: call DataSources.PSG with different wavelength ranges
+    # TODO: and stitch them together
+    # TODO: also make sure to use the right configuration file
+
     # Load wavelength scale and observation and phase information
     print('   - Observation')
     wl, obs, phase = rw.load_observation('all')
@@ -102,43 +105,41 @@ if __name__ == '__main__':
 
     # Find and remove bad pixels/areas
     print('   - Find and remove bad pixels')
-    # Find all pixels that are always 0 or always 1
     bpmap = iy.create_bad_pixel_map(obs)
-    # remove them
     wl = wl[~bpmap]
     obs = obs[:, ~bpmap]
 
     obs = iy.fit_continuum(wl, obs)
-    #plt.plot(wl, obs[0], wl, np.ones_like(wl))
-    #plt.show()
 
     # Load tellurics
+    # TODO make sure tellurics are created properly
     print('   - Tellurics')
+    """
     if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
         print('      - Fit tellurics with molecfit')
         rw.convert_keck_fits()
         iy.fit_tellurics(verbose=True)
     else:
         print('      - Use existing telluric fit')
+    """
     wl_tell, tell = rw.load_tellurics()
-    #TODO use tellurics
-    tell = np.ones_like(wl_tell)
+    tell = iy.fit_continuum(wl_tell, tell)
     # Load stellar model
     print('   - Stellar model')
     #flux, star_int = rw.load_star_model(wl)
-    flux, star_int = rw.load_marcs(wl)
-    flux = iy.fit_continuum(wl, flux)
-    #star_int = iy.fit_continuum(wl, star_int)
+    flux, star_int = rw.load_marcs(wl, apply_norm=False)
+
+    norm = iy.fit_continuum(wl, flux, out='norm')
+    flux /= norm
+    star_int = star_int.apply(lambda x: x/norm)
 
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
     print('   - Doppler shift tellurics')
     velocity = iy.rv_star() + iy.rv_planet(phase)
-    #Doppler Shift
     tell = iy.doppler_shift(tell, wl_tell, velocity)
     # Interpolate the tellurics to observation wavelength grid
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
-    tell = iy.fit_continuum(wl, tell)
 
     # Specific intensities
     print('   - Stellar specific intensities covered by planet and atmosphere')
@@ -147,14 +148,7 @@ if __name__ == '__main__':
     # Use only fake observation, for now
     # Generate fake spectrum
     print('   - Synthetic observation')
-    fake = generate_spectrum(wl, tell, flux, star_int, phase)
-    #fake = iy.fit_continuum(wl, fake)
-
-    # TODO why 30, why here? Barycentric correction?
-    obs = iy.doppler_shift(obs[0], wl, 30)
-
-    #plt.plot(wl, obs[0], wl, fake[0], wl, tell[0])
-    #plt.show()
+    obs = generate_spectrum(wl, tell, flux, star_int, phase)
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
@@ -167,40 +161,33 @@ if __name__ == '__main__':
     print('   - Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
-    g_fake = fake - (flux - i_planet) * tell
-
-    tmp = (flux[0] - i_planet[0]) * tell[0] 
-    #plt.plot(wl, obs[0], wl, tmp)
-    #plt.plot(wl, g[0], wl, g_fake[0])
-    #plt.show()
 
     print("Calculating solution")
     sol = solution(dtype=np.float32)
     print('   - Finding optimal regularization parameter lambda')
     lamb = sol.best_lambda(wl, f, g)
-    lamb_dirty = sol.best_lambda_dirty(wl, f, g)
     print('      - L Curve: ', lamb)
-    print('      - Dirty Hack: ', lamb_dirty)
 
     print('   - Solving inverse problem')
-    sol_t = normalize1d(sol.Tikhonov(wl, f, g, lamb))
-    sol_td = normalize1d(sol.Tikhonov(wl, f, g, lamb_dirty))
-    sol_f = normalize1d(sol.Franklin(wl, f, g_fake, lamb))
-    planet = rw.load_input(wl * 0.25)
+    sol_t = sol.Tikhonov(wl, f, g, lamb)
+    sol_f = sol.Franklin(wl, f, g, lamb)
+    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
+    #planet = iy.fit_continuum(wl, planet)
 
-    #Plotting
+    # Plotting
     plt.plot(wl, planet, label='Planet')
     plt.plot(wl, sol_t, label='Tikhonov')
-    plt.plot(wl, sol_td, label='Dirty')
+    #plt.plot(wl, sol_td, label='Dirty')
     plt.plot(wl, sol_f, label='Franklin')
     plt.legend(loc='best')
 
     plt.show()
 
-    planet = rw.load_input(wl * 0.25)
+    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
     # Plot
     plt.plot(wl, tell[0], label='Telluric')
-    plt.plot(wl, planet, 'r', label='Planet')
+    plt.plot(wl, obs[0], label='Observation')
+    plt.plot(wl, planet, label='Planet')
     plt.plot(wl, sol_t, label='Solution')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))

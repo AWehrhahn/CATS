@@ -10,6 +10,7 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
+#name_target: HD97658
 name_target: HD209458
 name_planet: b
 dir_input: input
@@ -27,7 +28,7 @@ file_molecfit: molecfit.par
 file_limb_darkening: limb_darkening.fit
 file_observation: obs.dat
 file_observation_intermediary: obs_new.fits
-file_telluric: tell
+file_telluric: tell.txt
 file_atmosphere: planet.dat
 file_parameters: par.yaml
 file_star_flux: star/starF.flx
@@ -45,3 +46,8 @@ file_data_out: solution.dat
 
 # Setup
 interpolation_method: quadratic
+planet_spectrum_factor: 1
+wl_mod_planet: 1
+wl_mod_tell: 1
+wl_mod_obs: 1
+wl_mod_flux: 1
