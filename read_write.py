@@ -146,6 +146,14 @@ class read_write:
 
             return self.interpolation(wl, input_spectrum, wl_grid)
 
+        if ext in ['.csv']:
+            input_spectrum = pd.read_csv(input_file, dtype=self.dtype)
+            wl = input_spectrum['Wave/freq'].values * float(self.config['wl_mod_planet'])
+            input_spectrum = input_spectrum['Total'].values
+
+            return self.interpolation(wl, input_spectrum, wl_grid)
+
+
     def load_observation(self, n_exposures='all'):
         """ Load observation spectrum """
         obs_file = os.path.join(
@@ -157,6 +165,14 @@ class read_write:
                                 delim_whitespace=True, dtype=self.dtype, comment='#')
             wl = obs[0].values * float(self.config['wl_mod_obs'])
             obs = obs[1].values
+            phase = self.config['phase']
+
+            return wl, obs, [phase]
+
+        if ext in ['.csv']:
+            obs = pd.read_csv(obs_file, dtype=self.dtype)
+            wl = obs['Wave/freq'].values * float(self.config['wl_mod_obs'])
+            obs = obs['Total'].values
             phase = self.config['phase']
 
             return wl, obs, [phase]
@@ -205,6 +221,13 @@ class read_write:
                                 delim_whitespace=True, dtype=self.dtype, comment='#')
             wl = tell[0].values * float(self.config['wl_mod_tell'])
             tell = tell[1].values
+            return wl, tell
+
+        if ext in ['.csv']:
+            tell_file = os.path.join(self.input_dir, tell_file)
+            tell = pd.read_csv(tell_file, dtype=self.dtype)
+            wl = tell['Wave/freq'].values * float(self.config['wl_mod_tell'])
+            tell = tell['Telluric'].values
             return wl, tell
 
     def interpolation(self, wl_old, spec, wl_new):
@@ -286,6 +309,11 @@ class read_write:
             wl = star_flux[0].values * float(self.config['wl_mod_flux'])
             flux = star_flux[3].values
 
+        if ext in ['.csv']:
+            star_flux = pd.read_csv(flux_file, dtype=self.dtype)
+            wl = star_flux['Wave/freq'].values * float(self.config['wl_mod_flux'])
+            flux = star_flux['Stellar'].values #Sun
+
         if apply_norm:
             # normalize using black body radiation curve
             # Wien's displacement law
@@ -355,6 +383,18 @@ class read_write:
 
         star_int = pd.DataFrame.from_dict(star_int)
         return flux, star_int
+
+    def load_secondary_eclipse(self, wl_grid):
+        filename = os.path.join(self.input_dir, self.config['file_secondary'])
+        ext = os.path.splitext(filename)[1]
+
+        if ext in ['.csv']:
+            df = pd.read_csv(filename, dtype=self.dtype)
+            spectrum = df['Stellar'].values
+            wl = df['Wave/freq'].values
+        
+        return wl, spectrum
+
 
     def load_intermediary(self):
         """ load intermediary data products """

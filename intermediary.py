@@ -7,11 +7,12 @@ import os.path
 import subprocess
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, UnivariateSpline
 from scipy.optimize import curve_fit
 
 import matplotlib.pyplot as plt
 warnings.simplefilter('ignore', category=Warning)
+
 
 class intermediary:
     """ Wrapper class for various intermediary data product functions """
@@ -149,54 +150,92 @@ class intermediary:
         """ Create a map of all bad pixels from the given set of observations """
         return np.all(obs == 0, axis=0) | np.all(obs == 1, axis=0)
 
-    def fit_continuum_alt2(self, wl, spectrum):
+    def fit_continuum_alt3(self, wl, spectrum, out='spectrum', size=100, threshhold=4, smoothing=0, plot=False):
+        i, j, k = -size, 0, -1
+        sparse = np.ones(len(wl)//size + 1, dtype=int)
+        while True:
+            i += size
+            j += size
+            k += 1
+
+            sparse[k] = np.argmax(spectrum[i:j]) + i
+
+            if j >= len(wl):
+                break
+        # Remove Outliers
+
+        diff = np.abs(np.diff(spectrum[sparse]))
+        sparse = np.delete(sparse, np.where(diff > threshhold * np.mean(diff))[0])
+
+        poly = UnivariateSpline(wl[sparse], spectrum[sparse], s=smoothing, ext=3)
+        fit = poly(wl)
+
+        if plot:
+            plt.plot(wl, spectrum)
+            plt.plot(wl, fit)
+            plt.plot(wl[sparse], spectrum[sparse], 'd')
+            plt.show()
+
+        if out == 'norm':
+            return fit
+        if out == 'spectrum':
+            return spectrum / fit
+
+    def fit_continuum_alt2(self, wl, spectrum, out='spectrum'):
         j = np.argmax(spectrum)
         mask = np.zeros(len(wl), dtype=bool)
         mask[j] = True
-        while j < len(wl)-1:
-            distance = (spectrum[j] - spectrum[j+1:])**2 #+ (wl[j]/100 - wl[j+1:]/100)**2
+        while j < len(wl) - 1:
+            # + (wl[j]/100 - wl[j+1:]/100)**2
+            distance = (spectrum[j] - spectrum[j + 1:])**2
             shorty = np.argmin(distance)
             j += shorty + 1
             mask[j] = True
 
         j = np.argmax(spectrum)
         while j > 1:
-            distance = (spectrum[j] - spectrum[:j-1])**2
+            distance = (spectrum[j] - spectrum[:j - 1])**2
             shorty = np.argmin(distance)
             j -= shorty + 1
             mask[j] = True
 
-        norm = interp1d(wl[mask], spectrum[mask], fill_value='extrapolate', kind='slinear')(wl)
+        norm = interp1d(wl[mask], spectrum[mask],
+                        fill_value='extrapolate', kind='slinear')(wl)
 
         plt.plot(wl, spectrum, wl, norm)
         plt.show()
 
-        return spectrum / norm
+        if out == 'spectrum':
+            return spectrum / norm
+        if out == 'norm':
+            return norm
 
-    def fit_continuum_alt(self, wl, spectrum, threshhold=0.001):
+    def fit_continuum_alt(self, wl, spectrum, threshhold=0.001, out='spectrum'):
         if len(spectrum.shape) > 1:
             return np.array([self.fit_continuum_alt(wl, spectrum[i, :], threshhold) for i in range(spectrum.shape[0])])
         prime = np.gradient(spectrum, wl)
         second = np.gradient(spectrum, wl)
-        
+
         mask = (abs(prime) <= threshhold) & (second <= 0)
-        spec_new = interp1d(wl[mask], spectrum[mask], kind='linear', fill_value='extrapolate')(wl)
+        spec_new = interp1d(wl[mask], spectrum[mask],
+                            kind='linear', fill_value='extrapolate')(wl)
 
         prime = np.gradient(spec_new, wl)
         second = np.gradient(spec_new, wl)
 
-        mask = (abs(prime) <= threshhold*0.1) & (second <= 0)
-        
+        mask = (abs(prime) <= threshhold * 0.1) & (second <= 0)
+
         count = len(np.where(mask)[0])
         print(count)
         norm = np.polyfit(wl[mask], spec_new[mask], 7)
         norm = np.polyval(norm, wl)
 
-        return spectrum/norm
+        if out == 'spectrum':
+            return spectrum / norm
+        if out == 'norm':
+            return norm
 
-                    
-
-    def fit_continuum(self, wl, spectrum, degree=5, inplace=True, plot=False, out='spectrum'):
+    def fit_continuum(self, wl, spectrum, degree=5, percent=10, inplace=True, plot=False, out='spectrum'):
         """ fit a continuum to the spectrum and continuum normalize it """
         def fit_polynomial(wl, spectrum, mask, percent):
             poly = np.polyfit(wl[mask], spectrum[mask], degree)
@@ -220,7 +259,6 @@ class intermediary:
 
         mask = np.ones(spectrum.shape, dtype=bool)
         fit = np.empty(spectrum.shape)
-        percent = 10
         while True:
             if len(spectrum.shape) == 1:
                 mask, fit, percent = fit_polynomial(

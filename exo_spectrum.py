@@ -70,6 +70,7 @@ def generate_spectrum(wl, telluric, flux, intensity, phase):
 
     # Specific intensities
     i_planet, i_atm = iy.specific_intensities(phase, intensity)
+
     # Observed spectrum
     obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
            par['A_atm'] * i_atm * planet[None, :]) * telluric
@@ -92,11 +93,6 @@ if __name__ == '__main__':
     sigma = 1 / 2.355 * par['fwhm']
     n_exposures = par['n_exposures']       # Number of observations per transit
 
-    # TODO: For Fake Data from PSG (NASA):
-    # TODO: call DataSources.PSG with different wavelength ranges
-    # TODO: and stitch them together
-    # TODO: also make sure to use the right configuration file
-
     # Load wavelength scale and observation and phase information
     print('   - Observation')
     wl, obs, phase = rw.load_observation('all')
@@ -108,8 +104,6 @@ if __name__ == '__main__':
     bpmap = iy.create_bad_pixel_map(obs)
     wl = wl[~bpmap]
     obs = obs[:, ~bpmap]
-
-    obs = iy.fit_continuum(wl, obs)
 
     # Load tellurics
     # TODO make sure tellurics are created properly
@@ -123,21 +117,24 @@ if __name__ == '__main__':
         print('      - Use existing telluric fit')
     """
     wl_tell, tell = rw.load_tellurics()
-    tell = iy.fit_continuum(wl_tell, tell)
+    #tell = iy.fit_continuum(wl_tell, tell)
     # Load stellar model
     print('   - Stellar model')
     #flux, star_int = rw.load_star_model(wl)
     flux, star_int = rw.load_marcs(wl, apply_norm=False)
 
-    norm = iy.fit_continuum(wl, flux, out='norm')
+    norm = iy.fit_continuum_alt3(wl, flux, out='norm')
     flux /= norm
     star_int = star_int.apply(lambda x: x/norm)
 
+    #Normalize observation using only stellar spectrum (e.g. from secondary eclipse or model)
+    obs /= norm
+
     print("Calculating intermediary data")
     # Doppler shift telluric spectrum
-    print('   - Doppler shift tellurics')
-    velocity = iy.rv_star() + iy.rv_planet(phase)
-    tell = iy.doppler_shift(tell, wl_tell, velocity)
+    #print('   - Doppler shift tellurics')
+    #velocity = iy.rv_star() + iy.rv_planet(phase)
+    #tell = iy.doppler_shift(tell, wl_tell, velocity)
     # Interpolate the tellurics to observation wavelength grid
     tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
 
@@ -148,7 +145,7 @@ if __name__ == '__main__':
     # Use only fake observation, for now
     # Generate fake spectrum
     print('   - Synthetic observation')
-    obs = generate_spectrum(wl, tell, flux, star_int, phase)
+    fake = generate_spectrum(wl, tell, flux, star_int, phase)
 
     # Broaden everything
     tell = gaussbroad(tell, sigma)
@@ -161,6 +158,12 @@ if __name__ == '__main__':
     print('   - Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
+    g_fake = fake - (flux - i_planet) * tell
+
+    plt.plot(wl, g_fake[0], label='G_fake')
+    plt.plot(wl, g[0], label='G')
+    plt.legend(loc='best')
+    plt.show()
 
     print("Calculating solution")
     sol = solution(dtype=np.float32)
@@ -170,25 +173,22 @@ if __name__ == '__main__':
 
     print('   - Solving inverse problem')
     sol_t = sol.Tikhonov(wl, f, g, lamb)
-    sol_f = sol.Franklin(wl, f, g, lamb)
-    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
-    #planet = iy.fit_continuum(wl, planet)
+    sol_f = sol.Tikhonov(wl, f, g_fake, lamb)
 
-    # Plotting
-    plt.plot(wl, planet, label='Planet')
-    plt.plot(wl, sol_t, label='Tikhonov')
-    #plt.plot(wl, sol_td, label='Dirty')
-    plt.plot(wl, sol_f, label='Franklin')
-    plt.legend(loc='best')
-
-    plt.show()
+    #sol_t = normalize1d(sol_t)
+    #sol_f = normalize1d(sol_f)
 
     planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
     # Plot
-    plt.plot(wl, tell[0], label='Telluric')
+    plt.plot(wl, tell, label='Telluric')
     plt.plot(wl, obs[0], label='Observation')
+    plt.plot(wl, flux[0], label='Flux')
+    plt.plot(wl, fake[0], label='Fake')
     plt.plot(wl, planet, label='Planet')
     plt.plot(wl, sol_t, label='Solution')
+    plt.plot(wl, sol_f, label='Solution Fake')
+    #plt.plot(wl, norm_obs[0], label='Norm')
+    #plt.plot(wl, norm_fake[0], label='Norm Fake')
     plt.title('%s\nLambda = %.3f, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))
     plt.xlabel('Wavelength [Å]')

@@ -24,6 +24,7 @@ path_molecfit: ~/molecfit/bin/molecfit
 
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)
+file_secondary: secondary.csv
 file_molecfit: molecfit.par
 file_limb_darkening: limb_darkening.fit
 file_observation: obs.dat
@@ -36,6 +37,7 @@ file_star_data: star/starI{0}.int
 file_star_marcs: starF.flx
 file_star_wl: flx_wavelengths.vac
 star_intensities: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
 
 # Intermediary data file
 file_intermediary: intermediary.npz
