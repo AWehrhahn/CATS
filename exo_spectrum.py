@@ -5,22 +5,18 @@ Based on work by Nikolai Piskunov (Uppsala University)
 """
 
 import os.path
-import timeit
-import subprocess
 import numpy as np
-
+import pandas as pd
 
 from numpy.linalg import norm
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
-from scipy.optimize import fsolve, minimize, curve_fit
-from scipy.sparse import diags, csc_matrix
-from scipy.sparse.linalg import spsolve, inv, svds
 import matplotlib.pyplot as plt
 
-from read_write import read_write
-from intermediary import intermediary
-from solution import solution
+import intermediary as iy
+import solution as sol
+
+import config
 
 
 def load_keck_save(filename):
@@ -62,145 +58,176 @@ def normalize1d(arr):
     return arr
 
 
-def generate_spectrum(wl, telluric, flux, intensity, phase):
+def generate_spectrum(conf, par, wl, telluric, flux, intensity, phase, source='psg'):
     """ Generate a fake spectrum """
+    # Sigma of Instrumental FWHM in pixels
+    sigma = 1 / 2.355 * par['fwhm']
+
     # Load planet spectrum
-    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
+    if source in ['psg']:
+        import psg
+        planet = psg.load_input(conf, wl)
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
-    i_planet, i_atm = iy.specific_intensities(phase, intensity)
+    i_planet, i_atm = iy.specific_intensities(par, phase, intensity)
 
     # Observed spectrum
     obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
            par['A_atm'] * i_atm * planet[None, :]) * telluric
     # Generate noise
-    noise = np.random.randn(len(phase), len(wl)) / par['snr']
+    noise = np.random.randn(len(phase), len(wl)) / par['snr'] * 0
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
 
 
-if __name__ == '__main__':
-    # Step 1: Read data
-    print("Loading data")
-    rw = read_write(dtype=np.float32)
-    print('   - Orbital parameters')
-    par = rw.load_parameters()
-    iy = intermediary(rw.config, par, dtype=np.float32)
-
-    # Sigma of Instrumental FWHM in pixels
-    sigma = 1 / 2.355 * par['fwhm']
-    n_exposures = par['n_exposures']       # Number of observations per transit
-
-    # Load wavelength scale and observation and phase information
-    print('   - Observation')
-    wl, obs, phase = rw.load_observation('all')
-    if obs.ndim == 1:  # Ensure that obs is 2 dimensional
-        obs = obs[None, :]
-
-    # Find and remove bad pixels/areas
-    print('   - Find and remove bad pixels')
-    bpmap = iy.create_bad_pixel_map(obs)
-    wl = wl[~bpmap]
-    obs = obs[:, ~bpmap]
-
-    # Load tellurics
-    # TODO make sure tellurics are created properly
-    print('   - Tellurics')
-    """
-    if not os.path.exists(os.path.join(rw.intermediary_dir, rw.config['file_telluric'] + '_fit.fits')) or rw.renew_all:
-        print('      - Fit tellurics with molecfit')
-        rw.convert_keck_fits()
-        iy.fit_tellurics(verbose=True)
-    else:
-        print('      - Use existing telluric fit')
-    """
-    wl_tell, tell = rw.load_tellurics()
-    #tell = iy.fit_continuum(wl_tell, tell)
-    # Load stellar model
-    print('   - Stellar model')
-    #flux, star_int = rw.load_star_model(wl)
-    flux, star_int = rw.load_marcs(wl, apply_norm=False)
-
-    norm = iy.fit_continuum_alt3(wl, flux, out='norm')
-    flux /= norm
-    star_int = star_int.apply(lambda x: x/norm)
-
-    #Normalize observation using only stellar spectrum (e.g. from secondary eclipse or model)
-    obs /= norm
-
-    print("Calculating intermediary data")
-    # Doppler shift telluric spectrum
-    #print('   - Doppler shift tellurics')
-    #velocity = iy.rv_star() + iy.rv_planet(phase)
-    #tell = iy.doppler_shift(tell, wl_tell, velocity)
-    # Interpolate the tellurics to observation wavelength grid
-    tell = interp1d(wl_tell, tell, fill_value='extrapolate')(wl)
-
-    # Specific intensities
+def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
+    """ calculate solution from input """
     print('   - Stellar specific intensities covered by planet and atmosphere')
-    i_planet, i_atm = iy.specific_intensities(phase, star_int)
+    i_planet, i_atm = iy.specific_intensities(par, phase, star_int)
 
-    # Use only fake observation, for now
-    # Generate fake spectrum
-    print('   - Synthetic observation')
-    fake = generate_spectrum(wl, tell, flux, star_int, phase)
+    print('   - Broaden spectra')
+    # Sigma of Instrumental FWHM in pixels
+    sigma = 1 / 2.355 * conf['fwhm']
 
-    # Broaden everything
+    #def gaussbroad(x, y): return x
     tell = gaussbroad(tell, sigma)
     i_atm = gaussbroad(par['A_atm'] * i_atm, sigma)
     i_planet = gaussbroad(par['A_planet+atm'] * i_planet, sigma)
     flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
 
-    # Sum (f * X - g)**2 = min
-    # Avoid division
     print('   - Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
-    g_fake = fake - (flux - i_planet) * tell
 
-    plt.plot(wl, g_fake[0], label='G_fake')
-    plt.plot(wl, g[0], label='G')
-    plt.legend(loc='best')
-    plt.show()
-
-    print("Calculating solution")
-    sol = solution(dtype=np.float32)
-    print('   - Finding optimal regularization parameter lambda')
-    lamb = sol.best_lambda(wl, f, g)
-    print('      - L Curve: ', lamb)
-
+    if lamb == 'auto' or lamb is None:
+        print('   - Finding optimal regularization parameter lambda')
+        lamb = sol.best_lambda(wl, f, g)
+    print('      - Lambda: ', lamb)
     print('   - Solving inverse problem')
-    sol_t = sol.Tikhonov(wl, f, g, lamb)
-    sol_f = sol.Tikhonov(wl, f, g_fake, lamb)
+    # return normalize1d(sol.Tikhonov(wl, f, g, lamb))
+    return sol.Tikhonov(wl, f, g, lamb)
 
-    #sol_t = normalize1d(sol_t)
-    #sol_f = normalize1d(sol_f)
 
-    planet = rw.load_input(wl * rw.config['planet_spectrum_factor'])
-    # Plot
+def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
+    """ plot resulting data """
+    if source in ['psg']:
+        import psg
+        planet = psg.load_input(conf, wl)
+
     plt.plot(wl, tell, label='Telluric')
     plt.plot(wl, obs[0], label='Observation')
-    plt.plot(wl, flux[0], label='Flux')
-    plt.plot(wl, fake[0], label='Fake')
+    plt.plot(wl, flux, label='Flux')
+    #plt.plot(wl, fake[0], label='Fake')
     plt.plot(wl, planet, label='Planet')
     plt.plot(wl, sol_t, label='Solution')
-    plt.plot(wl, sol_f, label='Solution Fake')
-    #plt.plot(wl, norm_obs[0], label='Norm')
-    #plt.plot(wl, norm_fake[0], label='Norm Fake')
+
     plt.title('%s\nLambda = %.3f, S/N = %s' %
-              (par['name_star'] + ' ' + par['name_planet'], np.mean(lamb), par['snr']))
+              (par['name_star'] + ' ' + par['name_planet'], np.mean(1e-5), conf['snr']))
     plt.xlabel('Wavelength [Å]')
     plt.ylabel('Intensity [norm.]')
     plt.legend(loc='best')
 
     # save plot
-    output_file = os.path.join(rw.output_dir, rw.config['file_spectrum'])
+    output_file = os.path.join(conf['output_dir'], conf['file_spectrum'])
+    if not os.path.exists(conf['output_dir']):
+        os.mkdir(conf['output_dir'])
     plt.savefig(output_file, bbox_inches='tight')
     # save data
-    output_file = os.path.join(rw.output_dir, rw.config['file_data_out'])
-    np.savetxt(output_file, sol_f)
+    output_file = os.path.join(conf['output_dir'], conf['file_data_out'])
+    np.savetxt(output_file, sol_t)
 
     plt.show()
+
+
+def prepare(target, phase):
+    # Load data from PSG if necessary
+    import psg
+    conf = config.load_config(target)
+    psg.load_psg(conf, phase)
+    return np.deg2rad(phase)
+
+
+def get_data(conf, star, planet):
+    """
+    Load data from specified sources
+    """
+    # Check settings
+    parameters = conf['parameters']
+    flux = conf['flux']
+    intensities = conf['intensities']
+    observation = conf['observation']
+    tellurics = conf['tellurics']
+
+    # Parameters
+    if parameters in ['stellar_db', 'sdb']:
+        import stellar_db
+        par = stellar_db.load_parameters(star, planet)
+
+    if observation in ['psg']:
+        import psg
+        wl_obs, obs, phase = psg.load_observation(conf)
+
+    # Stellar Flux
+    if flux in ['marcs', 'm']:
+        import marcs
+        wl_flux, flux = marcs.load_flux(conf)
+    elif flux in ['psg']:
+        import psg
+        wl_flux, flux = psg.load_flux(conf)
+
+    # Specific intensities
+    if intensities in ['limb_darkening']:
+        import limb_darkening
+        wl_si, intensities = limb_darkening.load_intensities(
+            conf, par, wl_flux, flux)
+
+    # Tellurics
+    if tellurics in ['psg']:
+        import psg
+        wl_tell, tell = psg.load_tellurics(conf)
+    elif tellurics in ['one', 'ones'] or tellurics is None:
+        wl_tell = wl_obs[0]
+        tell = np.ones_like(wl_tell)
+
+    # Unify wavelength grid
+    bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
+    wl = wl_obs[0, ~bpmap]
+    obs = obs[:, ~bpmap]
+
+    flux = np.interp(wl, wl_flux, flux)
+    data = np.array([np.interp(wl, wl_si, intensities[i])
+                     for i in intensities.keys()]).swapaxes(0, 1)
+    intensities = pd.DataFrame(data=data, columns=intensities.keys())
+    tell = np.interp(wl, wl_tell, tell)
+
+    return par, wl, flux, intensities, tell, obs, phase
+
+
+def main(star, planet, lamb='auto', use_fake=False):
+    """
+    Main entry point for the ExoSpectrum Programm
+    """
+    # Configuration
+    conf = config.load_config(star + planet, 'config.yaml')
+    # Step 1: Get Data
+    par, wl, flux, intensities, tell, obs, phase = get_data(conf, star, planet)
+    # Step 2: Calc Solution
+    sol_t = calculate(conf, par, wl, obs, tell, flux,
+                      intensities, phase, lamb=lamb)
+
+    if use_fake:
+        fake = generate_spectrum(conf, par, wl, tell, flux, intensities, phase)
+        sol_f = calculate(conf, par, wl, fake, tell, flux,
+                          intensities, phase, lamb=lamb)
+    else:
+        fake = sol_f = None
+
+    # Step 3: Output
+    plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f)
     pass
+
+
+if __name__ == '__main__':
+    main('Trappist-1', 'c', lamb=1e-4)

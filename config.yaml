@@ -10,9 +10,9 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-#name_target: HD97658
-name_target: HD209458
-name_planet: b
+name_target: Trappist-1
+#name_target: HD209458
+name_planet: c
 dir_input: input
 dir_output: output
 dir_intermediary: intermediary
@@ -24,20 +24,19 @@ path_molecfit: ~/molecfit/bin/molecfit
 
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)
-file_secondary: secondary.csv
+file_obs_psg: radiance_*.csv
+file_phase_psg: phases.txt
+file_star_psg: radiance_00.csv
+file_atm_psg: planet.csv
+file_tell_psg: tell.csv
+
+file_parameters: par.yaml
+file_star_marcs: starF.flx
+file_wl_marcs: flx_wavelengths.vac
+
 file_molecfit: molecfit.par
 file_limb_darkening: limb_darkening.fit
-file_observation: obs.dat
-file_observation_intermediary: obs_new.fits
-file_telluric: tell.txt
-file_atmosphere: planet.dat
-file_parameters: par.yaml
-file_star_flux: star/starF.flx
-file_star_data: star/starI{0}.int
-file_star_marcs: starF.flx
-file_star_wl: flx_wavelengths.vac
 star_intensities: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-
 
 # Intermediary data file
 file_intermediary: intermediary.npz
@@ -47,9 +46,10 @@ file_spectrum: spectrum.png
 file_data_out: solution.dat
 
 # Setup
-interpolation_method: quadratic
-planet_spectrum_factor: 1
-wl_mod_planet: 1
-wl_mod_tell: 1
-wl_mod_obs: 1
-wl_mod_flux: 1
+psg_wl_mod: 10000
+
+parameters: stellar_db
+flux: psg
+intensities: limb_darkening
+observation: psg
+tellurics: one

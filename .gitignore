@@ -2,3 +2,4 @@ __pycache__/
 temp.dat
 .vscode/.ropeproject/objectdb
 chisq_summary.dat
+limb_darkening.fit
