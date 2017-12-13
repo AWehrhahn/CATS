@@ -5,7 +5,7 @@ Get Data from Stellar DB
 import numpy as np
 from DataSources.StellarDB import StellarDB
 
-def load_parameters(name_star, name_planet):
+def load_parameters(name_star, name_planet, atm_factor=0.1, **kwargs):
     """ Load orbital parameters """
 
     sdb = StellarDB()
@@ -50,7 +50,7 @@ def load_parameters(name_star, name_planet):
     if 'h_atm' not in star.keys():
         star['h_atm'] = 0.1 * star['r_planet']
     else:
-        star['h_atm'] = 6 * star['r_planet']
+        star['h_atm'] = atm_factor * star['r_planet']
 
     star['A_planet'] = star['r_planet']**2
     star['A_star'] = star['r_star']**2

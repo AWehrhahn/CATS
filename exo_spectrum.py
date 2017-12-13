@@ -3,13 +3,12 @@ Use an inverse method approach to determine the planetary transit spectrum
 author: Ansgar Wehrhahn (ansgar.wehrhahn@physics.uu.se)
 Based on work by Nikolai Piskunov (Uppsala University)
 """
-
+import sys
+import argparse
 import os.path
 import numpy as np
 import pandas as pd
 
-from numpy.linalg import norm
-from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
 
@@ -17,17 +16,10 @@ import intermediary as iy
 import solution as sol
 
 import config
-
-
-def load_keck_save(filename):
-    """ just a reminder how to load the keck info file """
-    import scipy.io
-    import pandas as pd
-    keck = scipy.io.readsav(filename)
-    cat = keck['cat']
-    df = pd.DataFrame.from_records(cat)
-    df.applymap(lambda s: s.decode('ascii') if isinstance(s, bytes) else s)
-    return df
+import psg
+import marcs
+import stellar_db
+import limb_darkening
 
 
 def rebin(a, newshape):
@@ -61,12 +53,16 @@ def normalize1d(arr):
 def generate_spectrum(conf, par, wl, telluric, flux, intensity, phase, source='psg'):
     """ Generate a fake spectrum """
     # Sigma of Instrumental FWHM in pixels
-    sigma = 1 / 2.355 * par['fwhm']
+    sigma = 1 / 2.355 * conf['fwhm']
 
-    # Load planet spectrum
-    if source in ['psg']:
-        import psg
-        planet = psg.load_input(conf, wl)
+    try:
+        # Load planet spectrum
+        if source in ['psg']:
+            planet = psg.load_input(conf, wl)
+    except FileNotFoundError:
+        print('No planet spectrum for synthetic observation found')
+        raise FileNotFoundError
+    
     planet = gaussbroad(planet, sigma)
 
     # Specific intensities
@@ -76,7 +72,9 @@ def generate_spectrum(conf, par, wl, telluric, flux, intensity, phase, source='p
     obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
            par['A_atm'] * i_atm * planet[None, :]) * telluric
     # Generate noise
-    noise = np.random.randn(len(phase), len(wl)) / par['snr'] * 0
+    noise = np.random.randn(len(phase), len(wl)) / conf['snr']
+    # TODO
+    noise = 0
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
@@ -103,8 +101,9 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
 
     if lamb == 'auto' or lamb is None:
         print('   - Finding optimal regularization parameter lambda')
-        lamb = sol.best_lambda(wl, f, g)
+        lamb = sol.best_lambda(wl, f, g) #TODO currently doesn't work as intended
     print('      - Lambda: ', lamb)
+    conf['lamb'] = lamb
     print('   - Solving inverse problem')
     # return normalize1d(sol.Tikhonov(wl, f, g, lamb))
     return sol.Tikhonov(wl, f, g, lamb)
@@ -112,19 +111,25 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
 
 def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
     """ plot resulting data """
-    if source in ['psg']:
-        import psg
-        planet = psg.load_input(conf, wl)
+    try:
+        if source in ['psg']:
+            planet = psg.load_input(conf, wl)
+            is_planet = True
+    except FileNotFoundError:
+        is_planet = False
 
     plt.plot(wl, tell, label='Telluric')
     plt.plot(wl, obs[0], label='Observation')
     plt.plot(wl, flux, label='Flux')
-    #plt.plot(wl, fake[0], label='Fake')
-    plt.plot(wl, planet, label='Planet')
+    if is_planet:
+        plt.plot(wl, planet, label='Planet')
     plt.plot(wl, sol_t, label='Solution')
+    if fake is not None:
+        plt.plot(wl, fake[0], label='Fake')
+        plt.plot(wl, sol_f, label='Sol Fake')
 
-    plt.title('%s\nLambda = %.3f, S/N = %s' %
-              (par['name_star'] + ' ' + par['name_planet'], np.mean(1e-5), conf['snr']))
+    plt.title('%s\nLambda = %.3g, S/N = %s' %
+              (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr']))
     plt.xlabel('Wavelength [Å]')
     plt.ylabel('Intensity [norm.]')
     plt.legend(loc='best')
@@ -143,13 +148,12 @@ def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
 
 def prepare(target, phase):
     # Load data from PSG if necessary
-    import psg
     conf = config.load_config(target)
     psg.load_psg(conf, phase)
     return np.deg2rad(phase)
 
 
-def get_data(conf, star, planet):
+def get_data(conf, star, planet, **kwargs):
     """
     Load data from specified sources
     """
@@ -161,31 +165,41 @@ def get_data(conf, star, planet):
     tellurics = conf['tellurics']
 
     # Parameters
+    print('   - Parameters')
     if parameters in ['stellar_db', 'sdb']:
-        import stellar_db
-        par = stellar_db.load_parameters(star, planet)
+        par = stellar_db.load_parameters(star, planet, **kwargs)
 
+    wl_marcs, f_marcs = marcs.load_flux(conf, par)
+    wl_psg, f_psg = psg.load_flux(conf)
+    wl_tell, tell = psg.load_tellurics(conf)
+
+    f_marcs = np.interp(wl_psg, wl_marcs, f_marcs)
+    f_marcs = gaussbroad(f_marcs, 30)
+
+    plt.plot(wl_psg, f_marcs, wl_psg, f_psg)
+    plt.xlim([6000, 20000])
+    #plt.ylim([0, 0.0007])
+    plt.show()
+    
+
+    print('   - Observations')
     if observation in ['psg']:
-        import psg
         wl_obs, obs, phase = psg.load_observation(conf)
 
-    # Stellar Flux
+    print('   - Stellar flux')
     if flux in ['marcs', 'm']:
-        import marcs
-        wl_flux, flux = marcs.load_flux(conf)
+        wl_flux, flux = marcs.load_flux(conf, par)
     elif flux in ['psg']:
-        import psg
         wl_flux, flux = psg.load_flux(conf)
 
-    # Specific intensities
+    print('   - Specific intensities')
     if intensities in ['limb_darkening']:
-        import limb_darkening
+
         wl_si, intensities = limb_darkening.load_intensities(
             conf, par, wl_flux, flux)
 
-    # Tellurics
+    print('   - Tellurics')
     if tellurics in ['psg']:
-        import psg
         wl_tell, tell = psg.load_tellurics(conf)
     elif tellurics in ['one', 'ones'] or tellurics is None:
         wl_tell = wl_obs[0]
@@ -193,6 +207,7 @@ def get_data(conf, star, planet):
 
     # Unify wavelength grid
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
+    bpmap[(wl_obs[0] <= 8100)] = True #TODO for PSG at least wl lower than 8000 Å are bad
     wl = wl_obs[0, ~bpmap]
     obs = obs[:, ~bpmap]
 
@@ -205,19 +220,28 @@ def get_data(conf, star, planet):
     return par, wl, flux, intensities, tell, obs, phase
 
 
-def main(star, planet, lamb='auto', use_fake=False):
+def main(star, planet, lamb='auto', use_fake=False, offset=0, **kwargs):
     """
     Main entry point for the ExoSpectrum Programm
     """
-    # Configuration
+    # Step 0: Configuration
     conf = config.load_config(star + planet, 'config.yaml')
+
+    psg.load_psg(conf, [180])
+
     # Step 1: Get Data
-    par, wl, flux, intensities, tell, obs, phase = get_data(conf, star, planet)
+    print('Load data')
+    par, wl, flux, intensities, tell, obs, phase = get_data(
+        conf, star, planet, **kwargs)
+
     # Step 2: Calc Solution
+    print('Calculate solution')
     sol_t = calculate(conf, par, wl, obs, tell, flux,
                       intensities, phase, lamb=lamb)
 
+    # Step 2.5: Fake Spectrum
     if use_fake:
+        print('Generate synthetic spectrum')
         fake = generate_spectrum(conf, par, wl, tell, flux, intensities, phase)
         sol_f = calculate(conf, par, wl, fake, tell, flux,
                           intensities, phase, lamb=lamb)
@@ -225,9 +249,42 @@ def main(star, planet, lamb='auto', use_fake=False):
         fake = sol_f = None
 
     # Step 3: Output
-    plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f)
-    pass
+    print('Plot')
+    plot(conf, par, wl, obs, fake, tell, flux, sol_t + offset, sol_f)
 
 
 if __name__ == '__main__':
-    main('Trappist-1', 'c', lamb=1e-4)
+    if len(sys.argv) > 1:
+        parser = argparse.ArgumentParser(description='Extract the planetary transmittance spectrum, from one or more transit observations.')
+        parser.add_argument('star', type=str, help='The observed star')
+        parser.add_argument('planet', type=str, help='The letter of the planet (default=b)', nargs='?', default='b')
+        parser.add_argument('-l', '--lambda', type=str, help='Regularization parameter lambda (default=auto)', default='auto', dest='lamb')
+        parser.add_argument('-s', '-syn', help='Create a synthetic spectrum as comparison', action='store_true')
+
+        args = parser.parse_args()
+        star = args.star
+        planet = args.planet
+        lamb = args.lamb
+        if lamb != 'auto':
+            try:
+                lamb = float(lamb)
+            except ValueError:
+                print('Invalid value for -l/-lambda')
+                exit()
+        else:
+            #TODO
+            print('WARNING: lambda=auto does currently not work properly')
+        use_fake = args.s
+    else:
+        star = 'Trappist-1'
+        planet = 'c'
+        use_fake = False
+        lamb = 1e-4
+    
+    offset = 13.76  # TODO offset of the solution in y direction (intensity)
+    # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
+    atm_factor = 0.13
+    try:
+        main(star, planet, lamb=lamb, use_fake=use_fake, offset=offset, atm_factor=atm_factor)
+    except FileNotFoundError:
+        print("Some files seem to be missing, can't complete calculation")

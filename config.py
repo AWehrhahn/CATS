@@ -3,7 +3,7 @@ Load configuration file
 """
 
 import os
-from os.path import join
+from os.path import join, exists
 
 import yaml
 try:
@@ -29,6 +29,18 @@ def load_config(target, filename='config.yaml'):
     conf['output_dir'] = join(data_dir, conf['dir_output'])
     par_file = join(conf['input_dir'], conf['file_parameters'])
 
-    par = __load_yaml__(par_file)
-    conf.update(par)
+    if not exists(data_dir):
+        print('Folder for star not found', data_dir)
+        raise FileNotFoundError
+
+    if not exists(conf['input_dir']):
+        print('Input directory not found', conf['input_dir'])
+        raise FileNotFoundError
+
+    if not exists(par_file):
+        print('Parameter file not found, assuming default values')    
+    else:
+        par = __load_yaml__(par_file)
+        conf.update(par)
+
     return conf

@@ -7,8 +7,7 @@ import os.path
 import subprocess
 import numpy as np
 import pandas as pd
-from scipy.interpolate import interp1d, UnivariateSpline
-from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
 warnings.simplefilter('ignore', category=Warning)

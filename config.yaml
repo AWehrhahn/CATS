@@ -24,11 +24,15 @@ path_molecfit: ~/molecfit/bin/molecfit
 
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)
+dir_psg: PSG
+dir_marcs: MARCS
+
 file_obs_psg: radiance_*.csv
 file_phase_psg: phases.txt
-file_star_psg: radiance_00.csv
+file_star_psg: flux.csv
 file_atm_psg: planet.csv
 file_tell_psg: tell.csv
+file_psg: psg_config.txt
 
 file_parameters: par.yaml
 file_star_marcs: starF.flx
@@ -47,9 +51,16 @@ file_data_out: solution.dat
 
 # Setup
 psg_wl_mod: 10000
+#psg_flux_mod: 1.5e-17
+marcs_flux_mod: 2.5e-7
 
 parameters: stellar_db
 flux: psg
 intensities: limb_darkening
 observation: psg
-tellurics: one
+tellurics: psg
+
+# For synthetic spectrum generation
+snr: 1000                        # S/N (per spectral pixel per exposure) [S/NperResElem / sqrt(3) gives per pixel]"
+n_exposures: 1                  # Number of individual exposures during entire transit
+fwhm: 0.5                         # FWHM (instrumental profile approximated with gaussian)
