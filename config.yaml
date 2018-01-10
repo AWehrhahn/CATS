@@ -10,9 +10,9 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: Trappist-1
+name_target: K2-3
 #name_target: HD209458
-name_planet: c
+name_planet: d
 dir_input: input
 dir_output: output
 dir_intermediary: intermediary
@@ -25,7 +25,6 @@ path_molecfit: ~/molecfit/bin/molecfit
 # File names
 # Those can be overwritten by the parameter file (in fact everything can)
 dir_psg: PSG
-dir_marcs: MARCS
 
 file_obs_psg: radiance_*.csv
 file_phase_psg: phases.txt
@@ -39,7 +38,13 @@ file_star_marcs: starF.flx
 file_wl_marcs: flx_wavelengths.vac
 
 file_molecfit: molecfit.par
-file_limb_darkening: limb_darkening.fit
+
+marcs_dir: MARCS
+marcs_file_ld: 3896g4.7z-0.25m0.6t0_{}.limb
+marcs_ld_format: [1, 2, 3, 4, 5, 6, 7]
+marcs_ld_interpolation_method: linear
+
+ld_file: limb_darkening.fit
 star_intensities: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 
 # Intermediary data file
@@ -52,7 +57,7 @@ file_data_out: solution.dat
 # Setup
 psg_wl_mod: 10000
 #psg_flux_mod: 1.5e-17
-marcs_flux_mod: 2.5e-7
+marcs_flux_mod: 1e-7
 
 parameters: stellar_db
 flux: psg

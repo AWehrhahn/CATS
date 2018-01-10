@@ -92,8 +92,7 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
 
     sampling = 'log'
     if sampling == 'log':
-        sample_range = np.log(sample_range)
-        lamb = np.logspace(sample_range[0], sample_range[1], npoints)
+        lamb = np.geomspace(sample_range[0], sample_range[1], npoints)
         tmp = [get_point(l) for l in lamb]
         x = np.array([t[0] for t in tmp])
         y = np.array([t[1] for t in tmp])
@@ -148,19 +147,20 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
     # TODO Standardize x, y instead, i.e. sum(x**2) = 1, sum will be dominated by largest value
     #y_scale = y.min()**-1
     #x_scale = x.min()**-1
-    y_scale = np.sum(y**2)**-1
-    x_scale = np.sum(x**2)**-1
+    y_scale = np.max(y)**-1
+    x_scale = np.max(x)**-1
     d = distance(x * x_scale, y * y_scale)
 
     if plot:
         import matplotlib.pyplot as plt
-        plt.plot(x, y, '+')
-        plt.plot(p1[0], p1[1], 'r+')
-        plt.plot(p2[0], p2[1], 'g+')
-        plt.plot(x[np.argmin(d)], y[np.argmin(d)], 'd')
+        plt.plot(x * x_scale, y * y_scale, '+')
+        plt.plot(p1[0] * x_scale, p1[1] * y_scale, 'r+')
+        plt.plot(p2[0] * x_scale, p2[1] * y_scale, 'g+')
+        plt.plot(x[np.argmin(d)-10] * x_scale, y[np.argmin(d)-10] * y_scale, 'd')
         plt.show()
 
-    return lamb[np.argmin(d)]
+    #TODO
+    return lamb[np.argmin(d)-10]
 
 
 def best_lambda_dirty(wl, f, g, lamb0=100):

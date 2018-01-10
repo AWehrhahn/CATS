@@ -30,7 +30,7 @@ def load_intensities(config, par, wl_flux, flux):
     # Limb darkening
     # I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
     # from Claret 2000, http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
-    file_limb_darkening = config['file_limb_darkening']
+    file_limb_darkening = config['ld_file']
     hdulist = fits.open(file_limb_darkening)
     lddata = hdulist[1].data
 

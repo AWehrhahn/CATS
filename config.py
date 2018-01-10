@@ -24,6 +24,9 @@ def load_config(target, filename='config.yaml'):
     filename = join(os.getcwd(), filename)
     conf = __load_yaml__(filename)
 
+    if target is None:
+        target = conf['name_target'] + conf['name_planet']
+
     data_dir = join(conf['path_exoSpectro'], target)
     conf['input_dir'] = join(data_dir, conf['dir_input'])
     conf['output_dir'] = join(data_dir, conf['dir_output'])

@@ -74,7 +74,7 @@ def generate_spectrum(conf, par, wl, telluric, flux, intensity, phase, source='p
     # Generate noise
     noise = np.random.randn(len(phase), len(wl)) / conf['snr']
     # TODO
-    noise = 0
+    #noise = 0
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
     return obs
@@ -123,6 +123,7 @@ def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
     plt.plot(wl, flux, label='Flux')
     if is_planet:
         plt.plot(wl, planet, label='Planet')
+    sol_t = normalize1d(sol_t) #TODO
     plt.plot(wl, sol_t, label='Solution')
     if fake is not None:
         plt.plot(wl, fake[0], label='Fake')
@@ -169,34 +170,29 @@ def get_data(conf, star, planet, **kwargs):
     if parameters in ['stellar_db', 'sdb']:
         par = stellar_db.load_parameters(star, planet, **kwargs)
 
-    wl_marcs, f_marcs = marcs.load_flux(conf, par)
-    wl_psg, f_psg = psg.load_flux(conf)
-    wl_tell, tell = psg.load_tellurics(conf)
-
-    f_marcs = np.interp(wl_psg, wl_marcs, f_marcs)
-    f_marcs = gaussbroad(f_marcs, 30)
-
-    plt.plot(wl_psg, f_marcs, wl_psg, f_psg)
-    plt.xlim([6000, 20000])
-    #plt.ylim([0, 0.0007])
-    plt.show()
-    
-
     print('   - Observations')
     if observation in ['psg']:
         wl_obs, obs, phase = psg.load_observation(conf)
 
     print('   - Stellar flux')
     if flux in ['marcs', 'm']:
+        imu = np.geomspace(1, 0.0001, num=20)
+        imu[-1] = 0
+        conf['star_intensities'] = imu
+        
         wl_flux, flux = marcs.load_flux(conf, par)
     elif flux in ['psg']:
         wl_flux, flux = psg.load_flux(conf)
 
     print('   - Specific intensities')
-    if intensities in ['limb_darkening']:
+    #interpolation points
+    #TODO set up config values for this
 
+    if intensities in ['limb_darkening']:
         wl_si, intensities = limb_darkening.load_intensities(
             conf, par, wl_flux, flux)
+    elif intensities in ['marcs']:
+        wl_si, intensities = marcs.load_limb_darkening(conf, par)
 
     print('   - Tellurics')
     if tellurics in ['psg']:
@@ -217,6 +213,37 @@ def get_data(conf, star, planet, **kwargs):
     intensities = pd.DataFrame(data=data, columns=intensities.keys())
     tell = np.interp(wl, wl_tell, tell)
 
+    #TODO DEBUG
+    
+    #noise = np.random.random_sample(obs.shape) / conf['snr']
+    #obs *= 1 + noise
+
+    factor = max(obs[0]) / max(flux)
+    flux = flux * factor
+    intensities = intensities.apply(lambda s: s * factor)
+    
+    #wl_psg, f_psg = psg.load_flux(conf)
+    #wl_si, i_psg = limb_darkening.load_intensities(
+    #        conf, par, wl_psg, f_psg)
+    
+    #plt.plot(wl, flux, wl_psg, f_psg)
+    #plt.show()
+
+    """
+    i2_psg = []
+    r = np.sqrt(1-imu**2)
+    i_tmp = [intensities[imu[0]] * np.pi * r[0]**2]
+    for j in range(1, len(imu)):
+        i_tmp.append(intensities[imu[j]] * np.pi * (r[j]**2 - r[j-1]**2))
+        i2_psg.append(i_psg[imu[j]] * 2 * np.pi* np.sqrt(1-imu[j]**2))
+
+    k = 1
+    plt.plot(wl, np.sum(i_tmp, 0) /np.pi , wl_psg, f_psg)
+    plt.title(imu[k])
+    plt.show()
+    """
+    #TODO END_DEBUG
+
     return par, wl, flux, intensities, tell, obs, phase
 
 
@@ -225,9 +252,18 @@ def main(star, planet, lamb='auto', use_fake=False, offset=0, **kwargs):
     Main entry point for the ExoSpectrum Programm
     """
     # Step 0: Configuration
-    conf = config.load_config(star + planet, 'config.yaml')
+    if star is not None and planet is not None:
+        combo = star + planet
+    else: 
+        combo = None
+    conf = config.load_config(combo, 'config.yaml')
+    if combo is None:
+        star = conf['name_target']
+        planet = conf['name_planet']
 
-    psg.load_psg(conf, [180])
+    #TODO
+    #psg.load_psg(conf, [180, 180.04, 180.08, 180.12, 180.16, 180.20, 180.24, 180.28, 180.32, 180.36, 180.4,
+    #                       179.96, 179.92, 179.88, 179.84, 179.80, 179.76, 179.72, 179.68, 179.64, 179.6])
 
     # Step 1: Get Data
     print('Load data')
@@ -250,6 +286,7 @@ def main(star, planet, lamb='auto', use_fake=False, offset=0, **kwargs):
 
     # Step 3: Output
     print('Plot')
+    offset = 1 - max(sol_t)
     plot(conf, par, wl, obs, fake, tell, flux, sol_t + offset, sol_f)
 
 
@@ -276,15 +313,17 @@ if __name__ == '__main__':
             print('WARNING: lambda=auto does currently not work properly')
         use_fake = args.s
     else:
-        star = 'Trappist-1'
-        planet = 'c'
-        use_fake = False
-        lamb = 1e-4
-    
-    offset = 13.76  # TODO offset of the solution in y direction (intensity)
+        star = None
+        planet = None
+        use_fake = True
+        #lamb = 'auto'
+        lamb = 1
+
+    #offset = 52 #13.76  # TODO offset of the solution in y direction (intensity)
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
-    atm_factor = 0.13
+    atm_factor = 0.1
     try:
-        main(star, planet, lamb=lamb, use_fake=use_fake, offset=offset, atm_factor=atm_factor)
-    except FileNotFoundError:
+        main(star, planet, lamb=lamb, use_fake=use_fake, atm_factor=atm_factor)
+    except FileNotFoundError as fnfe:
         print("Some files seem to be missing, can't complete calculation")
+        print(fnfe)
