@@ -11,7 +11,7 @@ from DataSources.PSG import PSG
 
 def load_input(config, wl_grid):
     """ load input spectrum """
-    input_file = join(config['input_dir'], config['dir_psg'], config['file_atm_psg'])
+    input_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
 
     planet = pd.read_csv(input_file)
     wl = planet['Wave/freq'].values 
@@ -23,12 +23,15 @@ def load_input(config, wl_grid):
     if 'psg_atm_mod' in config.keys():
         planet *= float(config['psg_atm_mod'])
 
-    return np.interp(wl_grid, wl, planet)
+    if wl_grid is not None:
+        return np.interp(wl_grid, wl, planet)
+    else:
+        return wl, planet
 
 def load_observation(config, n_exposures='all'):
     """ load observations """
-    obs_file = join(config['input_dir'], config['dir_psg'], config['file_obs_psg'])
-    phase_file = join(config['input_dir'], config['dir_psg'], config['file_phase_psg'])
+    obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'])
+    phase_file = join(config['input_dir'], config['psg_dir'], config['psg_file_phase'])
     phase = pd.read_table(phase_file, delim_whitespace=True, index_col='filename')
 
     if n_exposures == 'all':
@@ -69,7 +72,7 @@ def load_observation(config, n_exposures='all'):
 
 def load_flux(config):
     """ load flux """
-    flux_file = join(config['input_dir'], config['dir_psg'], config['file_star_psg'])
+    flux_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
     flux = pd.read_csv(flux_file)
 
     wl = flux['Wave/freq'].values
@@ -85,7 +88,7 @@ def load_flux(config):
 
 def load_tellurics(config):
     """ load tellurics """
-    tell_file = join(config['input_dir'], config['dir_psg'], config['file_tell_psg'])
+    tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
     tell = pd.read_csv(tell_file)
 
     wl = tell['Wave/freq'].values
@@ -101,30 +104,30 @@ def load_tellurics(config):
 
 def load_psg(config, phase, wl_low=0.6, wl_high=2.0, steps=140):
     """ load synthetic spectra from Planetary Spectrum Generator webservice """
-    psg_file = join(config['input_dir'], config['dir_psg'], config['file_psg'])
+    psg_file = join(config['input_dir'], config['psg_dir'], config['psg_file'])
     psg = PSG(config_file=psg_file)
 
     # Get telluric
-    tell_file = join(config['input_dir'], config['dir_psg'], config['file_tell_psg'])
+    tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
     if not exists(tell_file):
         df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='tel')
         df.to_csv(tell_file, index=False)
 
     # Get planet
-    atm_file = join(config['input_dir'], config['dir_psg'], config['file_atm_psg'])
+    atm_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
     if not exists(atm_file):
         df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='trn')
         df.to_csv(atm_file, index=False)
 
     # Get stellar flux
-    flx_file = join(config['input_dir'], config['dir_psg'], config['file_star_psg'])
+    flx_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
     if not exists(flx_file):
         df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
         df.to_csv(flx_file, index=False)
 
     for i, p in enumerate(phase):
         # Get radiance
-        obs_file = join(config['input_dir'], config['dir_psg'], config['file_obs_psg'].replace('*', str(i)))
+        obs_file = join(config['input_dir'], config['dir_psg'], config['psg_file_obs'].replace('*', str(i)))
         if not exists(obs_file):
             psg.change_config({'OBJECT-SEASON': p})
             df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')

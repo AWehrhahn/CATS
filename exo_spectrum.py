@@ -20,6 +20,7 @@ import psg
 import marcs
 import stellar_db
 import limb_darkening
+import synthetic
 
 
 def rebin(a, newshape):
@@ -50,36 +51,6 @@ def normalize1d(arr):
     return arr
 
 
-def generate_spectrum(conf, par, wl, telluric, flux, intensity, phase, source='psg'):
-    """ Generate a fake spectrum """
-    # Sigma of Instrumental FWHM in pixels
-    sigma = 1 / 2.355 * conf['fwhm']
-
-    try:
-        # Load planet spectrum
-        if source in ['psg']:
-            planet = psg.load_input(conf, wl)
-    except FileNotFoundError:
-        print('No planet spectrum for synthetic observation found')
-        raise FileNotFoundError
-    
-    planet = gaussbroad(planet, sigma)
-
-    # Specific intensities
-    i_planet, i_atm = iy.specific_intensities(par, phase, intensity)
-
-    # Observed spectrum
-    obs = (flux[None, :] - i_planet * par['A_planet+atm'] +
-           par['A_atm'] * i_atm * planet[None, :]) * telluric
-    # Generate noise
-    noise = np.random.randn(len(phase), len(wl)) / conf['snr']
-    # TODO
-    #noise = 0
-
-    obs = gaussbroad(obs, sigma) * (1 + noise)
-    return obs
-
-
 def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
     """ calculate solution from input """
     print('   - Stellar specific intensities covered by planet and atmosphere')
@@ -101,7 +72,8 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
 
     if lamb == 'auto' or lamb is None:
         print('   - Finding optimal regularization parameter lambda')
-        lamb = sol.best_lambda(wl, f, g) #TODO currently doesn't work as intended
+        # TODO currently doesn't work as intended
+        lamb = sol.best_lambda(wl, f, g)
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
@@ -109,7 +81,7 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
     return sol.Tikhonov(wl, f, g, lamb)
 
 
-def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
+def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     """ plot resulting data """
     try:
         if source in ['psg']:
@@ -123,11 +95,8 @@ def plot(conf, par, wl, obs, fake, tell, flux, sol_t, sol_f, source='psg'):
     plt.plot(wl, flux, label='Flux')
     if is_planet:
         plt.plot(wl, planet, label='Planet')
-    sol_t = normalize1d(sol_t) #TODO
+    #sol_t = normalize1d(sol_t)  # TODO
     plt.plot(wl, sol_t, label='Solution')
-    if fake is not None:
-        plt.plot(wl, fake[0], label='Fake')
-        plt.plot(wl, sol_f, label='Sol Fake')
 
     plt.title('%s\nLambda = %.3g, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr']))
@@ -164,29 +133,30 @@ def get_data(conf, star, planet, **kwargs):
     intensities = conf['intensities']
     observation = conf['observation']
     tellurics = conf['tellurics']
+    star_intensities = conf['star_intensities']
 
     # Parameters
     print('   - Parameters')
     if parameters in ['stellar_db', 'sdb']:
         par = stellar_db.load_parameters(star, planet, **kwargs)
 
-    print('   - Observations')
-    if observation in ['psg']:
-        wl_obs, obs, phase = psg.load_observation(conf)
+    if not isinstance(star_intensities, list):
+        if star_intensities in ['geom']:
+            imu = np.geomspace(1, 0.0001, num=20)
+            imu[-1] = 0
+            conf['star_intensities'] = imu
+            star_intensities = imu
+
 
     print('   - Stellar flux')
     if flux in ['marcs', 'm']:
-        imu = np.geomspace(1, 0.0001, num=20)
-        imu[-1] = 0
-        conf['star_intensities'] = imu
-        
         wl_flux, flux = marcs.load_flux(conf, par)
     elif flux in ['psg']:
         wl_flux, flux = psg.load_flux(conf)
 
     print('   - Specific intensities')
-    #interpolation points
-    #TODO set up config values for this
+    # interpolation points
+    # TODO set up config values for this
 
     if intensities in ['limb_darkening']:
         wl_si, intensities = limb_darkening.load_intensities(
@@ -198,12 +168,20 @@ def get_data(conf, star, planet, **kwargs):
     if tellurics in ['psg']:
         wl_tell, tell = psg.load_tellurics(conf)
     elif tellurics in ['one', 'ones'] or tellurics is None:
-        wl_tell = wl_obs[0]
+        wl_tell = wl_flux
         tell = np.ones_like(wl_tell)
+
+    print('   - Observations')
+    if observation in ['psg']:
+        wl_obs, obs, phase = psg.load_observation(conf)
+    elif observation in ['syn', 'synthetic', 'fake']:
+        wl_obs, obs, phase = synthetic.generate_spectrum(
+            conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
 
     # Unify wavelength grid
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    bpmap[(wl_obs[0] <= 8100)] = True #TODO for PSG at least wl lower than 8000 Å are bad
+    # TODO for PSG at least wl lower than 8000 Å are bad
+    bpmap[(wl_obs[0] <= 8100)] = True
     wl = wl_obs[0, ~bpmap]
     obs = obs[:, ~bpmap]
 
@@ -213,57 +191,39 @@ def get_data(conf, star, planet, **kwargs):
     intensities = pd.DataFrame(data=data, columns=intensities.keys())
     tell = np.interp(wl, wl_tell, tell)
 
-    #TODO DEBUG
-    
+    # TODO DEBUG
+
+    # Adding noise to the observation
     #noise = np.random.random_sample(obs.shape) / conf['snr']
     #obs *= 1 + noise
 
-    factor = max(obs[0]) / max(flux)
-    flux = flux * factor
-    intensities = intensities.apply(lambda s: s * factor)
-    
-    #wl_psg, f_psg = psg.load_flux(conf)
-    #wl_si, i_psg = limb_darkening.load_intensities(
-    #        conf, par, wl_psg, f_psg)
-    
-    #plt.plot(wl, flux, wl_psg, f_psg)
-    #plt.show()
+    # Scaling the stellar flux to the same size as the observations
+    #factor = max(obs[0]) / max(flux)
+    #flux = flux * factor
+    #intensities = intensities.apply(lambda s: s * factor)
 
-    """
-    i2_psg = []
-    r = np.sqrt(1-imu**2)
-    i_tmp = [intensities[imu[0]] * np.pi * r[0]**2]
-    for j in range(1, len(imu)):
-        i_tmp.append(intensities[imu[j]] * np.pi * (r[j]**2 - r[j-1]**2))
-        i2_psg.append(i_psg[imu[j]] * 2 * np.pi* np.sqrt(1-imu[j]**2))
-
-    k = 1
-    plt.plot(wl, np.sum(i_tmp, 0) /np.pi , wl_psg, f_psg)
-    plt.title(imu[k])
-    plt.show()
-    """
-    #TODO END_DEBUG
+    # TODO END_DEBUG
 
     return par, wl, flux, intensities, tell, obs, phase
 
 
-def main(star, planet, lamb='auto', use_fake=False, offset=0, **kwargs):
+def main(star, planet, lamb='auto', **kwargs):
     """
     Main entry point for the ExoSpectrum Programm
     """
     # Step 0: Configuration
     if star is not None and planet is not None:
         combo = star + planet
-    else: 
+    else:
         combo = None
     conf = config.load_config(combo, 'config.yaml')
     if combo is None:
         star = conf['name_target']
         planet = conf['name_planet']
 
-    #TODO
-    #psg.load_psg(conf, [180, 180.04, 180.08, 180.12, 180.16, 180.20, 180.24, 180.28, 180.32, 180.36, 180.4,
-    #                       179.96, 179.92, 179.88, 179.84, 179.80, 179.76, 179.72, 179.68, 179.64, 179.6])
+    # TODO
+    psg.load_psg(conf, [180, 180.04, 180.08, 180.12, 180.16, 180.20, 180.24, 180.28, 180.32, 180.36, 180.4,
+                        179.96, 179.92, 179.88, 179.84, 179.80, 179.76, 179.72, 179.68, 179.64])
 
     # Step 1: Get Data
     print('Load data')
@@ -275,28 +235,22 @@ def main(star, planet, lamb='auto', use_fake=False, offset=0, **kwargs):
     sol_t = calculate(conf, par, wl, obs, tell, flux,
                       intensities, phase, lamb=lamb)
 
-    # Step 2.5: Fake Spectrum
-    if use_fake:
-        print('Generate synthetic spectrum')
-        fake = generate_spectrum(conf, par, wl, tell, flux, intensities, phase)
-        sol_f = calculate(conf, par, wl, fake, tell, flux,
-                          intensities, phase, lamb=lamb)
-    else:
-        fake = sol_f = None
-
     # Step 3: Output
     print('Plot')
+    # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
-    plot(conf, par, wl, obs, fake, tell, flux, sol_t + offset, sol_f)
+    plot(conf, par, wl, obs, tell, flux, sol_t + offset)
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        parser = argparse.ArgumentParser(description='Extract the planetary transmittance spectrum, from one or more transit observations.')
+        parser = argparse.ArgumentParser(
+            description='Extract the planetary transmittance spectrum, from one or more transit observations.')
         parser.add_argument('star', type=str, help='The observed star')
-        parser.add_argument('planet', type=str, help='The letter of the planet (default=b)', nargs='?', default='b')
-        parser.add_argument('-l', '--lambda', type=str, help='Regularization parameter lambda (default=auto)', default='auto', dest='lamb')
-        parser.add_argument('-s', '-syn', help='Create a synthetic spectrum as comparison', action='store_true')
+        parser.add_argument(
+            'planet', type=str, help='The letter of the planet (default=b)', nargs='?', default='b')
+        parser.add_argument('-l', '--lambda', type=str,
+                            help='Regularization parameter lambda (default=auto)', default='auto', dest='lamb')
 
         args = parser.parse_args()
         star = args.star
@@ -309,21 +263,18 @@ if __name__ == '__main__':
                 print('Invalid value for -l/-lambda')
                 exit()
         else:
-            #TODO
+            # TODO
             print('WARNING: lambda=auto does currently not work properly')
-        use_fake = args.s
     else:
         star = None
         planet = None
-        use_fake = True
         #lamb = 'auto'
-        lamb = 1
+        lamb = 0.1
 
-    #offset = 52 #13.76  # TODO offset of the solution in y direction (intensity)
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1
     try:
-        main(star, planet, lamb=lamb, use_fake=use_fake, atm_factor=atm_factor)
+        main(star, planet, lamb=lamb, atm_factor=atm_factor)
     except FileNotFoundError as fnfe:
         print("Some files seem to be missing, can't complete calculation")
         print(fnfe)
