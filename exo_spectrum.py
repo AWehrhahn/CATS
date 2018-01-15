@@ -12,11 +12,14 @@ import pandas as pd
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
 
+from awlib.util import interpolate_DataFrame
+
 import intermediary as iy
 import solution as sol
 
 import config
 import psg
+import harps
 import marcs
 import stellar_db
 import limb_darkening
@@ -95,7 +98,7 @@ def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     plt.plot(wl, flux, label='Flux')
     if is_planet:
         plt.plot(wl, planet, label='Planet')
-    #sol_t = normalize1d(sol_t)  # TODO
+    # sol_t = normalize1d(sol_t)  # TODO
     plt.plot(wl, sol_t, label='Solution')
 
     plt.title('%s\nLambda = %.3g, S/N = %s' %
@@ -147,26 +150,32 @@ def get_data(conf, star, planet, **kwargs):
             conf['star_intensities'] = imu
             star_intensities = imu
 
-
     print('   - Stellar flux')
     if flux in ['marcs', 'm']:
         wl_flux, flux = marcs.load_flux(conf, par)
     elif flux in ['psg']:
         wl_flux, flux = psg.load_flux(conf)
+    elif flux in ['harps']:
+        wl_flux, flux = harps.load_flux(conf, par)
+
 
     print('   - Specific intensities')
-    # interpolation points
-    # TODO set up config values for this
-
     if intensities in ['limb_darkening']:
         wl_si, intensities = limb_darkening.load_intensities(
             conf, par, wl_flux, flux)
     elif intensities in ['marcs']:
-        wl_si, intensities = marcs.load_limb_darkening(conf, par)
+        wl_si, intensities = marcs.load_intensities(conf, par)
+    elif intensities in ['combined']:
+        wl_f, factors = marcs.load_limb_darkening(conf, par)
+        factors = interpolate_DataFrame(wl_flux, wl_f, factors)
+        intensities = factors.apply(lambda s: s * flux)
+        wl_si = wl_flux
 
     print('   - Tellurics')
     if tellurics in ['psg']:
         wl_tell, tell = psg.load_tellurics(conf)
+    elif tellurics in ['harps']:
+        wl_tell, tell = harps.load_tellurics(conf, par)
     elif tellurics in ['one', 'ones'] or tellurics is None:
         wl_tell = wl_flux
         tell = np.ones_like(wl_tell)
@@ -174,21 +183,22 @@ def get_data(conf, star, planet, **kwargs):
     print('   - Observations')
     if observation in ['psg']:
         wl_obs, obs, phase = psg.load_observation(conf)
+    elif observation in ['harps']:
+        wl_obs, obs, phase = harps.load_observation(conf, par)
     elif observation in ['syn', 'synthetic', 'fake']:
         wl_obs, obs, phase = synthetic.generate_spectrum(
             conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
 
+
     # Unify wavelength grid
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
     # TODO for PSG at least wl lower than 8000 Å are bad
-    bpmap[(wl_obs[0] <= 8100)] = True
-    wl = wl_obs[0, ~bpmap]
+    bpmap[(wl_obs <= 8100)] = True
+    wl = wl_obs[~bpmap]
     obs = obs[:, ~bpmap]
 
     flux = np.interp(wl, wl_flux, flux)
-    data = np.array([np.interp(wl, wl_si, intensities[i])
-                     for i in intensities.keys()]).swapaxes(0, 1)
-    intensities = pd.DataFrame(data=data, columns=intensities.keys())
+    intensities = interpolate_DataFrame(wl, wl_si, intensities)
     tell = np.interp(wl, wl_tell, tell)
 
     # TODO DEBUG

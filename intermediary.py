@@ -14,7 +14,7 @@ warnings.simplefilter('ignore', category=Warning)
 
 def create_bad_pixel_map(obs, threshold=0):
     """ Create a map of all bad pixels from the given set of observations """
-    return np.all(obs <= threshold, axis=0) | np.all(obs >= 1-threshold, axis=0)
+    return np.all(obs <= threshold, axis=0) | np.all(obs >= np.max(obs)-threshold, axis=0)
 
 def doppler_shift(self, spectrum, wl, vel):
     """ Shift spectrum by velocity vel """

@@ -52,4 +52,4 @@ def generate_spectrum(conf, par, wl_tell, telluric, wl_flux, flux, intensity, so
     noise = np.random.randn(len(phase), len(wl)) / conf['snr']
 
     obs = gaussbroad(obs, sigma) * (1 + noise)
-    return wl[None, :], obs, phase
+    return wl, obs, phase

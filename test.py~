@@ -1,0 +1,76 @@
+"""
+Test new stuff
+"""
+from os.path import join
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import fsolve
+
+from awlib.astro import air2vac
+from DataSources.PSG import PSG
+
+#from test_project.Plot import Plot
+
+import config
+import stellar_db
+import marcs
+import harps
+import psg
+
+#plt = Plot()
+
+star = 'K2-3'
+planet = 'c'
+
+conf = config.load_config(star + planet)
+par = stellar_db.load_parameters(star, planet)
+
+imu = np.geomspace(1, 0.0001, num=20)
+imu[-1] = 0
+conf['star_intensities'] = imu
+
+
+wl_marcs, flux_marcs = marcs.load_flux_directly(conf, par)
+wl_m2 , f_m2 = marcs.load_flux(conf, par)
+
+f_m2 = np.interp(wl_marcs, wl_m2, f_m2)
+
+#plt.plot(wl_marcs, flux_marcs/f_m2)
+#plt.show()
+
+#plt.plot(wl_marcs, flux_marcs, label='flux file')
+#plt.plot(wl_marcs, f_m2, label='from spec. intensities')
+
+#Load HARPS
+wl_harps, flux_harps, phase = harps.load_observations(conf, par)
+
+print(phase)
+exit()
+
+total = np.mean(flux_harps)
+avg = np.mean(flux_harps, 1)
+
+#TODO
+flux_harps = flux_harps * total/avg[:, None]
+
+wl_harps = wl_harps[0]
+flux_harps = np.mean(flux_harps, 0)
+
+# Get telluric
+wl_tell, tell = harps.load_tellurics(conf, par)
+
+flux_marcs = np.interp(wl_harps, wl_marcs, flux_marcs)
+tell = np.interp(wl_harps, wl_tell, tell)
+#scaling
+func = lambda x: np.sum((x * flux_harps - flux_marcs)**2)
+x0 = max(flux_marcs) / max(flux_harps)
+x = fsolve(func, x0)
+flux_harps *= x[0]
+
+plt.plot(wl_harps, flux_marcs * tell, label='marcs')
+plt.plot(wl_harps, flux_harps, label='harps')
+plt.plot(wl_harps, tell * np.max(flux_marcs), label='tellurics')
+#plt.xlim([min(wl_harps), max(wl_harps)])
+
+plt.legend(loc='best')
+plt.show()

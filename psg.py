@@ -68,7 +68,9 @@ def load_observation(config, n_exposures='all'):
     obs_all = np.array(obs_all)
     phase_all = np.array(phase_all)
 
-    return wl_all, obs_all, phase_all
+    #TODO interpolate all to same wl frame
+
+    return wl_all[0], obs_all, phase_all
 
 def load_flux(config):
     """ load flux """
@@ -127,7 +129,7 @@ def load_psg(config, phase, wl_low=0.6, wl_high=2.0, steps=140):
 
     for i, p in enumerate(phase):
         # Get radiance
-        obs_file = join(config['input_dir'], config['dir_psg'], config['psg_file_obs'].replace('*', str(i)))
+        obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'].replace('*', str(i)))
         if not exists(obs_file):
             psg.change_config({'OBJECT-SEASON': p})
             df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')

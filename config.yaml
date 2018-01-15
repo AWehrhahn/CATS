@@ -45,7 +45,10 @@ ld_file: limb_darkening.fit
 star_intensities: geom
 
 harps_dir: HARPS
+harps_calibration_dir: Calibration
+harps_file_obs: '*.fits'
 harps_file_tell: tell.txt
+harps_file_sun: moon_2008-08-08_s1d.fits
 
 harps_wl_mod: 10
 
@@ -59,7 +62,7 @@ file_data_out: solution.dat
 # Setup
 psg_wl_mod: 10000
 #psg_flux_mod: 1.5e-17
-marcs_flux_mod: 1e-7
+marcs_flux_mod: 0.3184 #1/pi
 
 parameters: stellar_db
 flux: psg

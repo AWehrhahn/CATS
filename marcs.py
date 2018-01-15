@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from scipy.integrate import trapz, simps
 from scipy.interpolate import interp1d
 from scipy.constants import c, pi
 
@@ -33,18 +34,22 @@ def load_flux(config, par):
     imu = config['star_intensities']
     intensities = data
 
+    flux = simps(intensities * imu, imu) * (-2) 
+
+    """
     r = np.sqrt(1 - imu**2)
     i_tmp = [intensities[:, 0] * np.pi * r[0]**2]
     for j in range(1, len(imu)):
         i_tmp.append(intensities[:, j] * np.pi * (r[j]**2 - r[j - 1]**2))
 
     flux = np.sum(i_tmp, 0) / np.pi
-
+    """
     if 'marcs_flux_mod' in config.keys():
         flux *= float(config['marcs_flux_mod'])
     if 'marcs_wl_mod' in config.keys():
         wl *= config['marcs_wl_mod']
 
+    #flux += -0.000102
     return wl, flux
 
 
@@ -194,7 +199,7 @@ def load_data(config, par):
     return data[:, 0], data[:, 1:]
 
 
-def load_limb_darkening(config, par):
+def load_intensities(config, par):
     imu = config['star_intensities']
     wl, result = load_data(config, par)
 
@@ -205,3 +210,31 @@ def load_limb_darkening(config, par):
 
     df = pd.DataFrame(result, columns=imu)
     return wl, df
+
+def load_limb_darkening(config, par):
+    wl_i, intensities = load_intensities(config, par)
+    wl_f, flux = load_flux_directly(config, par)
+
+    flux = np.interp(wl_i, wl_f, flux)
+    intensities = intensities.apply(lambda s: s / flux)
+    return wl_i, intensities
+
+###
+# Solar Model
+###
+
+def load_solar(conf, par, calib_dir):
+    s_fname = join(calib_dir, 'sun.flx')
+    df = pd.read_csv(s_fname, header=None, names=['FLUX'])
+    s_flux = df['FLUX'].values
+
+    s_wl_fname = join(calib_dir, 'flx_wavelengths.vac')
+    df = pd.read_csv(s_wl_fname, header=None, names=['WAVE'])
+    s_wave = df['WAVE'].values
+
+    if 'marcs_flux_mod' in conf.keys():
+        s_flux *= float(conf['marcs_flux_mod'])
+    if 'marcs_wl_mod' in conf.keys():
+        s_wave *= float(conf['marcs_wl_mod'])
+
+    return s_wave, s_flux
