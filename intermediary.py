@@ -58,7 +58,7 @@ def interpolate_intensity(mu, i):
     return interp1d(i.keys().values, i.values, kind='quadratic', fill_value=0, bounds_error=False, copy=False)(mu).swapaxes(0, 1)
 
 def calc_mu(par, phase):
-    """ calculate the distance from the center of the planet to the center of the star as seen from earth """
+    """ calculate the distance from the center of the planet to the center of the star as seen from earth (in radians) """
     """
     distance = self.par['sma'] / self.par['r_star'] * \
         np.sqrt(np.cos(self.par['inc'])**2 +
@@ -104,11 +104,11 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     intens = np.average(intens, axis=2, weights=radii)
     return intens
 
-def maximum_phase(self):
+def maximum_phase(par):
     """ The maximum phase for which the planet is still completely inside the stellar disk """
     # This is the inverse of calc_mu(maximum_phase()) = 1.0
-    return np.arcsin(np.sqrt(((self.par['r_star'] - self.par['r_planet'] - self.par['h_atm']) / (
-        self.par['sma'] * np.sin(self.par['inc'])))**2 - np.tan(self.par['inc'])**-2))
+    return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
+        par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
 
 def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
     """

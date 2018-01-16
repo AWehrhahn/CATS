@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 from scipy.constants import c, pi
 
 from DataSources import Cache
-from awlib.astro import air2vac
+from awlib.astro import air2vac, doppler_shift
 
 ###
 #  STELLAR FLUX
@@ -53,9 +53,10 @@ def load_flux(config, par):
     return wl, flux
 
 
-def load_flux_directly(conf, par):
+def load_flux_directly(conf, par, fname=None, apply_air2vac=True):
     """ Load MARCS flux directly from flx file """
-    fname = join(conf['input_dir'], conf['marcs_dir'], conf['marcs_file_flux'])
+    if fname is None:
+        fname = join(conf['input_dir'], conf['marcs_dir'], conf['marcs_file_flux'])
     df = pd.read_table(fname, delim_whitespace=True, names=[
                        'wl', 'rel_flux', 'abs_flux', 'rel_flux_conv', 'abs_flux_conv'], skiprows=1)
 
@@ -67,12 +68,10 @@ def load_flux_directly(conf, par):
     if 'marcs_wl_mod' in conf.keys():
         wl *= conf['marcs_wl_mod']
 
-    wl = air2vac(wl)
+    if apply_air2vac:
+        wl = air2vac(wl)
 
-    v = par['radial_velocity']
-    c_loc = c * 1e-3
-    shift = (1 + v / c_loc) * wl
-    flux = np.interp(wl, shift, flux)
+    flux = doppler_shift(wl, flux, par['radial_velocity'])
 
     return wl, flux
 
@@ -161,9 +160,10 @@ def read_all(fname, imu, ld_format, interpolate='linear'):
     to: last value
     interpolate: interpolation method
     """
-    result = [read(fname.format(i), imu, interpolate=interpolate)
+    result = [read(fname.format(i), imu, interpolate=interpolate)[100:-100]
               for i in ld_format]
-    result = np.concatenate(result)
+    
+    result = np.concatenate(result)[:-200]
     return result
 
 
@@ -225,16 +225,5 @@ def load_limb_darkening(config, par):
 
 def load_solar(conf, par, calib_dir):
     s_fname = join(calib_dir, 'sun.flx')
-    df = pd.read_csv(s_fname, header=None, names=['FLUX'])
-    s_flux = df['FLUX'].values
-
-    s_wl_fname = join(calib_dir, 'flx_wavelengths.vac')
-    df = pd.read_csv(s_wl_fname, header=None, names=['WAVE'])
-    s_wave = df['WAVE'].values
-
-    if 'marcs_flux_mod' in conf.keys():
-        s_flux *= float(conf['marcs_flux_mod'])
-    if 'marcs_wl_mod' in conf.keys():
-        s_wave *= float(conf['marcs_wl_mod'])
-
-    return s_wave, s_flux
+    s_wave, s_flux = load_flux_directly(conf, par, s_fname, apply_air2vac=False)
+    return s_wave, s_flux / (2 * np.pi)

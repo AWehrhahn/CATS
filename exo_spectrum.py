@@ -93,12 +93,12 @@ def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     except FileNotFoundError:
         is_planet = False
 
-    plt.plot(wl, tell, label='Telluric')
-    plt.plot(wl, obs[0], label='Observation')
-    plt.plot(wl, flux, label='Flux')
+    plt.plot(wl, normalize1d(tell), label='Telluric')
+    plt.plot(wl, normalize1d(obs[0]), label='Observation')
+    plt.plot(wl, normalize1d(flux), label='Flux')
     if is_planet:
         plt.plot(wl, planet, label='Planet')
-    # sol_t = normalize1d(sol_t)  # TODO
+    sol_t = normalize1d(sol_t)  # TODO
     plt.plot(wl, sol_t, label='Solution')
 
     plt.title('%s\nLambda = %.3g, S/N = %s' %
@@ -171,6 +171,14 @@ def get_data(conf, star, planet, **kwargs):
         intensities = factors.apply(lambda s: s * flux)
         wl_si = wl_flux
 
+    #TODO
+    
+    plt.plot(flux, label='flux')
+    for i in range(len(imu)):
+        plt.plot(intensities[imu[i]], label='%.3f' % imu[i])
+    plt.legend(loc='best')
+    plt.show()
+    
     print('   - Tellurics')
     if tellurics in ['psg']:
         wl_tell, tell = psg.load_tellurics(conf)
@@ -181,10 +189,11 @@ def get_data(conf, star, planet, **kwargs):
         tell = np.ones_like(wl_tell)
 
     print('   - Observations')
+    #phase is in radians
     if observation in ['psg']:
         wl_obs, obs, phase = psg.load_observation(conf)
     elif observation in ['harps']:
-        wl_obs, obs, phase = harps.load_observation(conf, par)
+        wl_obs, obs, phase = harps.load_observations(conf, par)
     elif observation in ['syn', 'synthetic', 'fake']:
         wl_obs, obs, phase = synthetic.generate_spectrum(
             conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
@@ -202,6 +211,8 @@ def get_data(conf, star, planet, **kwargs):
     tell = np.interp(wl, wl_tell, tell)
 
     # TODO DEBUG
+    if observation in ['harps']:
+        obs = harps.flux_calibration(conf, par, wl, obs)
 
     # Adding noise to the observation
     #noise = np.random.random_sample(obs.shape) / conf['snr']
@@ -279,7 +290,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 0.1
+        lamb = 10000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

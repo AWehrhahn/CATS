@@ -13,9 +13,11 @@ import psg
 def generate_spectrum(conf, par, wl_tell, telluric, wl_flux, flux, intensity, source='psg'):
     """ Generate a fake spectrum """
 
-    phase_file = join(conf['input_dir'], conf['psg_dir'], conf['psg_file_phase'])
-    phase = pd.read_table(phase_file, delim_whitespace=True, index_col='filename')
-    phase = phase.values[:, 0]
+    #TODO determine suitable phases independently
+    max_phase = iy.maximum_phase(par)
+    n_obs = 20
+    phase = np.linspace(180-max_phase, 180 + max_phase, num=n_obs)
+    phase = np.deg2rad(phase)
 
     # Sigma of Instrumental FWHM in pixels
     sigma = 1 / 2.355 * conf['fwhm']

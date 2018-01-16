@@ -67,6 +67,7 @@ def load_observation(config, n_exposures='all'):
     wl_all = np.array(wl_all)
     obs_all = np.array(obs_all)
     phase_all = np.array(phase_all)
+    phase_all = np.deg2rad(phase_all)
 
     #TODO interpolate all to same wl frame
 

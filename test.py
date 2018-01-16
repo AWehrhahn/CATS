@@ -12,7 +12,7 @@ from awlib.util import interpolate_DataFrame
 from DataSources.PSG import PSG
 
 #from test_project.Plot import Plot
-
+import intermediary as iy
 import config
 import stellar_db
 import marcs
@@ -51,6 +51,12 @@ wl_m3, intensities = marcs.load_intensities(conf, par)
 """
 #Load HARPS
 wl_harps, flux_harps, phase = harps.load_observations(conf, par)
+bpmap = iy.create_bad_pixel_map(flux_harps, threshold=1e-3)
+bpmap[wl_harps > 6800] = True
+
+flux_harps = flux_harps[:, ~bpmap]
+wl_harps = wl_harps[~bpmap]
+
 #flux_harps[0] = doppler_shift(wl_harps, flux_harps[0], -par['radial_velocity'])
 
 #Average HARPS flux
@@ -60,12 +66,11 @@ flux_harps = flux_harps * total/avg[:, None]
 wl_harps = wl_harps
 flux_harps = np.mean(flux_harps, 0)
 
-
 flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps)[0]
 
 plt.plot(wl_marcs, flux_marcs, label='marcs')
 plt.plot(wl_harps, flux_harps * 100, label='original')
-plt.plot(wl_harps, flux_calib * 1000, label='calibrated')
+plt.plot(wl_harps, flux_calib * 100, label='calibrated')
 plt.legend(loc='best')
 plt.show()
 
