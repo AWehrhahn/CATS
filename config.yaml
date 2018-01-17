@@ -50,7 +50,7 @@ harps_file_obs: '*.fits'
 harps_file_tell: tell.txt
 harps_file_sun: moon_2008-08-08_s1d.fits
 
-harps_wl_mod: 10
+harps_wl_mod: 1
 
 # Intermediary data file
 file_intermediary: intermediary.npz

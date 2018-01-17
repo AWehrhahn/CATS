@@ -8,130 +8,127 @@ import numpy as np
 import pandas as pd
 from DataSources.PSG import PSG
 
+from data_module_interface import data_module
 
-def load_input(config, wl_grid):
-    """ load input spectrum """
-    input_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
+class psg(data_module):
 
-    planet = pd.read_csv(input_file)
-    wl = planet['Wave/freq'].values 
-    planet = planet['Total'].values
+    @classmethod
+    def apply_modifiers(cls, conf, par, wl, flux):
+        if 'psg_wl_mod' in conf.keys():
+            wl *= float(conf['psg_wl_mod'])
+        if 'psg_flux_mod' in conf.keys():
+            flux *= float(conf['psg_flux_mod'])
+        return wl, flux
 
-    if 'psg_wl_mod' in config.keys():
-        wl *= float(config['psg_wl_mod'])
+    @classmethod
+    def load_input(cls, config, par, wl_grid):
+        """ load input spectrum """
+        input_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
 
-    if 'psg_atm_mod' in config.keys():
-        planet *= float(config['psg_atm_mod'])
+        planet = pd.read_csv(input_file)
+        wl = planet['Wave/freq'].values 
+        planet = planet['Total'].values
 
-    if wl_grid is not None:
-        return np.interp(wl_grid, wl, planet)
-    else:
-        return wl, planet
+        wl, planet = cls.apply_modifiers(config, par, wl, planet)
 
-def load_observation(config, n_exposures='all'):
-    """ load observations """
-    obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'])
-    phase_file = join(config['input_dir'], config['psg_dir'], config['psg_file_phase'])
-    phase = pd.read_table(phase_file, delim_whitespace=True, index_col='filename')
+        if wl_grid is not None:
+            return np.interp(wl_grid, wl, planet)
+        else:
+            return wl, planet
 
-    if n_exposures == 'all':
+    @classmethod
+    def load_observations(cls, config, par, *args, **kwargs):
+        """ load observations """
+        obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'])
+        phase_file = join(config['input_dir'], config['psg_dir'], config['psg_file_phase'])
+        phase = pd.read_table(phase_file, delim_whitespace=True, index_col='filename')
+
         #Find all suitable files
         files = glob.glob(obs_file)
-    else:
-        files = [obs_file.replace('*', i) for i in range(n_exposures)]
 
-    obs_all = []
-    wl_all = []
-    phase_all = []
+        obs_all = []
+        wl_all = []
+        phase_all = []
 
-    for f in files:
-        obs = pd.read_csv(f)
+        for f in files:
+            obs = pd.read_csv(f)
 
-        wl = obs['Wave/freq'].values
-        obs = obs['Total'].values
+            wl = obs['Wave/freq'].values
+            obs = obs['Total'].values
 
-        if 'psg_wl_mod' in config.keys():
-            wl *= float(config['psg_wl_mod'])
+            wl, obs = cls.apply_modifiers(config, par, wl, obs)
 
-        if 'psg_obs_mod' in config.keys():
-            obs *= float(config['psg_obs_mod'])
+            wl_all.append(wl)
+            obs_all.append(obs)
 
-        wl_all.append(wl)
-        obs_all.append(obs)
+            bn = basename(f)
+            bn = splitext(bn)[0]
 
-        bn = basename(f)
-        bn = splitext(bn)[0]
+            phase_all.append(phase.loc[bn]['phase'])
+            
+        wl_all = np.array(wl_all)
+        obs_all = np.array(obs_all)
+        phase_all = np.array(phase_all)
+        phase_all = np.deg2rad(phase_all)
 
-        phase_all.append(phase.loc[bn]['phase'])
-        
-    wl_all = np.array(wl_all)
-    obs_all = np.array(obs_all)
-    phase_all = np.array(phase_all)
-    phase_all = np.deg2rad(phase_all)
+        #TODO interpolate all to same wl frame
 
-    #TODO interpolate all to same wl frame
+        return wl_all[0], obs_all, phase_all
 
-    return wl_all[0], obs_all, phase_all
+    @classmethod
+    def load_stellar_flux(cls, config, par):
+        """ load flux """
+        flux_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
+        flux = pd.read_csv(flux_file)
 
-def load_flux(config):
-    """ load flux """
-    flux_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
-    flux = pd.read_csv(flux_file)
+        wl = flux['Wave/freq'].values
+        flux = flux['Stellar'].values
 
-    wl = flux['Wave/freq'].values
-    flux = flux['Stellar'].values
+        wl, flux = cls.apply_modifiers(config, par, wl, flux)
 
-    if 'psg_wl_mod' in config.keys():
-        wl *= float(config['psg_wl_mod'])
+        return wl, flux
 
-    if 'psg_flux_mod' in config.keys():
-        flux *= float(config['psg_flux_mod'])
+    @classmethod
+    def load_tellurics(cls, config, par):
+        """ load tellurics """
+        tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
+        tell = pd.read_csv(tell_file)
 
-    return wl, flux
+        wl = tell['Wave/freq'].values
+        tell = tell['Telluric'].values
 
-def load_tellurics(config):
-    """ load tellurics """
-    tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
-    tell = pd.read_csv(tell_file)
+        wl, tell = cls.apply_modifiers(config, par, wl, tell)
 
-    wl = tell['Wave/freq'].values
-    tell = tell['Telluric'].values
+        return wl, tell
 
-    if 'psg_wl_mod' in config.keys():
-        wl *= float(config['psg_wl_mod'])
+    @classmethod
+    def load_psg(cls, config, phase, wl_low=0.6, wl_high=2.0, steps=140):
+        """ load synthetic spectra from Planetary Spectrum Generator webservice """
+        psg_file = join(config['input_dir'], config['psg_dir'], config['psg_file'])
+        psg = PSG(config_file=psg_file)
 
-    if 'psg_tell_mod' in config.keys():
-        tell *= float(config['psg_tell_mod'])
+        # Get telluric
+        tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
+        if not exists(tell_file):
+            df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='tel')
+            df.to_csv(tell_file, index=False)
 
-    return wl, tell
+        # Get planet
+        atm_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
+        if not exists(atm_file):
+            df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='trn')
+            df.to_csv(atm_file, index=False)
 
-def load_psg(config, phase, wl_low=0.6, wl_high=2.0, steps=140):
-    """ load synthetic spectra from Planetary Spectrum Generator webservice """
-    psg_file = join(config['input_dir'], config['psg_dir'], config['psg_file'])
-    psg = PSG(config_file=psg_file)
-
-    # Get telluric
-    tell_file = join(config['input_dir'], config['psg_dir'], config['psg_file_tell'])
-    if not exists(tell_file):
-        df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='tel')
-        df.to_csv(tell_file, index=False)
-
-    # Get planet
-    atm_file = join(config['input_dir'], config['psg_dir'], config['psg_file_atm'])
-    if not exists(atm_file):
-        df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T', type='trn')
-        df.to_csv(atm_file, index=False)
-
-    # Get stellar flux
-    flx_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
-    if not exists(flx_file):
-        df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
-        df.to_csv(flx_file, index=False)
-
-    for i, p in enumerate(phase):
-        # Get radiance
-        obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'].replace('*', str(i)))
-        if not exists(obs_file):
-            psg.change_config({'OBJECT-SEASON': p})
+        # Get stellar flux
+        flx_file = join(config['input_dir'], config['psg_dir'], config['psg_file_star'])
+        if not exists(flx_file):
             df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
-            df.to_csv(obs_file, index=False)
+            df.to_csv(flx_file, index=False)
+
+        for i, p in enumerate(phase):
+            # Get radiance
+            obs_file = join(config['input_dir'], config['psg_dir'], config['psg_file_obs'].replace('*', str(i)))
+            if not exists(obs_file):
+                psg.change_config({'OBJECT-SEASON': p})
+                df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
+                df.to_csv(obs_file, index=False)

@@ -15,9 +15,9 @@ from DataSources.PSG import PSG
 import intermediary as iy
 import config
 import stellar_db
-import marcs
-import harps
-import psg
+from marcs import marcs
+from harps import harps
+from psg import psg
 
 #plt = Plot()
 
@@ -30,6 +30,14 @@ par = stellar_db.load_parameters(star, planet)
 imu = np.geomspace(1, 0.0001, num=20)
 imu[-1] = 0
 conf['star_intensities'] = imu
+
+
+#par['radial_velocity'] = 0
+reference = 'Vesta.fits'
+r_wave, r_flux = harps.load_solar(conf, par, reference=reference)
+r_flux = doppler_shift(r_wave, r_flux, par['radial_velocity'])
+harps.flux_calibration(conf, par, r_wave, r_flux)
+
 
 """
 wl_i, factors = marcs.load_limb_darkening(conf, par)

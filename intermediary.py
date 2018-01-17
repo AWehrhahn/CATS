@@ -12,6 +12,8 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 warnings.simplefilter('ignore', category=Warning)
 
+#TODO Use awlib.parallel to parallelize some of the calculations
+
 def create_bad_pixel_map(obs, threshold=0):
     """ Create a map of all bad pixels from the given set of observations """
     return np.all(obs <= threshold, axis=0) | np.all(obs >= np.max(obs)-threshold, axis=0)
@@ -97,7 +99,8 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
         np.cos(par['inc']) + radii[:, None] * np.sin(angles)[None, :]
     # mu = sqrt(1 - d**2)
     mu = np.sqrt(1 - (d_x**2 + d_y[None, :, :]**2))
-    mu = np.nan_to_num(mu, copy=False) #TODO where to do this
+    mu[np.isnan(mu)] = -1 #-1 is out of bounds, which will be filled with 0 intensity
+    #mu = np.nan_to_num(mu, copy=False) #TODO where to do this
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
     intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=3)

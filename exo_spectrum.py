@@ -18,12 +18,12 @@ import intermediary as iy
 import solution as sol
 
 import config
-import psg
-import harps
-import marcs
 import stellar_db
-import limb_darkening
-import synthetic
+from psg import psg
+from harps import harps
+from marcs import marcs
+from limb_darkening import limb_darkening
+from synthetic import synthetic
 
 
 def rebin(a, newshape):
@@ -88,7 +88,7 @@ def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     """ plot resulting data """
     try:
         if source in ['psg']:
-            planet = psg.load_input(conf, wl)
+            planet = psg.load_input(conf, par, wl)
             is_planet = True
     except FileNotFoundError:
         is_planet = False
@@ -131,12 +131,22 @@ def get_data(conf, star, planet, **kwargs):
     Load data from specified sources
     """
     # Check settings
+    bla = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
+           'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
+    def assign_module(key):
+        if key in bla.keys():
+            return bla[key]
+        else:
+            raise AttributeError('Module %s not found' % key)
+
     parameters = conf['parameters']
-    flux = conf['flux']
-    intensities = conf['intensities']
-    observation = conf['observation']
-    tellurics = conf['tellurics']
     star_intensities = conf['star_intensities']
+
+    flux = assign_module(conf['flux'])
+    intensities = assign_module(conf['intensities'])
+    observation = assign_module(conf['observation'])
+    tellurics = assign_module(conf['tellurics'])
+    
 
     # Parameters
     print('   - Parameters')
@@ -151,58 +161,31 @@ def get_data(conf, star, planet, **kwargs):
             star_intensities = imu
 
     print('   - Stellar flux')
-    if flux in ['marcs', 'm']:
-        wl_flux, flux = marcs.load_flux(conf, par)
-    elif flux in ['psg']:
-        wl_flux, flux = psg.load_flux(conf)
-    elif flux in ['harps']:
-        wl_flux, flux = harps.load_flux(conf, par)
-
+    wl_flux, flux = flux.load_stellar_flux(conf, par)
 
     print('   - Specific intensities')
-    if intensities in ['limb_darkening']:
-        wl_si, intensities = limb_darkening.load_intensities(
-            conf, par, wl_flux, flux)
-    elif intensities in ['marcs']:
-        wl_si, intensities = marcs.load_intensities(conf, par)
-    elif intensities in ['combined']:
+    if intensities == 'combined':
         wl_f, factors = marcs.load_limb_darkening(conf, par)
         factors = interpolate_DataFrame(wl_flux, wl_f, factors)
         intensities = factors.apply(lambda s: s * flux)
         wl_si = wl_flux
+    else:
+        wl_si, intensities = intensities.load_specific_intensities(
+            conf, par, wl_flux, flux)
 
-    #TODO
-    
-    plt.plot(flux, label='flux')
-    for i in range(len(imu)):
-        plt.plot(intensities[imu[i]], label='%.3f' % imu[i])
-    plt.legend(loc='best')
-    plt.show()
-    
     print('   - Tellurics')
-    if tellurics in ['psg']:
-        wl_tell, tell = psg.load_tellurics(conf)
-    elif tellurics in ['harps']:
-        wl_tell, tell = harps.load_tellurics(conf, par)
-    elif tellurics in ['one', 'ones'] or tellurics is None:
+    if tellurics in ['one', 'ones'] or tellurics is None:
         wl_tell = wl_flux
         tell = np.ones_like(wl_tell)
+    else:
+        wl_tell, tell = tellurics.load_tellurics(conf, par)
 
     print('   - Observations')
-    #phase is in radians
-    if observation in ['psg']:
-        wl_obs, obs, phase = psg.load_observation(conf)
-    elif observation in ['harps']:
-        wl_obs, obs, phase = harps.load_observations(conf, par)
-    elif observation in ['syn', 'synthetic', 'fake']:
-        wl_obs, obs, phase = synthetic.generate_spectrum(
-            conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
-
+    wl_obs, obs, phase = observation.load_observations(
+        conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
 
     # Unify wavelength grid
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    # TODO for PSG at least wl lower than 8000 Å are bad
-    bpmap[(wl_obs <= 8100)] = True
     wl = wl_obs[~bpmap]
     obs = obs[:, ~bpmap]
 
@@ -211,7 +194,7 @@ def get_data(conf, star, planet, **kwargs):
     tell = np.interp(wl, wl_tell, tell)
 
     # TODO DEBUG
-    if observation in ['harps']:
+    if observation is harps:
         obs = harps.flux_calibration(conf, par, wl, obs)
 
     # Adding noise to the observation
@@ -290,7 +273,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 10000
+        lamb = 1000000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1
