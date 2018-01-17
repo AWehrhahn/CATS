@@ -3,14 +3,15 @@ Load configuration file
 """
 
 import os
-from os.path import join, exists
+from os.path import exists, join
 
 import yaml
+
 try:
-    from yaml import CLoader as Loader  # , CDumper as Dumper
+    from yaml import CLoader as Loader
 except ImportError:
     print('LibYaml not installed, ')
-    from yaml import Loader  # , Dumper
+    from yaml import Loader
 
 
 def __load_yaml__(fname):
@@ -18,6 +19,7 @@ def __load_yaml__(fname):
     with open(fname, 'r') as fp:
         return yaml.load(fp, Loader=Loader)
     raise IOError
+
 
 def load_config(target, filename='config.yaml'):
     """ Load configuration from file """
@@ -41,7 +43,7 @@ def load_config(target, filename='config.yaml'):
         raise FileNotFoundError
 
     if not exists(par_file):
-        print('Parameter file not found, assuming default values')    
+        print('Parameter file not found, assuming default values')
     else:
         par = __load_yaml__(par_file)
         conf.update(par)

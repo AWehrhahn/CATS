@@ -4,9 +4,12 @@ Data Module provides an abstract class for all other data modules, e.g. harps, m
 
 from abc import ABC, abstractmethod
 
+
 class data_module(ABC):
     """
     An abstract class that defines all the different load routines to get data
+    A class does not need to inherit all of these methods (in fact most won't),
+    but rather they are a guideline for in- and output
     """
 
     @classmethod

@@ -1,10 +1,15 @@
+"""
+A class to access limb darkening formulas from Claret 2000
+"""
 import astropy.io.fits as fits
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from data_module_interface import data_module
 
+
 class limb_darkening(data_module):
+    """ access limb darkening formulas from Claret 2000 """
 
     @classmethod
     def round_to(cls, n, precision, limits=None):
@@ -31,12 +36,13 @@ class limb_darkening(data_module):
         return 1 - a[0] * (1 - mu**0.5) - \
             a[1] * (1 - mu) - a[2] * (1 - mu**1.5) - a[3] * (1 - mu**2)
 
-
     @classmethod
     def load_specific_intensities(cls, config, par, wl_flux, flux):
-        # Limb darkening
-        # I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
-        # from Claret 2000, http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
+        """
+        Limb darkening
+        I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
+        from Claret 2000, http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
+        """
         file_limb_darkening = config['ld_file']
         hdulist = fits.open(file_limb_darkening)
         lddata = hdulist[1].data

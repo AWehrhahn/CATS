@@ -2,25 +2,25 @@
 Load reduced HARPS observations
 """
 
-from os.path import join
 import glob
+from os.path import join
+
+import astropy.io.fits as fits
+import jdcal
 import numpy as np
 import pandas as pd
-import astropy.io.fits as fits
-from scipy.signal import correlate
-from scipy.optimize import minimize
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
+from scipy.optimize import minimize
 
-import jdcal
+import intermediary as iy
 from awlib.astro import air2vac, doppler_shift
-
 from data_module_interface import data_module
 from marcs import marcs
-import intermediary as iy
 
 
 class harps(data_module):
+    """ access HARPS data """
     @classmethod
     def apply_modifiers(cls, conf, par, wl, flux):
         if 'harps_flux_mod' in conf.keys():
@@ -110,7 +110,7 @@ class harps(data_module):
         tell = df['tell']
 
         wl, tell = cls.apply_modifiers(conf, par, wl, tell)
-        wl *= 10 #TODO only tellurics has this shify
+        wl *= 10  # TODO only tellurics has this shify
         return wl, tell
 
     @classmethod
@@ -136,7 +136,8 @@ class harps(data_module):
 
         # load marcs solar spectrum
         s_wave, s_flux = marcs.load_solar(conf, par, calib_dir)
-        s_flux = interp1d(s_wave, s_flux, kind='quadratic', fill_value=np.nan, bounds_error=False)(wl)
+        s_flux = interp1d(s_wave, s_flux, kind='quadratic',
+                          fill_value=np.nan, bounds_error=False)(wl)
 
         t_wave, t_flux = cls.load_tellurics(conf, par)
         t_flux = interp1d(t_wave, t_flux, kind='quadratic',

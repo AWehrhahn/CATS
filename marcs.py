@@ -5,18 +5,17 @@ marcs.astro.uu.se
 import os
 from os.path import join
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
-from scipy.integrate import trapz, simps
-from scipy.interpolate import interp1d
 from scipy.constants import c, pi
+from scipy.integrate import simps, trapz
+from scipy.interpolate import interp1d
 
-from DataSources import Cache
 from awlib.astro import air2vac, doppler_shift
-
 from data_module_interface import data_module
+from DataSources import Cache
+
 
 class marcs(data_module):
     ###
@@ -39,7 +38,7 @@ class marcs(data_module):
         imu = config['star_intensities']
         intensities = data
 
-        flux = simps(intensities * imu, imu) * (-2) 
+        flux = simps(intensities * imu, imu) * (-2)
         wl, flux = cls.apply_modifiers(config, par, wl, flux)
 
         return wl, flux
@@ -48,9 +47,10 @@ class marcs(data_module):
     def load_stellar_flux(cls, conf, par, fname=None, apply_air2vac=True):
         """ Load MARCS flux directly from flx file """
         if fname is None:
-            fname = join(conf['input_dir'], conf['marcs_dir'], conf['marcs_file_flux'])
+            fname = join(conf['input_dir'], conf['marcs_dir'],
+                         conf['marcs_file_flux'])
         df = pd.read_table(fname, delim_whitespace=True, names=[
-                        'wl', 'rel_flux', 'abs_flux', 'rel_flux_conv', 'abs_flux_conv'], skiprows=1)
+            'wl', 'rel_flux', 'abs_flux', 'rel_flux_conv', 'abs_flux_conv'], skiprows=1)
 
         wl = df['wl'].values
         flux = df['abs_flux'].values
@@ -131,7 +131,6 @@ class marcs(data_module):
 
             result[i] = [wl, *y2]
 
-            # TODO am I missing sth here?
             # skip to end of line
             f.read(8)
 
@@ -149,8 +148,8 @@ class marcs(data_module):
         interpolate: interpolation method
         """
         result = [cls.read(fname.format(i), imu, interpolate=interpolate)[100:-100]
-                for i in ld_format]
-        
+                  for i in ld_format]
+
         result = np.concatenate(result)[:-200]
         return result
 
@@ -158,7 +157,7 @@ class marcs(data_module):
     def load_data(cls, config, par):
         # filename
         flux_file = join(config['input_dir'],
-                        config['marcs_dir'], config['marcs_file_ld'])
+                         config['marcs_dir'], config['marcs_file_ld'])
         imu = config['star_intensities']
         ld_format = config['marcs_ld_format']
         interpolation = config['marcs_ld_interpolation_method']
@@ -209,5 +208,6 @@ class marcs(data_module):
     @classmethod
     def load_solar(cls, conf, par, calib_dir):
         s_fname = join(calib_dir, 'sun.flx')
-        s_wave, s_flux = cls.load_stellar_flux(conf, par, s_fname, apply_air2vac=False)
+        s_wave, s_flux = cls.load_stellar_flux(
+            conf, par, s_fname, apply_air2vac=False)
         return s_wave, s_flux / (2 * np.pi)

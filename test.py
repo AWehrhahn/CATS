@@ -42,7 +42,7 @@ harps.flux_calibration(conf, par, r_wave, r_flux)
 """
 wl_i, factors = marcs.load_limb_darkening(conf, par)
 """
-wl_marcs, flux_marcs = marcs.load_flux_directly(conf, par)
+wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)
 """
 wl_m2 , f_m2 = marcs.load_flux(conf, par)
 

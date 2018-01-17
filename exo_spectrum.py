@@ -3,55 +3,108 @@ Use an inverse method approach to determine the planetary transit spectrum
 author: Ansgar Wehrhahn (ansgar.wehrhahn@physics.uu.se)
 Based on work by Nikolai Piskunov (Uppsala University)
 """
-import sys
 import argparse
 import os.path
-import numpy as np
-import pandas as pd
+import sys
 
-from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import matplotlib.pyplot as plt
-
-from awlib.util import interpolate_DataFrame
-
-import intermediary as iy
-import solution as sol
+import numpy as np
+from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
 import config
+import intermediary as iy
+import solution as sol
 import stellar_db
-from psg import psg
+from awlib.util import normalize as normalize1d
+from awlib.util import interpolate_DataFrame
 from harps import harps
-from marcs import marcs
 from limb_darkening import limb_darkening
+from marcs import marcs
+from psg import psg
 from synthetic import synthetic
 
 
-def rebin(a, newshape):
-    '''
-    Rebin an array to a new shape.
-    '''
-    assert len(a.shape) == len(newshape)
-
-    slices = [slice(0, old, float(old) / new)
-              for old, new in zip(a.shape, newshape)]
-    coordinates = np.mgrid[slices]
-    # choose the biggest smaller integer index
-    indices = coordinates.astype('i')
-    return a[tuple(indices)]
+def prepare(target, phase):
+    # Load data from PSG if necessary
+    conf = config.load_config(target)
+    psg.load_psg(conf, phase)
+    return np.deg2rad(phase)
 
 
-def normalize2d(arr, axis=1):
-    """ normalize array arr """
-    arr -= np.min(arr, axis=axis)[:, None]
-    arr /= np.max(arr, axis=axis)[:, None]
-    return arr
+def assign_module(modules, key):
+    if key in modules.keys():
+        return modules[key]
+    else:
+        raise AttributeError('Module %s not found' % key)
 
 
-def normalize1d(arr):
-    """ normalize array arr """
-    arr -= np.min(arr)
-    arr /= np.max(arr)
-    return arr
+def get_data(conf, star, planet, **kwargs):
+    """
+    Load data from specified sources
+    """
+    # Check settings
+    modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
+               'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
+
+    parameters = conf['parameters']
+    star_intensities = conf['star_intensities']
+
+    flux = assign_module(modules, conf['flux'])
+    intensities = assign_module(modules, conf['intensities'])
+    observation = assign_module(modules, conf['observation'])
+    tellurics = assign_module(modules, conf['tellurics'])
+
+    # Parameters
+    print('   - Parameters')
+    if parameters in ['stellar_db', 'sdb']:
+        par = stellar_db.load_parameters(star, planet, **kwargs)
+
+    if not isinstance(star_intensities, list):
+        if star_intensities in ['geom']:
+            imu = np.geomspace(1, 0.0001, num=20)
+            imu[-1] = 0
+            conf['star_intensities'] = imu
+            star_intensities = imu
+
+    print('   - Stellar flux')
+    wl_flux, flux = flux.load_stellar_flux(conf, par)
+
+    print('   - Specific intensities')
+    if intensities == 'combined':
+        wl_f, factors = marcs.load_limb_darkening(conf, par)
+        factors = interpolate_DataFrame(wl_flux, wl_f, factors)
+        intensities = factors.apply(lambda s: s * flux)
+        wl_si = wl_flux
+    else:
+        wl_si, intensities = intensities.load_specific_intensities(
+            conf, par, wl_flux, flux)
+
+    print('   - Tellurics')
+    if tellurics == 'ones':
+        wl_tell = wl_flux
+        tell = np.ones_like(wl_tell)
+    else:
+        wl_tell, tell = tellurics.load_tellurics(conf, par)
+
+    print('   - Observations')
+    wl_obs, obs, phase = observation.load_observations(
+        conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
+
+    # Unify wavelength grid
+    bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
+    wl = wl_obs[~bpmap]
+    obs = obs[:, ~bpmap]
+
+    flux = np.interp(wl, wl_flux, flux)
+    intensities = interpolate_DataFrame(wl, wl_si, intensities)
+    tell = np.interp(wl, wl_tell, tell)
+
+    # TODO DEBUG
+    if observation is harps:
+        obs = harps.flux_calibration(conf, par, wl, obs)
+    # TODO END_DEBUG
+
+    return par, wl, flux, intensities, tell, obs, phase
 
 
 def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
@@ -119,115 +172,17 @@ def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     plt.show()
 
 
-def prepare(target, phase):
-    # Load data from PSG if necessary
-    conf = config.load_config(target)
-    psg.load_psg(conf, phase)
-    return np.deg2rad(phase)
-
-
-def get_data(conf, star, planet, **kwargs):
-    """
-    Load data from specified sources
-    """
-    # Check settings
-    bla = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
-           'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
-    def assign_module(key):
-        if key in bla.keys():
-            return bla[key]
-        else:
-            raise AttributeError('Module %s not found' % key)
-
-    parameters = conf['parameters']
-    star_intensities = conf['star_intensities']
-
-    flux = assign_module(conf['flux'])
-    intensities = assign_module(conf['intensities'])
-    observation = assign_module(conf['observation'])
-    tellurics = assign_module(conf['tellurics'])
-    
-
-    # Parameters
-    print('   - Parameters')
-    if parameters in ['stellar_db', 'sdb']:
-        par = stellar_db.load_parameters(star, planet, **kwargs)
-
-    if not isinstance(star_intensities, list):
-        if star_intensities in ['geom']:
-            imu = np.geomspace(1, 0.0001, num=20)
-            imu[-1] = 0
-            conf['star_intensities'] = imu
-            star_intensities = imu
-
-    print('   - Stellar flux')
-    wl_flux, flux = flux.load_stellar_flux(conf, par)
-
-    print('   - Specific intensities')
-    if intensities == 'combined':
-        wl_f, factors = marcs.load_limb_darkening(conf, par)
-        factors = interpolate_DataFrame(wl_flux, wl_f, factors)
-        intensities = factors.apply(lambda s: s * flux)
-        wl_si = wl_flux
-    else:
-        wl_si, intensities = intensities.load_specific_intensities(
-            conf, par, wl_flux, flux)
-
-    print('   - Tellurics')
-    if tellurics in ['one', 'ones'] or tellurics is None:
-        wl_tell = wl_flux
-        tell = np.ones_like(wl_tell)
-    else:
-        wl_tell, tell = tellurics.load_tellurics(conf, par)
-
-    print('   - Observations')
-    wl_obs, obs, phase = observation.load_observations(
-        conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
-
-    # Unify wavelength grid
-    bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    wl = wl_obs[~bpmap]
-    obs = obs[:, ~bpmap]
-
-    flux = np.interp(wl, wl_flux, flux)
-    intensities = interpolate_DataFrame(wl, wl_si, intensities)
-    tell = np.interp(wl, wl_tell, tell)
-
-    # TODO DEBUG
-    if observation is harps:
-        obs = harps.flux_calibration(conf, par, wl, obs)
-
-    # Adding noise to the observation
-    #noise = np.random.random_sample(obs.shape) / conf['snr']
-    #obs *= 1 + noise
-
-    # Scaling the stellar flux to the same size as the observations
-    #factor = max(obs[0]) / max(flux)
-    #flux = flux * factor
-    #intensities = intensities.apply(lambda s: s * factor)
-
-    # TODO END_DEBUG
-
-    return par, wl, flux, intensities, tell, obs, phase
-
-
 def main(star, planet, lamb='auto', **kwargs):
     """
     Main entry point for the ExoSpectrum Programm
     """
     # Step 0: Configuration
-    if star is not None and planet is not None:
-        combo = star + planet
-    else:
-        combo = None
+    combo = star + planet if star is not None and planet is not None else None
     conf = config.load_config(combo, 'config.yaml')
-    if combo is None:
-        star = conf['name_target']
-        planet = conf['name_planet']
 
-    # TODO
-    psg.load_psg(conf, [180, 180.04, 180.08, 180.12, 180.16, 180.20, 180.24, 180.28, 180.32, 180.36, 180.4,
-                        179.96, 179.92, 179.88, 179.84, 179.80, 179.76, 179.72, 179.68, 179.64])
+    # in case it wasn't clear
+    star = conf['name_target']
+    planet = conf['name_planet']
 
     # Step 1: Get Data
     print('Load data')
