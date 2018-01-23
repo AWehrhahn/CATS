@@ -14,7 +14,7 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import minimize
 
 import intermediary as iy
-from awlib.astro import air2vac, doppler_shift
+from awlib.astro import air2vac, doppler_shift, planck
 from awlib.util import normalize
 from data_module_interface import data_module
 from dataset import dataset as ds
@@ -132,7 +132,7 @@ class harps(data_module):
         return r_wave[1000:], r_flux[1000:], r_err[1000:]
 
     @classmethod
-    def flux_calibration(cls, conf, par, wl, obs, err, tellurics=True, source='idl', plot=True, plot_title=''):
+    def flux_calibration(cls, conf, par, wl, obs, err, source='idl', plot=True, plot_title=''):
         calib_dir = join(conf['input_dir'], conf['harps_dir'],
                          conf['harps_calibration_dir'])
 
@@ -145,8 +145,10 @@ class harps(data_module):
 
         if source == 'marcs':
             # load marcs solar spectrum
+            tellurics = True
             s_wave, s_flux = marcs.load_solar(conf, par, calib_dir)
         elif source == 'idl':
+            tellurics = False
             s_wave, s_flux = idl.load_solar(conf, par, calib_dir)
 
         s_flux = cls.interpolate(wl, s_wave, s_flux)
@@ -157,6 +159,10 @@ class harps(data_module):
 
         if tellurics:
             s_flux *= t_flux
+
+        ###
+        # Fix radial velocity and broadening of the solar spectrum
+        ###
 
         def func(x):
             # also fitting for best broadening at the same time doesn't work
@@ -179,16 +185,20 @@ class harps(data_module):
         if b != 0:
             s_flux = gaussbroad(s_flux, b)
 
-        # TODO get these areas automatically/ from somewhere else
+        ###
+        # Create broadened profile
+        ###
+
+        # Define Exclusion areas manually, usually telluric line
+        # TODO get these areas automatically/from somewhere else
         exclusion = np.array(
             [(5300, 5340), (5850, 6000), (6260, 6340), (6400, 6600), (6860, 7000)])
         tmp = np.zeros((exclusion.shape[0], wl.shape[0]))
         for i, ex in enumerate(exclusion):
             tmp[i] = ~((wl > ex[0]) & (wl < ex[1]))
-
         tmp = np.all(tmp, axis=0)
 
-        # compare
+        # be careful to only broaden within individual sections
         profile = np.where(tmp, s_flux / r_flux, 0)
         low, high = min(wl), max(wl)
         for i in range(exclusion.shape[0] + 1):
@@ -197,31 +207,38 @@ class harps(data_module):
                 low = exclusion[i, 1]
             else:
                 band = (wl >= low) & (wl < high)
-
             profile[band] = gaussbroad(profile[band], 1000, mode='reflect')
 
-        #profile = np.interp(wl, wl[tmp], profile[tmp])
         profile = cls.interpolate(wl, wl[tmp], profile[tmp])
-        calibrated = obs * profile[None, :]
+
+
+        #Fix Difference between solar and star temperatures
+        bbflux = planck(wl, 4000) # Teff of the star
+        bbflux2 = planck(wl, 6770) # Teff of the sun
+        ratio = bbflux2 / bbflux
+
+        #Apply changes
+        calibrated = obs * profile[None, :] * ratio
         calibrated[:, :50] = calibrated[:, 51]
 
         #Any errors in s_flux and r_flux are broadened away
         c_err = err * profile[None, :]
         c_err[:, :50] = c_err[:, 51]
-        
-        _wl = wl[obs>0.1]
-        _s = s_flux[obs>0.1]
-        _c = calibrated[0, obs>0.1]
-        calibrated[0] = normalize(calibrated[0])
+
+        calibrated[0] *= 10
 
         if plot:
             import matplotlib.pyplot as plt
+            calibrated[0] = gaussbroad(calibrated[0], 50)
+            s_flux = gaussbroad(s_flux, 50)
+
             #plt.plot(wl, normalize(r_flux), label='reference')
             plt.plot(wl, normalize(obs), label='observation')
-            plt.plot(_wl, _s, label='solar')
+            plt.plot(wl, s_flux, label='solar')
             plt.plot(wl, calibrated[0], label='calibrated')
             plt.plot(wl, t_flux, label='tellurics')
             plt.plot(wl, profile * 1e4, label='profile')
+            plt.plot(wl, ratio, label='ratio')
             plt.xlim([4000, 7000])
             plt.ylim([0, 1.2])
             plt.title(plot_title)

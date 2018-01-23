@@ -64,7 +64,7 @@ flux_harps = flux_harps[wl_harps > 4000]
 wl_harps = wl_harps[wl_harps > 4000]
 err_harps = np.full_like(wl_harps, 0.002)
 
-flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, err_harps , plot=True, tellurics=False)[0][0]
+flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, err_harps , plot=True)[0][0]
 write('harps.asc', wl_harps, flux_calib, np.full_like(flux_calib, 0.002))
 
 #Load MARCS model
@@ -87,17 +87,16 @@ flux_marcs = gaussbroad(flux_marcs, 1)
 #flux_calib = gaussbroad(flux_calib, 1)
 
 bbflux = planck(wl_harps, 4000) / 100 / np.pi
-bbflux2 = planck(wl_harps, 3950) / 100 / np.pi
-
-ratio = bbflux / bbflux2
+bbflux2 = planck(wl_harps, 6770) / 100 / np.pi
+ratio = bbflux2 / bbflux
 
 #plt.plot(wl_harps, flux_harps, label='original')
 
-plt.plot(wl_harps, flux_marcs, label='hot marcs')
-plt.plot(wl_harps, flux_calib, label='calibrated')
-plt.plot(wl_harps, flux_marcs2, label='cold marcs')
-#plt.plot(wl_harps, bbflux, label='3950K')
-#plt.plot(wl_harps, bbflux2, label='3900K')
+plt.plot(wl_harps, flux_marcs, label='marcs')
+plt.plot(wl_harps, flux_calib * ratio, label='calibrated')
+#plt.plot(wl_harps, flux_marcs2, label='cold marcs')
+#plt.plot(wl_harps, bbflux, label='4000K')
+#plt.plot(wl_harps, bbflux2, label='6770K')
 plt.legend(loc='best')
 plt.show()
 
