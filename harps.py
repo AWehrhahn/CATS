@@ -25,12 +25,12 @@ from idl import idl
 class harps(data_module):
     """ access HARPS data """
     @classmethod
-    def apply_modifiers(cls, conf, par, obs):
+    def apply_modifiers(cls, conf, par, wl, flux):
         if 'harps_flux_mod' in conf.keys():
-            obs.scale *= float(conf['harps_flux_mod'])
+            flux *= float(conf['harps_flux_mod'])
         if 'harps_wl_mod' in conf.keys():
-            obs.wl *= float(conf['harps_wl_mod'])
-        return obs
+            wl *= float(conf['harps_wl_mod'])
+        return wl, flux
 
     @classmethod
     def load(cls, conf, par, fname, apply_barycentric=False):
@@ -43,14 +43,12 @@ class harps(data_module):
         wave = data['WAVE'][0, :]
         flux = data['FLUX'][0, :]
         err = data['ERR'][0, :]
+        #TODO
         obs = ds(wave, flux, err)
 
-        obs.wl = air2vac(obs.wl)
+        wave = air2vac(wave)
 
         tmid = header['TMID']  # in mjd
-        # dtmid = mjd2datetime(tmid) #do I actually need that?
-
-        # phase?
         transit = par['transit'] - jdcal.MJD_0
         period = par['period']
         phase = ((tmid - (transit - period / 2)) / period) % 1
@@ -59,21 +57,21 @@ class harps(data_module):
         # barycentric velocity
         if apply_barycentric:
             bc_velocity = -hdulist[0].header['ESO DRS BERV']
-            obs.doppler_shift(bc_velocity)
+            shift = doppler_shift(wave, bc_velocity)
+            flux = cls.interpolate(wave, shift, flux)
 
-        obs = cls.apply_modifiers(conf, par, obs)
+        wave, flux = cls.apply_modifiers(conf, par, wave, flux)
 
-        
         obs.phase = phase
 
-        return obs
+        return wave, flux, err, phase
 
     @classmethod
     def load_observations(cls, conf, par, *args, **kwargs):
         """ Load all observations from all fits files in the HARPS directory """
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_file_obs'])
-        wl, obs, err, phase = [], [], [], 
+        wl, obs, err, phase = [], [], [], []
         for g in glob.glob(fname):
             w, f, e, p = cls.load(conf, par, g)
 
@@ -82,9 +80,11 @@ class harps(data_module):
             wl[-1] = wl[0]
             obs.append(f)
             phase.append(p)
+            err.append(e)
 
         wl = np.array(wl)
         obs = np.array(obs)
+        err = np.array(err)
         phase = np.array(phase)
         phase = np.deg2rad(phase)
 
@@ -127,9 +127,9 @@ class harps(data_module):
         """ load the HARPS reflected solar spectrum """
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_calibration_dir'], reference)
-        ref = cls.load(conf, par, fname, apply_barycentric=True)
-        del ref.phase #We don't need that here
-        return ref[1000:]
+        r_wave, r_flux, r_err, _ = cls.load(conf, par, fname, apply_barycentric=True)
+        #del ref.phase #We don't need that here
+        return r_wave[1000:], r_flux[1000:], r_err[1000:]
 
     @classmethod
     def flux_calibration(cls, conf, par, wl, obs, err, tellurics=True, source='idl', plot=True, plot_title=''):
@@ -140,8 +140,7 @@ class harps(data_module):
         reference = 'Vesta.fits'
         r_wave, r_flux, _ = cls.load_solar(conf, par, reference)
         r_wave = doppler_shift(r_wave, par['radial_velocity'])
-        r_flux = interp1d(r_wave, r_flux, kind='quadratic',
-                          bounds_error=False, fill_value=0)(wl)
+        r_flux = cls.interpolate(wl, r_wave, r_flux)
         r_flux = gaussbroad(r_flux, 2)
 
         if source == 'marcs':
@@ -202,26 +201,25 @@ class harps(data_module):
             profile[band] = gaussbroad(profile[band], 1000, mode='reflect')
 
         #profile = np.interp(wl, wl[tmp], profile[tmp])
-        profile = interp1d(wl[tmp], profile[tmp],
-                           kind='quadratic', fill_value='extrapolate')(wl)
-
+        profile = cls.interpolate(wl, wl[tmp], profile[tmp])
         calibrated = obs * profile[None, :]
         calibrated[:, :50] = calibrated[:, 51]
 
         #Any errors in s_flux and r_flux are broadened away
         c_err = err * profile[None, :]
         c_err[:, :50] = c_err[:, 51]
+        
+        _wl = wl[obs>0.1]
+        _s = s_flux[obs>0.1]
+        _c = calibrated[0, obs>0.1]
+        calibrated[0] = normalize(calibrated[0])
 
         if plot:
             import matplotlib.pyplot as plt
-            _wl = wl[obs>0.1]
-            _s = gaussbroad(s_flux[obs>0.1], 1000)
-            _c = gaussbroad(calibrated[0, obs>0.1], 1000)
-
             #plt.plot(wl, normalize(r_flux), label='reference')
             plt.plot(wl, normalize(obs), label='observation')
             plt.plot(_wl, _s, label='solar')
-            plt.plot(_wl, _c, label='calibrated')
+            plt.plot(wl, calibrated[0], label='calibrated')
             plt.plot(wl, t_flux, label='tellurics')
             plt.plot(wl, profile * 1e4, label='profile')
             plt.xlim([4000, 7000])

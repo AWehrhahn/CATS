@@ -60,7 +60,8 @@ class marcs(data_module):
         if apply_air2vac:
             wl = air2vac(wl)
 
-        flux = doppler_shift(wl, flux, par['radial_velocity'])
+        shift = doppler_shift(wl, par['radial_velocity'])
+        flux = cls.interpolate(wl, shift, flux)
         #flux /= (2 * np.pi) #change to physical flux #TODO
 
         return wl, flux

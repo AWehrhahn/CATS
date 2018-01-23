@@ -21,7 +21,7 @@ from harps import harps
 def write(fname, wl, flux, err):
     fname = join(conf['input_dir'], conf['dir_tmp'], fname)
     data = np.array([wl, flux, err]).swapaxes(0, 1)
-    np.savetxt(fname, data, delimiter=', ', header=['WAVE', 'FLUX', 'ERR'])
+    np.savetxt(fname, data, delimiter=', ')
 
 
 star = 'K2-3'
@@ -40,7 +40,7 @@ reference = 'Vesta.fits'
 ref = harps.load_solar(conf, par, reference=reference)
 ref.doppler_shift(par['radial_velocity'])
 #r_wave = doppler_shift(r_wave, par['radial_velocity'])
-r_flux, r = harps.flux_calibration(conf, par, r_wave, r_flux, r_err, tellurics=False, plot=True, plot_title='Vesta')
+ref = harps.flux_calibration(conf, par, r_wave, r_flux, r_err, tellurics=False, plot=True, plot_title='Vesta')
 
 r_flux = r_flux[0]
 write('test.csv', r_wave, r_flux, r_err)
@@ -62,9 +62,10 @@ flux_harps = np.mean(flux_harps, 0)
 #Calibrate HARPS flux
 flux_harps = flux_harps[wl_harps > 4000]
 wl_harps = wl_harps[wl_harps > 4000]
+err_harps = np.full_like(wl_harps, 0.002)
 
-flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, plot=True, tellurics=False)[0]
-write('test.asc', wl_harps, flux_calib, np.full_like(flux_calib, 0.002))
+flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, err_harps , plot=True, tellurics=False)[0][0]
+write('harps.asc', wl_harps, flux_calib, np.full_like(flux_calib, 0.002))
 
 #Load MARCS model
 wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)

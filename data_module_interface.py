@@ -45,4 +45,4 @@ class data_module(ABC):
     @staticmethod
     def interpolate(newx, oldx, y, kind='linear'):
         """ interpolate without errors """
-        return interp1d(oldx, y, bounds_error=False)(newx)
+        return interp1d(oldx, y, bounds_error=False, fill_value=0)(newx)
