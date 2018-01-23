@@ -31,7 +31,7 @@ class limb_darkening(data_module):
             return limits[1]
 
     @staticmethod
-    def limb_darkening(mu, a):
+    def limb_darkening_formula(mu, a):
         """ Limb darkening fomula by Claret 2000 """
         return 1 - a[0] * (1 - mu**0.5) - \
             a[1] * (1 - mu) - a[2] * (1 - mu**1.5) - a[3] * (1 - mu**2)
@@ -82,7 +82,7 @@ class limb_darkening(data_module):
 
         a = [a1, a2, a3, a4]
         mus = config['star_intensities']
-        star_int = {i: flux * limb_darkening(i, a) for i in mus}
+        star_int = {i: flux * cls.limb_darkening_formula(i, a) for i in mus}
 
         star_int = pd.DataFrame.from_dict(star_int)
         return wl_flux, star_int

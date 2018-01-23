@@ -3,13 +3,13 @@ Test new stuff
 """
 from os.path import join
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.optimize import fsolve
+from scipy.optimize import fsolve, minimize
+from scipy.interpolate import interp1d
+from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
-from awlib.astro import air2vac, doppler_shift
+from awlib.astro import doppler_shift, planck
 from awlib.util import interpolate_DataFrame
-from DataSources.PSG import PSG
 
 #from test_project.Plot import Plot
 import intermediary as iy
@@ -17,9 +17,12 @@ import config
 import stellar_db
 from marcs import marcs
 from harps import harps
-from psg import psg
 
-#plt = Plot()
+def write(fname, wl, flux, err):
+    fname = join(conf['input_dir'], conf['dir_tmp'], fname)
+    data = np.array([wl, flux, err]).swapaxes(0, 1)
+    np.savetxt(fname, data, delimiter=', ', header=['WAVE', 'FLUX', 'ERR'])
+
 
 star = 'K2-3'
 planet = 'd'
@@ -31,23 +34,76 @@ imu = np.geomspace(1, 0.0001, num=20)
 imu[-1] = 0
 conf['star_intensities'] = imu
 
-
-#par['radial_velocity'] = 0
+"""
+#Test harps flux calibrationc
 reference = 'Vesta.fits'
-r_wave, r_flux = harps.load_solar(conf, par, reference=reference)
-r_flux = doppler_shift(r_wave, r_flux, par['radial_velocity'])
-harps.flux_calibration(conf, par, r_wave, r_flux)
+ref = harps.load_solar(conf, par, reference=reference)
+ref.doppler_shift(par['radial_velocity'])
+#r_wave = doppler_shift(r_wave, par['radial_velocity'])
+r_flux, r = harps.flux_calibration(conf, par, r_wave, r_flux, r_err, tellurics=False, plot=True, plot_title='Vesta')
 
+r_flux = r_flux[0]
+write('test.csv', r_wave, r_flux, r_err)
+"""
+#Load HARPS
+wl_harps, flux_harps, phase = harps.load_observations(conf, par)
+bpmap = iy.create_bad_pixel_map(flux_harps, threshold=1e-3)
+
+flux_harps = flux_harps[:, ~bpmap]
+wl_harps = wl_harps[~bpmap]
+
+#Average HARPS flux
+total = np.mean(flux_harps)
+avg = np.mean(flux_harps, 1)
+flux_harps = flux_harps * total/avg[:, None]
+wl_harps = wl_harps
+flux_harps = np.mean(flux_harps, 0)
+
+#Calibrate HARPS flux
+flux_harps = flux_harps[wl_harps > 4000]
+wl_harps = wl_harps[wl_harps > 4000]
+
+flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, plot=True, tellurics=False)[0]
+write('test.asc', wl_harps, flux_calib, np.full_like(flux_calib, 0.002))
+
+#Load MARCS model
+wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)
+flux_marcs = np.interp(wl_harps, wl_marcs, flux_marcs) * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
+
+fname = join(conf['input_dir'], conf['marcs_dir'], '3950g4.7z-0.25m0.6t0.flx')
+wl_marcs2, flux_marcs2 = marcs.load_stellar_flux(conf, par, fname=fname)
+flux_marcs2 = np.interp(wl_harps, wl_marcs2, flux_marcs2) * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
+
+
+#Load telluric spectrum
+wl_tell, flux_tell = harps.load_tellurics(conf, par)
+flux_tell = interp1d(wl_tell, flux_tell, kind='quadratic',
+                    bounds_error=False)(wl_harps)
+
+flux_marcs *= flux_tell
+flux_marcs2 *= flux_tell
+flux_marcs = gaussbroad(flux_marcs, 1)
+#flux_calib = gaussbroad(flux_calib, 1)
+
+bbflux = planck(wl_harps, 4000) / 100 / np.pi
+bbflux2 = planck(wl_harps, 3950) / 100 / np.pi
+
+ratio = bbflux / bbflux2
+
+#plt.plot(wl_harps, flux_harps, label='original')
+
+plt.plot(wl_harps, flux_marcs, label='hot marcs')
+plt.plot(wl_harps, flux_calib, label='calibrated')
+plt.plot(wl_harps, flux_marcs2, label='cold marcs')
+#plt.plot(wl_harps, bbflux, label='3950K')
+#plt.plot(wl_harps, bbflux2, label='3900K')
+plt.legend(loc='best')
+plt.show()
 
 """
 wl_i, factors = marcs.load_limb_darkening(conf, par)
-"""
-wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)
-"""
 wl_m2 , f_m2 = marcs.load_flux(conf, par)
-
 f_m2 = np.interp(wl_marcs, wl_m2, f_m2)
-
 
 plt.plot(wl_marcs, flux_marcs - f_m2, label='directly')
 #plt.plot(wl_m2, f_m2, label='intensities')
@@ -57,30 +113,6 @@ plt.show()
 f_m2 = np.interp(wl_marcs, wl_m2, f_m2)
 wl_m3, intensities = marcs.load_intensities(conf, par)
 """
-#Load HARPS
-wl_harps, flux_harps, phase = harps.load_observations(conf, par)
-bpmap = iy.create_bad_pixel_map(flux_harps, threshold=1e-3)
-bpmap[wl_harps > 6800] = True
-
-flux_harps = flux_harps[:, ~bpmap]
-wl_harps = wl_harps[~bpmap]
-
-#flux_harps[0] = doppler_shift(wl_harps, flux_harps[0], -par['radial_velocity'])
-
-#Average HARPS flux
-total = np.mean(flux_harps)
-avg = np.mean(flux_harps, 1)
-flux_harps = flux_harps * total/avg[:, None]
-wl_harps = wl_harps
-flux_harps = np.mean(flux_harps, 0)
-
-flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps)[0]
-
-plt.plot(wl_marcs, flux_marcs, label='marcs')
-plt.plot(wl_harps, flux_harps * 100, label='original')
-plt.plot(wl_harps, flux_calib * 100, label='calibrated')
-plt.legend(loc='best')
-plt.show()
 
 # Get telluric
 wl_tell, tell = harps.load_tellurics(conf, par)

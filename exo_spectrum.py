@@ -25,13 +25,18 @@ from synthetic import synthetic
 
 
 def prepare(target, phase):
-    # Load data from PSG if necessary
+    """ Load data from PSG if necessary """
     conf = config.load_config(target)
     psg.load_psg(conf, phase)
     return np.deg2rad(phase)
 
 
-def assign_module(modules, key):
+def assign_module(key):
+    """ assign module according to given key """
+    #some special cases still use strings as identifiers
+    modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
+               'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
+
     if key in modules.keys():
         return modules[key]
     else:
@@ -43,16 +48,14 @@ def get_data(conf, star, planet, **kwargs):
     Load data from specified sources
     """
     # Check settings
-    modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
-               'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
 
     parameters = conf['parameters']
     star_intensities = conf['star_intensities']
 
-    flux = assign_module(modules, conf['flux'])
-    intensities = assign_module(modules, conf['intensities'])
-    observation = assign_module(modules, conf['observation'])
-    tellurics = assign_module(modules, conf['tellurics'])
+    flux = assign_module(conf['flux'])
+    intensities = assign_module(conf['intensities'])
+    observation = assign_module(conf['observation'])
+    tellurics = assign_module(conf['tellurics'])
 
     # Parameters
     print('   - Parameters')
@@ -129,13 +132,12 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
     if lamb == 'auto' or lamb is None:
         print('   - Finding optimal regularization parameter lambda')
         # TODO currently doesn't work as intended
-        lamb = sol.best_lambda(wl, f, g)
+        lamb = sol.best_lambda_dirty(wl, f, g, lamb0=1)
+        #lamb = sol.best_lambda(wl, f, g)
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
-    # return normalize1d(sol.Tikhonov(wl, f, g, lamb))
     return sol.Tikhonov(wl, f, g, lamb)
-
 
 def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
     """ plot resulting data """

@@ -8,7 +8,6 @@ from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve
 
-
 def Franklin(wl, f, g, lamb):
     """
     Solve the mimimazation problem to find the planetary spectrum
@@ -145,8 +144,6 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
 
     # Scales are necessary as large difference in size will make x and y incomparable
     # TODO Standardize x, y instead, i.e. sum(x**2) = 1, sum will be dominated by largest value
-    #y_scale = y.min()**-1
-    #x_scale = x.min()**-1
     y_scale = np.max(y)**-1
     x_scale = np.max(x)**-1
     d = distance(x * x_scale, y * y_scale)
@@ -156,11 +153,11 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
         plt.plot(x * x_scale, y * y_scale, '+')
         plt.plot(p1[0] * x_scale, p1[1] * y_scale, 'r+')
         plt.plot(p2[0] * x_scale, p2[1] * y_scale, 'g+')
-        plt.plot(x[np.argmin(d)-10] * x_scale, y[np.argmin(d)-10] * y_scale, 'd')
+        plt.plot(x[np.argmin(d) - 10] * x_scale,
+                 y[np.argmin(d) - 10] * y_scale, 'd')
         plt.show()
 
-    #TODO
-    return lamb[np.argmin(d)-10]
+    return lamb[np.argmin(d) - 10]
 
 
 def best_lambda_dirty(wl, f, g, lamb0=100):

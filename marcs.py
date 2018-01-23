@@ -38,6 +38,7 @@ class marcs(data_module):
         imu = config['star_intensities']
         intensities = data
 
+        #Integrate intensity * mu dmu 
         flux = simps(intensities * imu, imu) * (-2)
         wl, flux = cls.apply_modifiers(config, par, wl, flux)
 
@@ -60,6 +61,7 @@ class marcs(data_module):
             wl = air2vac(wl)
 
         flux = doppler_shift(wl, flux, par['radial_velocity'])
+        #flux /= (2 * np.pi) #change to physical flux #TODO
 
         return wl, flux
 
@@ -195,6 +197,8 @@ class marcs(data_module):
 
     @classmethod
     def load_limb_darkening(cls, config, par):
+        #TODO do I need a factor mu somewhere?
+        # to convert from specific intensity to flux I had to integrate with mu
         wl_i, intensities = cls.load_intensities(config, par)
         wl_f, flux = cls.load_flux_directly(config, par)
 
@@ -210,4 +214,4 @@ class marcs(data_module):
         s_fname = join(calib_dir, 'sun.flx')
         s_wave, s_flux = cls.load_stellar_flux(
             conf, par, s_fname, apply_air2vac=False)
-        return s_wave, s_flux / (2 * np.pi)
+        return s_wave, s_flux / (2*np.pi)

@@ -3,8 +3,6 @@ Calculate intermediary data products like
 specific intensities or F and G
 """
 import warnings
-import os.path
-import subprocess
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -12,52 +10,30 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 warnings.simplefilter('ignore', category=Warning)
 
-#TODO Use awlib.parallel to parallelize some of the calculations
 
 def create_bad_pixel_map(obs, threshold=0):
     """ Create a map of all bad pixels from the given set of observations """
-    return np.all(obs <= threshold, axis=0) | np.all(obs >= np.max(obs)-threshold, axis=0)
+    return np.all(obs <= threshold, axis=0) | np.all(obs >= np.max(obs) - threshold, axis=0)
 
-def doppler_shift(self, spectrum, wl, vel):
-    """ Shift spectrum by velocity vel """
-    if not isinstance(vel, np.ndarray):
-        vel = np.array([vel])
-    c0 = 299792  # speed of light in km/s
-    # new shifted wavelength grid
-    doppler = 1 - vel / c0
-    wl_doppler = wl[None, :] * doppler[:, None]
-    return np.interp(wl_doppler, wl, spectrum)
-    # return interp1d(wl, spectrum, kind=self.config['interpolation_method'], fill_value=0, bounds_error=False)(wl_doppler)
 
 def rv_star(self):
     """ linearly distribute radial velocities during transit """
     return self.config['radial_velocity']
 
-def rv_planet(self, phases):
+
+def rv_planet(par, phases):
     """ calculate radial velocities of the planet along the orbit """
     # Orbital speed
-    v_orbit = self.par['sma'] * \
-        np.sin(self.par['inc']) * 2 * np.pi / self.par['period_s']
+    v_orbit = par['sma'] * \
+        np.sin(par['inc']) * 2 * np.pi / par['period_s']
     # Modulate with phase
     return v_orbit * np.sin(phases)
 
-def fit_tellurics(self, verbose=False):
-    """ fit tellurics using molecfit """
-    mfit = os.path.join(
-        self.config['intermediary_dir'], self.config['file_molecfit'])
-    molecfit = os.path.expanduser(self.config['path_molecfit'])
-    sp = subprocess.Popen([molecfit, mfit], stdout=subprocess.PIPE)
-    if verbose:
-        for line in iter(sp.stdout.readline, ''):
-            print(line.decode('utf-8').rstrip())
-            if line.decode('utf-8') == '':
-                break
-        sp.stdout.close()
-    sp.wait()
 
 def interpolate_intensity(mu, i):
     """ interpolate the stellar intensity for given limb distance mu """
     return interp1d(i.keys().values, i.values, kind='quadratic', fill_value=0, bounds_error=False, copy=False)(mu).swapaxes(0, 1)
+
 
 def calc_mu(par, phase):
     """ calculate the distance from the center of the planet to the center of the star as seen from earth (in radians) """
@@ -67,6 +43,7 @@ def calc_mu(par, phase):
                 np.sin(self.par['inc'])**2 * np.sin(phase)**2)
     """
     return np.sqrt(1 - (par['sma'] / par['r_star'])**2 * (np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2))
+
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
     """
@@ -99,19 +76,21 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
         np.cos(par['inc']) + radii[:, None] * np.sin(angles)[None, :]
     # mu = sqrt(1 - d**2)
     mu = np.sqrt(1 - (d_x**2 + d_y[None, :, :]**2))
-    mu[np.isnan(mu)] = -1 #-1 is out of bounds, which will be filled with 0 intensity
-    #mu = np.nan_to_num(mu, copy=False) #TODO where to do this
+    # -1 is out of bounds, which will be filled with 0 intensity
+    mu[np.isnan(mu)] = -1
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
     intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=3)
     intens = np.average(intens, axis=2, weights=radii)
     return intens
 
+
 def maximum_phase(par):
     """ The maximum phase for which the planet is still completely inside the stellar disk """
     # This is the inverse of calc_mu(maximum_phase()) = 1.0
     return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
         par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
+
 
 def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
     """
@@ -131,11 +110,16 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
 
     if mode == 'precise':
         # from r=0 to r = r_planet + r_atmosphere
-        i_planet = calc_intensity(par, 
-            phase, intensity, 0, (par['r_planet'] + par['h_atm']) / par['r_star'], n_radii[0], n_angle[0])
+        inner = 0
+        outer = (par['r_planet'] + par['h_atm']) / par['r_star']
+        i_planet = calc_intensity(
+            par, phase, intensity, inner, outer, n_radii[0], n_angle[0])
+
         # from r=r_planet to r=r_planet+r_atmosphere
-        i_atm = calc_intensity(par, 
-            phase, intensity, par['r_planet'] / par['r_star'], (par['r_planet'] +par['h_atm']) / par['r_star'], n_radii[1], n_angle[1])
+        inner = par['r_planet'] / par['r_star'],
+        outer = (par['r_planet'] + par['h_atm']) / par['r_star']
+        i_atm = calc_intensity(par, phase, intensity,
+                               inner, outer, n_radii[1], n_angle[1])
         return i_planet, i_atm
     if mode == 'fast':
         # Alternative version that only uses the center of the planet
@@ -144,9 +128,10 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         intensity = interpolate_intensity(mu, intensity)
         return intensity, intensity
 
-def fit_continuum_alt3(self, wl, spectrum, out='spectrum', size=100, threshhold=4, smoothing=0, plot=False):
+
+def fit_continuum_alt3(wl, spectrum, out='spectrum', size=100, threshhold=4, smoothing=0, plot=False):
     i, j, k = -size, 0, -1
-    sparse = np.ones(len(wl)//size + 1, dtype=int)
+    sparse = np.ones(len(wl) // size + 1, dtype=int)
     while True:
         i += size
         j += size
@@ -159,8 +144,10 @@ def fit_continuum_alt3(self, wl, spectrum, out='spectrum', size=100, threshhold=
 
     # Remove Outliers
     for i in range(3):
-        diff = np.abs(np.diff(spectrum[sparse]) + np.diff(spectrum[sparse][::-1]))
-        sparse = np.delete(sparse, np.where(diff > threshhold * np.median(diff))[0])
+        diff = np.abs(np.diff(spectrum[sparse]) +
+                      np.diff(spectrum[sparse][::-1]))
+        sparse = np.delete(sparse, np.where(
+            diff > threshhold * np.median(diff))[0])
 
     fit = np.interp(wl, wl[sparse], spectrum[sparse])
     #poly = UnivariateSpline(wl[sparse], spectrum[sparse], s=smoothing, ext=3)
@@ -177,7 +164,8 @@ def fit_continuum_alt3(self, wl, spectrum, out='spectrum', size=100, threshhold=
     if out == 'spectrum':
         return spectrum / fit
 
-def fit_continuum_alt2(self, wl, spectrum, out='spectrum'):
+
+def fit_continuum_alt2(wl, spectrum, out='spectrum'):
     j = np.argmax(spectrum)
     mask = np.zeros(len(wl), dtype=bool)
     mask[j] = True
@@ -206,9 +194,10 @@ def fit_continuum_alt2(self, wl, spectrum, out='spectrum'):
     if out == 'norm':
         return norm
 
-def fit_continuum_alt(self, wl, spectrum, threshhold=0.001, out='spectrum'):
+
+def fit_continuum_alt(wl, spectrum, threshhold=0.001, out='spectrum'):
     if len(spectrum.shape) > 1:
-        return np.array([self.fit_continuum_alt(wl, spectrum[i, :], threshhold) for i in range(spectrum.shape[0])])
+        return np.array([fit_continuum_alt(wl, spectrum[i, :], threshhold) for i in range(spectrum.shape[0])])
     prime = np.gradient(spectrum, wl)
     second = np.gradient(spectrum, wl)
 
@@ -231,7 +220,8 @@ def fit_continuum_alt(self, wl, spectrum, threshhold=0.001, out='spectrum'):
     if out == 'norm':
         return norm
 
-def fit_continuum(self, wl, spectrum, degree=5, percent=10, inplace=True, plot=False, out='spectrum'):
+
+def fit_continuum(wl, spectrum, degree=5, percent=10, inplace=True, plot=False, out='spectrum'):
     """ fit a continuum to the spectrum and continuum normalize it """
     def fit_polynomial(wl, spectrum, mask, percent):
         poly = np.polyfit(wl[mask], spectrum[mask], degree)

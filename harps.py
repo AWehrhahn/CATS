@@ -15,19 +15,22 @@ from scipy.optimize import minimize
 
 import intermediary as iy
 from awlib.astro import air2vac, doppler_shift
+from awlib.util import normalize
 from data_module_interface import data_module
+from dataset import dataset as ds
 from marcs import marcs
+from idl import idl
 
 
 class harps(data_module):
     """ access HARPS data """
     @classmethod
-    def apply_modifiers(cls, conf, par, wl, flux):
+    def apply_modifiers(cls, conf, par, obs):
         if 'harps_flux_mod' in conf.keys():
-            flux *= float(conf['harps_flux_mod'])
+            obs.scale *= float(conf['harps_flux_mod'])
         if 'harps_wl_mod' in conf.keys():
-            wl *= float(conf['harps_wl_mod'])
-        return wl, flux
+            obs.wl *= float(conf['harps_wl_mod'])
+        return obs
 
     @classmethod
     def load(cls, conf, par, fname, apply_barycentric=False):
@@ -39,7 +42,10 @@ class harps(data_module):
 
         wave = data['WAVE'][0, :]
         flux = data['FLUX'][0, :]
-        wave = air2vac(wave)
+        err = data['ERR'][0, :]
+        obs = ds(wave, flux, err)
+
+        obs.wl = air2vac(obs.wl)
 
         tmid = header['TMID']  # in mjd
         # dtmid = mjd2datetime(tmid) #do I actually need that?
@@ -53,20 +59,23 @@ class harps(data_module):
         # barycentric velocity
         if apply_barycentric:
             bc_velocity = -hdulist[0].header['ESO DRS BERV']
-            flux = doppler_shift(wave, flux, bc_velocity)
+            obs.doppler_shift(bc_velocity)
 
-        wave, flux = cls.apply_modifiers(conf, par, wave, flux)
+        obs = cls.apply_modifiers(conf, par, obs)
 
-        return wave, flux, phase
+        
+        obs.phase = phase
+
+        return obs
 
     @classmethod
     def load_observations(cls, conf, par, *args, **kwargs):
         """ Load all observations from all fits files in the HARPS directory """
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_file_obs'])
-        wl, obs, phase = [], [], []
+        wl, obs, err, phase = [], [], [], 
         for g in glob.glob(fname):
-            w, f, p = cls.load(conf, par, g)
+            w, f, e, p = cls.load(conf, par, g)
 
             wl.append(w)
             f = np.interp(wl[0], w, f)
@@ -118,37 +127,42 @@ class harps(data_module):
         """ load the HARPS reflected solar spectrum """
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_calibration_dir'], reference)
-        r_wave, r_flux, _ = cls.load(conf, par, fname, apply_barycentric=True)
-        return r_wave, r_flux
+        ref = cls.load(conf, par, fname, apply_barycentric=True)
+        del ref.phase #We don't need that here
+        return ref[1000:]
 
     @classmethod
-    def flux_calibration(cls, conf, par, wl, obs):
+    def flux_calibration(cls, conf, par, wl, obs, err, tellurics=True, source='idl', plot=True, plot_title=''):
         calib_dir = join(conf['input_dir'], conf['harps_dir'],
                          conf['harps_calibration_dir'])
 
         # load harps observation of Vesta (or other object)
         reference = 'Vesta.fits'
-        r_wave, r_flux = cls.load_solar(conf, par, reference)
-        r_flux = doppler_shift(r_wave, r_flux, par['radial_velocity'])
+        r_wave, r_flux, _ = cls.load_solar(conf, par, reference)
+        r_wave = doppler_shift(r_wave, par['radial_velocity'])
         r_flux = interp1d(r_wave, r_flux, kind='quadratic',
                           bounds_error=False, fill_value=0)(wl)
-        #r_flux = gaussbroad(r_flux, sigma = 4)
+        r_flux = gaussbroad(r_flux, 2)
 
-        # load marcs solar spectrum
-        s_wave, s_flux = marcs.load_solar(conf, par, calib_dir)
-        s_flux = interp1d(s_wave, s_flux, kind='quadratic',
-                          fill_value=np.nan, bounds_error=False)(wl)
+        if source == 'marcs':
+            # load marcs solar spectrum
+            s_wave, s_flux = marcs.load_solar(conf, par, calib_dir)
+        elif source == 'idl':
+            s_wave, s_flux = idl.load_solar(conf, par, calib_dir)
 
+        s_flux = cls.interpolate(wl, s_wave, s_flux)
+
+        # Load telluric spectrum
         t_wave, t_flux = cls.load_tellurics(conf, par)
-        t_flux = interp1d(t_wave, t_flux, kind='quadratic',
-                          bounds_error=False)(wl)
+        t_flux = cls.interpolate(wl, t_wave, t_flux)
 
-        s_flux *= t_flux
-        #s_flux = gaussbroad(s_flux, 4)
+        if tellurics:
+            s_flux *= t_flux
 
         def func(x):
-            # also fitting for best broadening doesn't work
-            return -np.correlate(s_flux, doppler_shift(wl, r_flux, x, 'linear'))[0]
+            # also fitting for best broadening at the same time doesn't work
+            shift = doppler_shift(wl, x)
+            return -np.correlate(r_flux, cls.interpolate(wl, shift, s_flux))[0]
 
         def func2(x):
             return np.sum(np.abs(gaussbroad(s_flux, x) - r_flux))
@@ -156,30 +170,64 @@ class harps(data_module):
         sol = minimize(func, x0=par['radial_velocity'])
         v = sol.x[0]
         print('shift: ', v)
-        #r_flux = doppler_shift(wl, r_flux, v)
-        s_flux = doppler_shift(wl, s_flux, -v)
+        shift = doppler_shift(wl, v)
+        s_flux = cls.interpolate(wl, shift, s_flux)
 
         sol = minimize(func2, x0=1)
-        b = sol.x[0]
+        # the fit wants to make the solar spectrum broader than it needs to be
+        b = np.abs(sol.x[0] - 1)
         print('broadening: ', b)
-        s_flux = gaussbroad(s_flux, b)
+        if b != 0:
+            s_flux = gaussbroad(s_flux, b)
+
+        # TODO get these areas automatically/ from somewhere else
+        exclusion = np.array(
+            [(5300, 5340), (5850, 6000), (6260, 6340), (6400, 6600), (6860, 7000)])
+        tmp = np.zeros((exclusion.shape[0], wl.shape[0]))
+        for i, ex in enumerate(exclusion):
+            tmp[i] = ~((wl > ex[0]) & (wl < ex[1]))
+
+        tmp = np.all(tmp, axis=0)
 
         # compare
-        profile = np.where(s_flux != 0, r_flux / s_flux, 0)
-        profile = gaussbroad(profile, 1000)
-        calibrated = np.where(
-            profile[None, :] > 0.2, obs / profile[None, :], 0)
+        profile = np.where(tmp, s_flux / r_flux, 0)
+        low, high = min(wl), max(wl)
+        for i in range(exclusion.shape[0] + 1):
+            if i < exclusion.shape[0]:
+                band = (wl >= low) & (wl < exclusion[i, 0])
+                low = exclusion[i, 1]
+            else:
+                band = (wl >= low) & (wl < high)
 
-        # TODO
-        import matplotlib.pyplot as plt
-        plt.plot(wl, s_flux, label='solar')
-        plt.plot(wl, r_flux, label='reference')
-        plt.plot(wl, obs, label='observation')
-        plt.plot(wl, profile * 100000, label='profile')
-        plt.plot(wl, calibrated[0], label='calibrated')
-        plt.xlim([4309, 4314])
-        plt.ylim([0, 1.25e5])
-        plt.legend(loc='best')
-        plt.show()
+            profile[band] = gaussbroad(profile[band], 1000, mode='reflect')
 
-        return calibrated
+        #profile = np.interp(wl, wl[tmp], profile[tmp])
+        profile = interp1d(wl[tmp], profile[tmp],
+                           kind='quadratic', fill_value='extrapolate')(wl)
+
+        calibrated = obs * profile[None, :]
+        calibrated[:, :50] = calibrated[:, 51]
+
+        #Any errors in s_flux and r_flux are broadened away
+        c_err = err * profile[None, :]
+        c_err[:, :50] = c_err[:, 51]
+
+        if plot:
+            import matplotlib.pyplot as plt
+            _wl = wl[obs>0.1]
+            _s = gaussbroad(s_flux[obs>0.1], 1000)
+            _c = gaussbroad(calibrated[0, obs>0.1], 1000)
+
+            #plt.plot(wl, normalize(r_flux), label='reference')
+            plt.plot(wl, normalize(obs), label='observation')
+            plt.plot(_wl, _s, label='solar')
+            plt.plot(_wl, _c, label='calibrated')
+            plt.plot(wl, t_flux, label='tellurics')
+            plt.plot(wl, profile * 1e4, label='profile')
+            plt.xlim([4000, 7000])
+            plt.ylim([0, 1.2])
+            plt.title(plot_title)
+            plt.legend(loc='best')
+            plt.show()
+
+        return calibrated, c_err

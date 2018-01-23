@@ -15,8 +15,8 @@ name_target: K2-3
 name_planet: d
 dir_input: input
 dir_output: output
-dir_intermediary: intermediary
-# Flag to recalculate everything, even if intermediary products exist
+dir_tmp: tmp
+#Flag to recalculate everything, even if intermediary products exist
 renew_all: false
 
 #Path to molecfit executable
@@ -36,7 +36,7 @@ file_parameters: par.yaml
 file_molecfit: molecfit.par
 
 marcs_dir: MARCS
-marcs_file_flux: 3896g4.7z-0.25m0.6t0.flx
+marcs_file_flux: 4000g4.7z-0.25m0.6t0.flx
 marcs_file_ld: 3896g4.7z-0.25m0.6t0_{}.limb
 marcs_ld_format: [1, 2, 3, 4, 5, 6, 7]
 marcs_ld_interpolation_method: linear
@@ -51,6 +51,8 @@ harps_file_tell: tell.txt
 harps_file_sun: moon_2008-08-08_s1d.fits
 
 harps_wl_mod: 1
+
+idl_file_solar: sol.dat
 
 # Intermediary data file
 file_intermediary: intermediary.npz
