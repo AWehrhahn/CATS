@@ -14,6 +14,7 @@ from scipy.interpolate import interp1d
 
 from awlib.astro import air2vac, doppler_shift
 from data_module_interface import data_module
+from dataset import dataset
 from DataSources import Cache
 
 
@@ -23,26 +24,24 @@ class marcs(data_module):
     ###
 
     @classmethod
-    def apply_modifiers(cls, conf, par, wl, flux):
+    def apply_modifiers(cls, conf, par, ds):
         if 'marcs_flux_mod' in conf.keys():
-            flux *= float(conf['marcs_flux_mod'])
+            ds.scale *= float(conf['marcs_flux_mod'])
         if 'marcs_wl_mod' in conf.keys():
-            wl *= float(conf['marcs_wl_mod'])
-        return wl, flux
+            ds.wl *= float(conf['marcs_wl_mod'])
+        return ds
 
     @classmethod
     def load_stellar_flux_from_intensities(cls, config, par):
         """ load MARCS flux from specific intensities """
-        wl, data = cls.load_data(config, par)
-
+        data = cls.load_data(config, par)
         imu = config['star_intensities']
-        intensities = data
 
-        #Integrate intensity * mu dmu 
-        flux = simps(intensities * imu, imu) * (-2)
-        wl, flux = cls.apply_modifiers(config, par, wl, flux)
+        # Integrate intensity * mu dmu
+        data = cls.apply_modifiers(config, par, data)
+        data.flux = simps(data.flux * imu, imu) * (-2)
 
-        return wl, flux
+        return data
 
     @classmethod
     def load_stellar_flux(cls, conf, par, fname=None, apply_air2vac=True):
@@ -55,16 +54,16 @@ class marcs(data_module):
 
         wl = df['wl'].values
         flux = df['abs_flux'].values
-        wl, flux = cls.apply_modifiers(conf, par, wl, flux)
+
+        ds = dataset(wl, flux)
+        ds = cls.apply_modifiers(conf, par, ds)
 
         if apply_air2vac:
-            wl = air2vac(wl)
+            ds.wl = air2vac(ds.wl)
 
-        shift = doppler_shift(wl, par['radial_velocity'])
-        flux = cls.interpolate(wl, shift, flux)
-        #flux /= (2 * np.pi) #change to physical flux #TODO
+        ds.doppler_shift(par['radial_velocity'])
 
-        return wl, flux
+        return ds
 
     ###
     #  LIMB DARKENING
@@ -176,29 +175,26 @@ class marcs(data_module):
             data = cls.read_all(flux_file, imu, ld_format, interpolation)
             cache.save(data)
 
+        ds = dataset(data[:, 0], data[:, 1:])
+
         # Air to Vacuum conversion
-        wl = air2vac(data[:, 0])
+        ds.wl = air2vac(ds.wl)
 
         # Doppler shift
-        v = par['radial_velocity']
-        c_loc = c * 1e-3
-        shift = (1 + v / c_loc) * wl
-        for i in range(1, data.shape[1]):
-            data[:, i] = np.interp(wl, shift, data[:, i])
-
-        return data[:, 0], data[:, 1:]
+        ds.doppler_shift(par['radial_velocity'])
+        return ds
 
     @classmethod
     def load_specific_intensities(cls, config, par, *args, **kwargs):
         imu = config['star_intensities']
-        wl, result = cls.load_data(config, par)
-        wl, result = cls.apply_modifiers(config, par, wl, result)
-        df = pd.DataFrame(result, columns=imu)
-        return wl, df
+        result = cls.load_data(config, par)
+        result = cls.apply_modifiers(config, par, result)
+        df = pd.DataFrame(result.flux, columns=imu)
+        return result.wl, df
 
     @classmethod
     def load_limb_darkening(cls, config, par):
-        #TODO do I need a factor mu somewhere?
+        # TODO do I need a factor mu somewhere?
         # to convert from specific intensity to flux I had to integrate with mu
         wl_i, intensities = cls.load_intensities(config, par)
         wl_f, flux = cls.load_flux_directly(config, par)
@@ -213,6 +209,7 @@ class marcs(data_module):
     @classmethod
     def load_solar(cls, conf, par, calib_dir):
         s_fname = join(calib_dir, 'sun.flx')
-        s_wave, s_flux = cls.load_stellar_flux(
+        solar = cls.load_stellar_flux(
             conf, par, s_fname, apply_air2vac=False)
-        return s_wave, s_flux / (2*np.pi)
+        solar.scale = 1 / (2 * np.pi)
+        return solar

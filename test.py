@@ -18,9 +18,9 @@ import stellar_db
 from marcs import marcs
 from harps import harps
 
-def write(fname, wl, flux, err):
+def write(fname, obs):
     fname = join(conf['input_dir'], conf['dir_tmp'], fname)
-    data = np.array([wl, flux, err]).swapaxes(0, 1)
+    data = np.array([obs.wl, obs.flux, obs.err]).swapaxes(0, 1)
     np.savetxt(fname, data, delimiter=', ')
 
 
@@ -34,38 +34,33 @@ imu = np.geomspace(1, 0.0001, num=20)
 imu[-1] = 0
 conf['star_intensities'] = imu
 
-"""
+
 #Test harps flux calibrationc
 reference = 'Vesta.fits'
 ref = harps.load_solar(conf, par, reference=reference)
 ref.doppler_shift(par['radial_velocity'])
 #r_wave = doppler_shift(r_wave, par['radial_velocity'])
-ref = harps.flux_calibration(conf, par, r_wave, r_flux, r_err, tellurics=False, plot=True, plot_title='Vesta')
+ref = harps.flux_calibration(conf, par, ref, apply_temp_ratio=False, plot=True, plot_title='Vesta')
 
-r_flux = r_flux[0]
-write('test.csv', r_wave, r_flux, r_err)
-"""
+#write('test.csv', r_wave, r_flux, r_err)
+
 #Load HARPS
-wl_harps, flux_harps, phase = harps.load_observations(conf, par)
-bpmap = iy.create_bad_pixel_map(flux_harps, threshold=1e-3)
+obs = harps.load_observations(conf, par)
+bpmap = iy.create_bad_pixel_map(obs.flux, threshold=1e-3)
 
-flux_harps = flux_harps[:, ~bpmap]
-wl_harps = wl_harps[~bpmap]
+obs = obs[~bpmap]
+#obs.wl = obs.wl[~bpmap]
 
 #Average HARPS flux
-total = np.mean(flux_harps)
-avg = np.mean(flux_harps, 1)
-flux_harps = flux_harps * total/avg[:, None]
-wl_harps = wl_harps
-flux_harps = np.mean(flux_harps, 0)
+total = np.mean(obs.flux)
+avg = np.mean(obs.flux, 1)
+obs.scale *= total/avg[:, None]
+obs.flux = np.mean(obs.flux, 0)
 
 #Calibrate HARPS flux
-flux_harps = flux_harps[wl_harps > 4000]
-wl_harps = wl_harps[wl_harps > 4000]
-err_harps = np.full_like(wl_harps, 0.002)
-
-flux_calib = harps.flux_calibration(conf, par, wl_harps, flux_harps, err_harps , plot=True)[0][0]
-write('harps.asc', wl_harps, flux_calib, np.full_like(flux_calib, 0.002))
+obs.wl = obs.wl[obs.wl > 4000]
+calib = harps.flux_calibration(conf, par, obs , plot=True, plot_title='K2-3')
+write('harps.asc', calib)
 
 #Load MARCS model
 wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)
