@@ -9,20 +9,21 @@ import pandas as pd
 
 from data_module_interface import data_module
 from DataSources.PSG import PSG
+from dataset import dataset
 
 
 class psg(data_module):
 
     @classmethod
-    def apply_modifiers(cls, conf, par, wl, flux):
+    def apply_modifiers(cls, conf, par, ds):
         if 'psg_wl_mod' in conf.keys():
-            wl *= float(conf['psg_wl_mod'])
+            ds.wl *= float(conf['psg_wl_mod'])
         if 'psg_flux_mod' in conf.keys():
-            flux *= float(conf['psg_flux_mod'])
-        return wl, flux
+            ds.scale *= float(conf['psg_flux_mod'])
+        return ds
 
     @classmethod
-    def load_input(cls, config, par, wl_grid):
+    def load_input(cls, config, par):
         """ load input spectrum """
         input_file = join(config['input_dir'],
                           config['psg_dir'], config['psg_file_atm'])
@@ -31,13 +32,11 @@ class psg(data_module):
         wl = planet['Wave/freq'].values
         planet = planet['Total'].values
 
-        wl, planet = cls.apply_modifiers(config, par, wl, planet)
+        ds = dataset(wl, planet)
+        ds = cls.apply_modifiers(config, par, ds)
 
-        if wl_grid is not None:
-            return np.interp(wl_grid, wl, planet)
-        else:
-            return wl, planet
-
+        return ds
+    
     @classmethod
     def load_observations(cls, config, par, *args, **kwargs):
         """ load observations """
@@ -61,8 +60,7 @@ class psg(data_module):
             wl = obs['Wave/freq'].values
             obs = obs['Total'].values
 
-            wl, obs = cls.apply_modifiers(config, par, wl, obs)
-
+ 
             wl_all.append(wl)
             obs_all.append(obs)
 
@@ -76,9 +74,11 @@ class psg(data_module):
         phase_all = np.array(phase_all)
         phase_all = np.deg2rad(phase_all)
 
-        # TODO interpolate all to same wl frame
+        ds = dataset(wl, obs_all)
+        ds = cls.apply_modifiers(config, par, ds)
+        ds.phase = phase_all
 
-        return wl_all[0], obs_all, phase_all
+        return ds
 
     @classmethod
     def load_stellar_flux(cls, config, par):

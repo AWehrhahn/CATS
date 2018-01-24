@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from data_module_interface import data_module
+from dataset import dataset
 
 
 class limb_darkening(data_module):
@@ -37,7 +38,7 @@ class limb_darkening(data_module):
             a[1] * (1 - mu) - a[2] * (1 - mu**1.5) - a[3] * (1 - mu**2)
 
     @classmethod
-    def load_specific_intensities(cls, config, par, wl_flux, flux):
+    def load_specific_intensities(cls, config, par, stellar):
         """
         Limb darkening
         I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
@@ -73,16 +74,17 @@ class limb_darkening(data_module):
 
         # Interpolate to the wavelength grid of the observation
         # this is quite rough as there are not many wavelengths to choose from
-        a1 = np.interp(wl_flux, wl, values.loc['a1 '])
-        a2 = np.interp(wl_flux, wl, values.loc['a2 '])
-        a3 = np.interp(wl_flux, wl, values.loc['a3 '])
-        a4 = np.interp(wl_flux, wl, values.loc['a4 '])
+        a1 = np.interp(stellar.wl, wl, values.loc['a1 '])
+        a2 = np.interp(stellar.wl, wl, values.loc['a2 '])
+        a3 = np.interp(stellar.wl, wl, values.loc['a3 '])
+        a4 = np.interp(stellar.wl, wl, values.loc['a4 '])
 
         # Apply limb darkening to each point and set values of mu, and store the results
 
         a = [a1, a2, a3, a4]
         mus = config['star_intensities']
-        star_int = {i: flux * cls.limb_darkening_formula(i, a) for i in mus}
+        star_int = {i: stellar.flux * cls.limb_darkening_formula(i, a) for i in mus}
 
         star_int = pd.DataFrame.from_dict(star_int)
-        return wl_flux, star_int
+        ds = dataset(stellar.wl, star_int)
+        return ds

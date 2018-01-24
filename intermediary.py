@@ -10,10 +10,12 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 warnings.simplefilter('ignore', category=Warning)
 
+from dataset import dataset
+
 
 def create_bad_pixel_map(obs, threshold=0):
     """ Create a map of all bad pixels from the given set of observations """
-    return np.all(obs <= threshold, axis=0) | np.all(obs >= np.max(obs) - threshold, axis=0)
+    return np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
 
 
 def rv_star(self):
@@ -113,20 +115,22 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         inner = 0
         outer = (par['r_planet'] + par['h_atm']) / par['r_star']
         i_planet = calc_intensity(
-            par, phase, intensity, inner, outer, n_radii[0], n_angle[0])
+            par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0])
 
         # from r=r_planet to r=r_planet+r_atmosphere
         inner = par['r_planet'] / par['r_star'],
         outer = (par['r_planet'] + par['h_atm']) / par['r_star']
-        i_atm = calc_intensity(par, phase, intensity,
+        i_atm = calc_intensity(par, phase, intensity.flux,
                                inner, outer, n_radii[1], n_angle[1])
-        return i_planet, i_atm
+        return dataset(intensity.wl, i_planet), dataset(intensity.wl, i_atm)
+
     if mode == 'fast':
         # Alternative version that only uses the center of the planet
         # Faster but less precise (significantly?)
         mu = calc_mu(par, phase)
         intensity = interpolate_intensity(mu, intensity)
-        return intensity, intensity
+        ds = dataset(intensity.wl, intensity)
+        return ds, ds
 
 
 def fit_continuum_alt3(wl, spectrum, out='spectrum', size=100, threshhold=4, smoothing=0, plot=False):

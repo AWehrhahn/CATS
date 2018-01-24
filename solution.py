@@ -39,11 +39,10 @@ def Franklin(wl, f, g, lamb):
     return solve_banded((1, 1), ab, r)
 
 
-def Tikhonov(wl, f, g, l):
+def Tikhonov(f, g, l):
     """
     Solve f*x - g = 0 equation , with Tikhonov regularization parameter l
     """
-
     b = np.sum(f, axis=0)
     r = np.sum(g, axis=0)
 

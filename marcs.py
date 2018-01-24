@@ -190,7 +190,8 @@ class marcs(data_module):
         result = cls.load_data(config, par)
         result = cls.apply_modifiers(config, par, result)
         df = pd.DataFrame(result.flux, columns=imu)
-        return result.wl, df
+        ds = dataset(result.wl, df)
+        return ds
 
     @classmethod
     def load_limb_darkening(cls, config, par):
@@ -201,7 +202,10 @@ class marcs(data_module):
 
         flux = np.interp(wl_i, wl_f, flux)
         intensities = intensities.apply(lambda s: s / flux)
-        return wl_i, intensities
+
+        ds = dataset(wl_i, intensities)
+
+        return ds
 
     ###
     # Solar Model

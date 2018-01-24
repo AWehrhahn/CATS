@@ -63,81 +63,33 @@ calib = harps.flux_calibration(conf, par, obs , plot=True, plot_title='K2-3')
 write('harps.asc', calib)
 
 #Load MARCS model
-wl_marcs, flux_marcs = marcs.load_stellar_flux(conf, par)
-flux_marcs = np.interp(wl_harps, wl_marcs, flux_marcs) * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
+marc = marcs.load_stellar_flux(conf, par)
+marc.wl = obs.wl * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
 
 fname = join(conf['input_dir'], conf['marcs_dir'], '3950g4.7z-0.25m0.6t0.flx')
-wl_marcs2, flux_marcs2 = marcs.load_stellar_flux(conf, par, fname=fname)
-flux_marcs2 = np.interp(wl_harps, wl_marcs2, flux_marcs2) * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
+marc2 = marcs.load_stellar_flux(conf, par, fname=fname)
+marc2.wl = obs.wl * 0.01 #TODO Factor 100???? Because Vesta reflected only 1% of the sunlight?
 
 
 #Load telluric spectrum
-wl_tell, flux_tell = harps.load_tellurics(conf, par)
-flux_tell = interp1d(wl_tell, flux_tell, kind='quadratic',
-                    bounds_error=False)(wl_harps)
+tell = harps.load_tellurics(conf, par)
+tell.wl = obs.wl
 
-flux_marcs *= flux_tell
-flux_marcs2 *= flux_tell
-flux_marcs = gaussbroad(flux_marcs, 1)
+marc.flux *= tell.flux
+marc2.flux *= tell.flux
+marc.flux = gaussbroad(marc.flux, 1)
 #flux_calib = gaussbroad(flux_calib, 1)
 
-bbflux = planck(wl_harps, 4000) / 100 / np.pi
-bbflux2 = planck(wl_harps, 6770) / 100 / np.pi
+bbflux = planck(obs.wl, 4000) / 100 / np.pi
+bbflux2 = planck(obs.wl, 6770) / 100 / np.pi
 ratio = bbflux2 / bbflux
 
-#plt.plot(wl_harps, flux_harps, label='original')
+#plt.plot(obs.wl, flux_harps, label='original')
 
-plt.plot(wl_harps, flux_marcs, label='marcs')
-plt.plot(wl_harps, flux_calib * ratio, label='calibrated')
-#plt.plot(wl_harps, flux_marcs2, label='cold marcs')
-#plt.plot(wl_harps, bbflux, label='4000K')
-#plt.plot(wl_harps, bbflux2, label='6770K')
-plt.legend(loc='best')
-plt.show()
-
-"""
-wl_i, factors = marcs.load_limb_darkening(conf, par)
-wl_m2 , f_m2 = marcs.load_flux(conf, par)
-f_m2 = np.interp(wl_marcs, wl_m2, f_m2)
-
-plt.plot(wl_marcs, flux_marcs - f_m2, label='directly')
-#plt.plot(wl_m2, f_m2, label='intensities')
-plt.legend(loc='best')
-plt.show()
-
-f_m2 = np.interp(wl_marcs, wl_m2, f_m2)
-wl_m3, intensities = marcs.load_intensities(conf, par)
-"""
-
-# Get telluric
-wl_tell, tell = harps.load_tellurics(conf, par)
-
-factors = interpolate_DataFrame(wl_harps, wl_i, factors)
-intensities = interpolate_DataFrame(wl_harps, wl_m3, intensities)
-
-flux_marcs = np.interp(wl_harps, wl_marcs, flux_marcs)
-tell = np.interp(wl_harps, wl_tell, tell)
-#scaling
-func = lambda x: np.sum((x * flux_harps - flux_marcs)**2)
-x0 = max(flux_marcs) / max(flux_harps)
-x = fsolve(func, x0)
-flux_harps *= x[0]
-
-#Combine with MARCS for specific intensities
-si = factors.apply(lambda s: s * flux_harps)
-
-#plt.plot(wl_m3, flux_marcs, label='flux')
-plt.plot(wl_harps, intensities[1], label='intensity[0]')
-plt.plot(wl_harps, si[1], label='combined')
-plt.xlim([min(wl_harps), max(wl_harps)])
-
-plt.legend(loc='best')
-plt.show()
-
-plt.plot(wl_harps, flux_marcs * tell, label='marcs')
-plt.plot(wl_harps, flux_harps, label='harps')
-plt.plot(wl_harps, tell * np.max(flux_marcs), label='tellurics')
-plt.xlim([min(wl_harps), max(wl_harps)])
-
+plt.plot(obs.wl, marc.flux, label='marcs')
+plt.plot(obs.wl, calib.flux * ratio, label='calibrated')
+#plt.plot(obs.wl, marc2.flux, label='cold marcs')
+#plt.plot(obs.wl, bbflux, label='4000K')
+#plt.plot(obs.wl, bbflux2, label='6770K')
 plt.legend(loc='best')
 plt.show()

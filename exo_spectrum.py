@@ -15,6 +15,8 @@ import config
 import intermediary as iy
 import solution as sol
 import stellar_db
+from dataset import dataset
+from awlib.timeit import timeit
 from awlib.util import normalize as normalize1d
 from awlib.util import interpolate_DataFrame
 from harps import harps
@@ -52,7 +54,7 @@ def get_data(conf, star, planet, **kwargs):
     parameters = conf['parameters']
     star_intensities = conf['star_intensities']
 
-    flux = assign_module(conf['flux'])
+    stellar = assign_module(conf['flux'])
     intensities = assign_module(conf['intensities'])
     observation = assign_module(conf['observation'])
     tellurics = assign_module(conf['tellurics'])
@@ -70,47 +72,47 @@ def get_data(conf, star, planet, **kwargs):
             star_intensities = imu
 
     print('   - Stellar flux')
-    wl_flux, flux = flux.load_stellar_flux(conf, par)
+    stellar = stellar.load_stellar_flux(conf, par)
 
     print('   - Specific intensities')
     if intensities == 'combined':
-        wl_f, factors = marcs.load_limb_darkening(conf, par)
-        factors = interpolate_DataFrame(wl_flux, wl_f, factors)
-        intensities = factors.apply(lambda s: s * flux)
-        wl_si = wl_flux
+        intensities = marcs.load_limb_darkening(conf, par)
+        intensities.wl = stellar.wl
+        intensities.flux = intensities.flux.apply(lambda s: s * stellar)
     else:
-        wl_si, intensities = intensities.load_specific_intensities(
-            conf, par, wl_flux, flux)
+        intensities = intensities.load_specific_intensities(
+            conf, par, stellar)
 
     print('   - Tellurics')
     if tellurics == 'ones':
-        wl_tell = wl_flux
-        tell = np.ones_like(wl_tell)
+        tell = dataset(stellar.wl, np.ones_like(stellar.flux))
     else:
-        wl_tell, tell = tellurics.load_tellurics(conf, par)
+        tell = tellurics.load_tellurics(conf, par)
 
     print('   - Observations')
-    wl_obs, obs, phase = observation.load_observations(
-        conf, par, wl_tell, tell, wl_flux, flux, intensities, source='psg')
+    obs = observation.load_observations(
+        conf, par, tell, stellar, intensities, source='psg')
+    phase = obs.phase
 
     # Unify wavelength grid
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    wl = wl_obs[~bpmap]
-    obs = obs[:, ~bpmap]
+    bpmap[obs.wl < 8400] = True
+    obs.wl = obs.wl[~bpmap]
+    #obs = obs[:, ~bpmap]
 
-    flux = np.interp(wl, wl_flux, flux)
-    intensities = interpolate_DataFrame(wl, wl_si, intensities)
-    tell = np.interp(wl, wl_tell, tell)
+    stellar.wl = obs.wl
+    intensities.wl = obs.wl
+    tell.wl = obs.wl
 
     # TODO DEBUG
     if observation is harps:
-        obs = harps.flux_calibration(conf, par, wl, obs)
+        obs = harps.flux_calibration(conf, par, obs)
     # TODO END_DEBUG
 
-    return par, wl, flux, intensities, tell, obs, phase
+    return par, stellar, intensities, tell, obs, phase
 
 
-def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
+def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     """ calculate solution from input """
     print('   - Stellar specific intensities covered by planet and atmosphere')
     i_planet, i_atm = iy.specific_intensities(par, phase, star_int)
@@ -120,10 +122,12 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
     sigma = 1 / 2.355 * conf['fwhm']
 
     #def gaussbroad(x, y): return x
-    tell = gaussbroad(tell, sigma)
-    i_atm = gaussbroad(par['A_atm'] * i_atm, sigma)
-    i_planet = gaussbroad(par['A_planet+atm'] * i_planet, sigma)
-    flux = gaussbroad(flux[None, :], sigma)  # Add an extra dimension
+    tell.gaussbroad(sigma)
+    i_atm.scale *= par['A_atm']
+    i_atm.gaussbroad(sigma)
+    i_planet.scale *= par['A_planet+atm']
+    i_planet.gaussbroad(sigma)
+    flux.gaussbroad(sigma)  # Add an extra dimension
 
     print('   - Intermediary products f and g')
     f = tell * i_atm
@@ -132,29 +136,30 @@ def calculate(conf, par, wl, obs, tell, flux, star_int, phase, lamb='auto'):
     if lamb == 'auto' or lamb is None:
         print('   - Finding optimal regularization parameter lambda')
         # TODO currently doesn't work as intended
-        lamb = sol.best_lambda_dirty(wl, f, g, lamb0=1)
+        lamb = sol.best_lambda_dirty(obs.wl, f, g, lamb0=1)
         #lamb = sol.best_lambda(wl, f, g)
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
-    return sol.Tikhonov(wl, f, g, lamb)
+    return sol.Tikhonov(f.flux, g.flux, lamb)
 
-def plot(conf, par, wl, obs, tell, flux, sol_t, source='psg'):
+def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     """ plot resulting data """
     try:
         if source in ['psg']:
-            planet = psg.load_input(conf, par, wl)
+            planet = psg.load_input(conf, par)
+            planet.wl = obs.wl
             is_planet = True
     except FileNotFoundError:
         is_planet = False
 
-    plt.plot(wl, normalize1d(tell), label='Telluric')
-    plt.plot(wl, normalize1d(obs[0]), label='Observation')
-    plt.plot(wl, normalize1d(flux), label='Flux')
+    plt.plot(tell.wl, normalize1d(tell.flux), label='Telluric')
+    plt.plot(obs.wl, normalize1d(obs.flux[0]), label='Observation')
+    plt.plot(flux.wl, normalize1d(flux.flux), label='Flux')
     if is_planet:
-        plt.plot(wl, planet, label='Planet')
+        plt.plot(planet.wl, planet.flux, label='Planet')
     sol_t = normalize1d(sol_t)  # TODO
-    plt.plot(wl, sol_t, label='Solution')
+    plt.plot(obs.wl, sol_t, label='Solution')
 
     plt.title('%s\nLambda = %.3g, S/N = %s' %
               (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr']))
@@ -188,19 +193,19 @@ def main(star, planet, lamb='auto', **kwargs):
 
     # Step 1: Get Data
     print('Load data')
-    par, wl, flux, intensities, tell, obs, phase = get_data(
+    par, flux, intensities, tell, obs, phase = get_data(
         conf, star, planet, **kwargs)
 
     # Step 2: Calc Solution
     print('Calculate solution')
-    sol_t = calculate(conf, par, wl, obs, tell, flux,
+    sol_t = calculate(conf, par, obs, tell, flux,
                       intensities, phase, lamb=lamb)
 
     # Step 3: Output
     print('Plot')
     # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
-    plot(conf, par, wl, obs, tell, flux, sol_t + offset)
+    plot(conf, par, obs, tell, flux, sol_t + offset)
 
 
 if __name__ == '__main__':
@@ -230,7 +235,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 1000000
+        lamb = 100
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1
