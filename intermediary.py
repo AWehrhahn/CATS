@@ -3,14 +3,16 @@ Calculate intermediary data products like
 specific intensities or F and G
 """
 import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 
-import matplotlib.pyplot as plt
+from dataset import dataset
+
 warnings.simplefilter('ignore', category=Warning)
 
-from dataset import dataset
 
 
 def create_bad_pixel_map(obs, threshold=0):
@@ -34,7 +36,8 @@ def rv_planet(par, phases):
 
 def interpolate_intensity(mu, i):
     """ interpolate the stellar intensity for given limb distance mu """
-    return interp1d(i.keys().values, i.values, kind='quadratic', fill_value=0, bounds_error=False, copy=False)(mu).swapaxes(0, 1)
+    values = i.values.swapaxes(0, 1)
+    return interp1d(i.keys(), values, kind='zero', copy=False, axis=0, assume_sorted=True)(mu)
 
 
 def calc_mu(par, phase):
@@ -81,9 +84,11 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     # -1 is out of bounds, which will be filled with 0 intensity
     mu[np.isnan(mu)] = -1
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
+
+    #TODO optimize this somehow?
     intens = interpolate_intensity(mu, intensity)
-    intens = np.average(intens, axis=3)
-    intens = np.average(intens, axis=2, weights=radii)
+    intens = np.average(intens, axis=2)
+    intens = np.average(intens, axis=1, weights=radii)
     return intens
 
 
@@ -104,6 +109,7 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
     n_angle: number of angles to sample, if tuple use n_angle[0] for i_planet and n_angle[1] for i_atm
     mode: fast or precise, fast ignores the planetary disk and only uses the center of the planet, precise uses sample positions inside the radii to determine the average intensity
     """
+    #TODO are the precise calculation worth it ???
     # Allow user to specify different n_radii and n_angle for i_planet and i_atm
     if isinstance(n_radii, (float, int)):
         n_radii = (n_radii, n_radii)
@@ -128,8 +134,8 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         # Alternative version that only uses the center of the planet
         # Faster but less precise (significantly?)
         mu = calc_mu(par, phase)
-        intensity = interpolate_intensity(mu, intensity)
-        ds = dataset(intensity.wl, intensity)
+        _flux = interpolate_intensity(mu, intensity.flux)
+        ds = dataset(intensity.wl, _flux)
         return ds, ds
 
 

@@ -2,6 +2,7 @@
 Use an inverse method approach to determine the planetary transit spectrum
 author: Ansgar Wehrhahn (ansgar.wehrhahn@physics.uu.se)
 Based on work by Nikolai Piskunov (Uppsala University)
+and              Erik Aaronson (Uppsala University)
 """
 import argparse
 import os.path
@@ -9,16 +10,13 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
 import config
 import intermediary as iy
 import solution as sol
 import stellar_db
-from dataset import dataset
-from awlib.timeit import timeit
 from awlib.util import normalize as normalize1d
-from awlib.util import interpolate_DataFrame
+from dataset import dataset
 from harps import harps
 from limb_darkening import limb_darkening
 from marcs import marcs
@@ -35,7 +33,7 @@ def prepare(target, phase):
 
 def assign_module(key):
     """ assign module according to given key """
-    #some special cases still use strings as identifiers
+    # some special cases still use strings as identifiers
     modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
                'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
 
@@ -143,6 +141,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     print('   - Solving inverse problem')
     return sol.Tikhonov(f.flux, g.flux, lamb)
 
+
 def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     """ plot resulting data """
     try:
@@ -195,7 +194,7 @@ def main(star, planet, lamb='auto', **kwargs):
     print('Load data')
     par, flux, intensities, tell, obs, phase = get_data(
         conf, star, planet, **kwargs)
-
+    exit()
     # Step 2: Calc Solution
     print('Calculate solution')
     sol_t = calculate(conf, par, obs, tell, flux,
@@ -205,7 +204,7 @@ def main(star, planet, lamb='auto', **kwargs):
     print('Plot')
     # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
-    plot(conf, par, obs, tell, flux, sol_t + offset)
+    #plot(conf, par, obs, tell, flux, sol_t + offset)
 
 
 if __name__ == '__main__':

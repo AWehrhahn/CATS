@@ -17,6 +17,7 @@ import config
 import stellar_db
 from marcs import marcs
 from harps import harps
+from synthetic import synthetic
 
 def write(fname, obs):
     fname = join(conf['input_dir'], conf['dir_tmp'], fname)

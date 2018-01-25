@@ -10,15 +10,33 @@ from scipy.ndimage.filters import gaussian_filter1d
 # Convert to km/s
 c = c * 1e-3  # km/s
 
-# TODO optimize
-
 
 class dataset:
+    """
+    Stores the wavelength, the flux, and the errors of a single spectrum and provides some simple functionality
+    Also supports math operators together with scalars, arrays, and other datasets
 
-    def __init__(self, wl, flux, err=None, scale=1):
-        self.__shift = None
+    It tries to conserve the original data seperate from its current representation for as long as possible, so as to avoid data loss
+    Therefore any changes to the wavelength are stored seperately and the flux is interpolated only when necessary from the original grid
+
+    Properties:
+    wl      --  Wavelength, 1D Array
+    flux    --  Flux, 1D/2D Array
+    err     --  Errors, 1D/2D Array
+    scale   --  Multiplier for the flux and error, Scalar
+    gaussian--  Gaussian broadening sigma, Scalar
+
+    Function:
+    __init__(wl, flux, err=None, scale=1, gaussian=None)
+    doppler_shift(velocity)
+    gaussbroad(sigma)
+    """
+
+    def __init__(self, wl, flux, err=None, scale=1, gaussian=None):
         self.scale = scale
+        self.gaussian = gaussian
         self.__wl = wl
+        self.__shift = wl
         self.__flux = flux
         if err is None:
             err = np.zeros_like(flux)
@@ -180,26 +198,39 @@ class dataset:
     def __abs__(self):
         return dataset(self.wl, np.abs(self.flux), self.err)
 
-    def interpolate(self, new, old, flux):
+    def __interpolate__(self, new, old, flux):
+        # Avoid unnecessary interpolation
+        if len(new) == len(old) and np.all(new == old):
+            return flux
+
         if isinstance(flux, pd.DataFrame):
-            values = interp1d(old, flux, kind='linear', bounds_error=False, fill_value=0, axis=0)(new)
+            values = interp1d(old, flux, kind='zero',
+                              bounds_error=False, fill_value=0, axis=0)(new)
             return pd.DataFrame(data=values, columns=flux.keys())
-        return interp1d(old, flux, kind='linear', bounds_error=False, fill_value=0, axis=-1)(new)
+        return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=0, axis=-1)(new)
 
     def doppler_shift(self, vel):
-        #_c = c * 1e-3 #km/s
-        self.wl = (1 + vel / c) * self.wl  # shifted wavelength range
+        """ Doppler shift the spectrum with velocity vel """
+        self.wl *= (1 + vel / c)
 
     def gaussbroad(self, sigma):
-        self.flux = gaussian_filter1d(self.flux, sigma)
-        self.err = gaussian_filter1d(self.err, sigma) #TODO???
+        """ Apply gaussian broadening to the spectrum """
+        if sigma is None:
+            self.gaussian = None
+        elif self.gaussian is None:
+            self.gaussian = sigma
+        else:
+            self.gaussian += sigma
+
+    def __gaussbroad_actual__(self, flux):
+        if self.gaussian is not None:
+            return gaussian_filter1d(flux, self.gaussian)
+        return flux
 
     @property
     def wl(self):
-        if self.__shift is None:
-            return self.__wl
-        else:
-            return self.__shift
+        """ The wavelength array of the spectrum """
+        return self.__shift
 
     @wl.setter
     def wl(self, value):
@@ -209,47 +240,44 @@ class dataset:
 
     @property
     def flux(self):
-        if self.__shift is None:
-            return self.__flux * self.scale
-        else:
-            if self.__cache_flux__ is None:
-                self.__cache_flux__ = self.interpolate(
-                    self.__shift, self.__wl, self.__flux) * self.scale
-            return self.__cache_flux__
+        """ The flux values of the spectrum, may be 2dimensional for several observations """
+        if self.__cache_flux__ is None:
+            self.__cache_flux__ = self.__interpolate__(
+                self.__shift, self.__wl, self.__flux) * self.scale
+            self.__cache_flux__ = self.__gaussbroad_actual__(
+                self.__cache_flux__)
+        return self.__cache_flux__
 
     @flux.setter
     def flux(self, value):
-        # interpolate to old wavelength grid?
-        self.__cache_flux__ = None
-        if self.__shift is None:
-            if value.shape[-1] != self.wl.shape[0]:
-                raise ValueError(
-                    "Size doesn't match, consider only changing the wavelenght")
-            self.__flux = value
-        else:
+        # Check if the size matches
+        if value.shape[-1] != self.wl.shape[0]:
+            raise ValueError(
+                "Size doesn't match, consider only changing the wavelenght")
+
+        self.__flux = value
+        # if wavelength grid stayed the same
+        if self.__shift is not self.__wl:
             # make new wavelength grid permanent
-            self.__flux = value
             self.__err = self.err
             self.__wl = self.__shift
-            self.__shift = None
+
+        # Invalidate Cache
+        self.__cache_flux__ = None
+        self.__cache_err__ = None
 
     @property
     def err(self):
-        if self.__shift is None:
-            return self.__err * self.scale
-        else:
-            if self.__cache_err__ is None:
-                self.__cache_err__ = self.interpolate(
-                    self.__shift, self.__wl, self.__err) * self.scale
-            return self.__cache_err__
+        """ The absolute errors on the flux """
+        if self.__cache_err__ is None:
+            self.__cache_err__ = self.__interpolate__(
+                self.__shift, self.__wl, self.__err) * self.scale
+        return self.__cache_err__
 
     @err.setter
     def err(self, value):
         self.__cache_err__ = None
-        if self.__shift is None:
-            self.__err = value
-        else:
+        self.__err = value
+        if self.__shift is not self.__wl:
             self.__flux = self.flux
-            self.__err = value
             self.__wl = self.__shift
-            self.__shift = None
