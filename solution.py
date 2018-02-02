@@ -8,16 +8,29 @@ from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve
 
+
 def Franklin(wl, f, g, lamb):
+    """Solve the minimization problem f * x - g = 0
+
+    Use simple Franklin regularization with parameter lamb
+    http: epubs.siam.org/doi/pdf/10.1137/0509044
+
+    Parameters:
+    ----------
+    wl : np.ndarray
+        wavelength grid
+    f : np.ndarray
+        f
+    g : np.ndarray
+        g
+    lamb : float
+        regularization parameter
+    Returns
+    -------
+    np.ndarray
+        The planetary spectrum
     """
-    Solve the mimimazation problem to find the planetary spectrum
-    F*x - G = 0
-    wl_grid: Wavelength scale
-    F: intermediary product F
-    G: intermediary product G
-    lam: regularization parameter lambda
-    """
-    # http://epubs.siam.org/doi/pdf/10.1137/0509044
+    #
     if isinstance(lamb, np.ndarray) and len(lamb) == 1:
         lamb = lamb[0]
 
@@ -40,8 +53,21 @@ def Franklin(wl, f, g, lamb):
 
 
 def Tikhonov(f, g, l):
-    """
-    Solve f*x - g = 0 equation , with Tikhonov regularization parameter l
+    """Solve f * x = g, with Tikhonov regularization parameter l
+
+    Solve the equation diag(f) + l**2 * diag(f).I * D.T * D = g
+    where D is the difference operator matrix, and diag the diagonal matrix
+
+    Parameters:
+    ----------
+    f : np.ndarray
+    g : np.ndarray
+    l : float
+        Tikhonov regularization parameter
+    Returns
+    -------
+    np.ndarray
+        x
     """
     b = np.sum(f, axis=0)
     r = np.sum(g, axis=0)
@@ -58,17 +84,81 @@ def Tikhonov(f, g, l):
 
 
 def __difference_matrix__(size):
+    """Get the difference operator matrix
+
+    The difference operator is a matrix with the diagonal = 2, and both first offsets = -1
+
+    Parameters:
+    ----------
+    size : int
+        the size of the returned matrix
+    Returns
+    -------
+    dense matrix
+        the difference matrix of size size
+    """
     a = c = np.full(size - 1, -1)
     b = np.full(size, 2)
     b[0] = b[-1] = 1
     return diags([a, b, c], offsets=[-1, 0, 1])
 
 
+def RidgeRegression(f, g, l):
+    """Use Ridge Regression to solve f*x-g=0
+
+    .. note:: WARNING: EXPERIMENTAL
+
+    Parameters:
+    ----------
+    f : np.ndarray
+        f
+    g : np.ndarray
+        g
+    l : float
+        regulaization paramter
+    Returns
+    -------
+    np.ndarray
+        Planet spectrum
+    """
+
+    import sklearn.linear_model as linear
+
+    b = np.sum(f, axis=0)
+    r = np.sum(g, axis=0)
+
+    A = diags(b, 0)
+
+    rcv = linear.RidgeCV(fit_intercept=False, cv=10, alphas=(l,))
+    rcv.fit(A, r)
+    return rcv.predict(A)
+
+
 def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Franklin', plot=False, sampling='log'):
-    """ Use the L-curve algorithm to find the best regularization parameter lambda """
-    # http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
-    # TODO: is there a good sample range for all situations?
-    # TODO: Maybe an iterative approach works better/faster?
+    """Use the L-curve algorithm to find the best regularization parameter lambda
+
+    http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
+    TODO: is there a good sample range for all situations?
+    TODO: Maybe an iterative approach works better/faster?
+
+    Parameters:
+    ----------
+    wl : np.ndarray
+        wavelength grid
+    f : np.ndarray
+    g : np.ndarray
+    sample_range : tuple(int), optional
+        range of lambda values to test (the default is (1e-4, 1e6), which should be enough)
+    npoints : int, optional
+        number of sampling points (the default is 300, which should be enough)
+    plot : bool, optional
+        show a plot of the L curve if True (the default is False, which means no plot)
+
+    Returns
+    -------
+    lambda : float
+        Best fit regularization parameter lambda
+    """
     b = np.sum(f, axis=0)
     r = np.sum(g, axis=0)
 
@@ -160,10 +250,30 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
 
 
 def best_lambda_dirty(wl, f, g, lamb0=100):
-    """ Using dirty hack limitation of max(solution) == 1 """
-    # This is a dirty hack that has no reason to work as well as it does,
-    # but it gets good results and is about 2 Orders of magnitudes
-    # faster than the regular best_lambda function
+    """ Use a simple hack to get a good approximation of the best lambda
+
+    This just tests for which regularization lambda, the maximum value is 1
+    The linear equation to solve is f * x - g = 0
+
+    This is a dirty hack that has no reason to work as well as it does,
+    but it gets good results and is about 2 Orders of magnitudes
+    faster than the regular best_lambda function
+
+    Parameters:
+    ----------
+    wl : np.ndarray
+        wavelength grid
+    f : np.ndarray
+    g : np.ndarray
+    lamb0 : float, optional
+        The starting regularization parameter (the default is 100)
+
+    Returns
+    -------
+    lambda: float
+        Best fit regularization parameter lambda, hopefully
+    """
+
     def func(x):
         return Franklin(wl, f, g, np.abs(x)).max() - 1
     lamb, _, _, _ = fsolve(func, x0=lamb0, full_output=True)

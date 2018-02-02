@@ -21,7 +21,7 @@ from synthetic import synthetic
 
 def write(fname, obs):
     fname = join(conf['input_dir'], conf['dir_tmp'], fname)
-    data = np.array([obs.wl, obs.flux, obs.err]).swapaxes(0, 1)
+    data = np.array([obs.wl, obs.flux[0], obs.err[0]]).swapaxes(0, 1)
     np.savetxt(fname, data, delimiter=', ')
 
 
@@ -36,6 +36,12 @@ imu[-1] = 0
 conf['star_intensities'] = imu
 
 
+max_p = iy.maximum_phase(par)
+mu = iy.calc_mu(par, 0)
+print(max_p)
+print(mu)
+exit()
+
 #Test harps flux calibrationc
 reference = 'Vesta.fits'
 ref = harps.load_solar(conf, par, reference=reference)
@@ -47,10 +53,9 @@ ref = harps.flux_calibration(conf, par, ref, apply_temp_ratio=False, plot=True, 
 
 #Load HARPS
 obs = harps.load_observations(conf, par)
-bpmap = iy.create_bad_pixel_map(obs.flux, threshold=1e-3)
+bpmap = iy.create_bad_pixel_map(obs, threshold=1e-3)
 
-obs = obs[~bpmap]
-#obs.wl = obs.wl[~bpmap]
+obs.wl = obs.wl[~bpmap]
 
 #Average HARPS flux
 total = np.mean(obs.flux)

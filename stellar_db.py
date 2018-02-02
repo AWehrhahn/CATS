@@ -5,9 +5,25 @@ Get Data from Stellar DB
 import numpy as np
 from DataSources.StellarDB import StellarDB
 
-def load_parameters(name_star, name_planet, atm_factor=0.1, **kwargs):
-    """ Load orbital parameters """
 
+def load_parameters(name_star, name_planet, atm_factor=0.1, **kwargs):
+    """ loads the stellar parameters from the StellarDB database
+
+    Converts measurements into km, s, and radians and calculates some simple fixed parameters like the projected area of the planet on the star
+    See StellarDB project for more details
+
+    Parameters:
+    ----------
+    name_star : {str}
+        name of the star, if not found in local StellarDB it will automatically be resolved with SIMBAD
+    name_planet : {str}
+        name of the planet, just the letter, e.g. 'b'
+    **kwargs
+
+    atm_factor : {float}, optional
+        size of the atmosphere in relation ro planet radius (the default is 0.1)
+
+    """
     sdb = StellarDB()
     star = sdb.load(name_star)
     # Convert names
@@ -47,9 +63,9 @@ def load_parameters(name_star, name_planet, atm_factor=0.1, **kwargs):
 
     # Derived values, the pi factor gets canceled out
     # TODO get a better estimate/value
-    #if 'h_atm' not in star.keys():
+    # if 'h_atm' not in star.keys():
     #    star['h_atm'] = 0.1 * star['r_planet']
-    #else:
+    # else:
     star['h_atm'] = atm_factor * star['r_planet']
 
     star['A_planet'] = star['r_planet']**2

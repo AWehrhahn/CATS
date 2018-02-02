@@ -9,17 +9,42 @@ import intermediary as iy
 from data_module_interface import data_module
 from psg import psg
 
-from awlib.timeit import timeit
+import matplotlib.pyplot as plt
 
 
 class synthetic(data_module):
     """ create synthetic observation from given data """
 
     @classmethod
-    @timeit
-    def load_observations(cls, conf, par, telluric, stellar, intensity, source='psg'):
-        """ Generate a fake spectrum """
+    def load_observations(cls, conf, par, telluric, stellar, intensity, source='psg', *args, **kwargs):
+        """ Generates a synthetic spectrum based on the input spectra
 
+        A planetary transmission spectrum is taken from the module defined with source
+        Observations are generated over the whole transit
+        Noise is added, to achive the SNR defined in conf
+
+        Parameters:
+        ----------
+        conf : {dict}
+            configuration setting
+        par : {dict}
+            stellar and planetary parameters
+        telluric : {dataset}
+            telluric transmission spectrum
+        stellar : {dataset}
+            stellar flux
+        intensity : {dataset}
+            specific intensities for various mu values
+        Raises
+        ------
+        FileNotFoundError
+            Planetary spectrum file not found
+
+        Returns
+        -------
+        obs : dataset
+            synthetic observations
+        """
         # TODO determine suitable phases independently
         max_phase = iy.maximum_phase(par)
         n_obs = 20

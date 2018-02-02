@@ -32,8 +32,25 @@ def prepare(target, phase):
 
 
 def assign_module(key):
-    """ assign module according to given key """
-    # some special cases still use strings as identifiers
+    """assign modules according to the given key string
+
+    Some special cases use strings as identifier and are returned as such
+
+    Parameters:
+    ----------
+    key : str
+        key name of the module
+    Raises
+    ------
+    AttributeError
+        key not found in valid list
+
+    Returns
+    -------
+    module : {data_module, str}
+        The data_module represented by that key
+        or a string if special actions need to be used later
+    """
     modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
                'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
 
@@ -44,9 +61,26 @@ def assign_module(key):
 
 
 def get_data(conf, star, planet, **kwargs):
+    """ load data from various sources
+
+    [description]
+
+    Parameters:
+    ----------
+    conf : {dict}
+        configuration settings
+    star : {str}
+        name of the star, that is observed here
+    planet : {str}
+        name of the planet, usually just a letter, e.g. 'b'
+    **kwargs
+        other settings that will be passed on to the modules
+    Returns
+    -------
+    par, stellar, intensities, tell, obs, phase
+        stellar parameter dictionary, stellar flux, specific intensities, telluric transmission, observations, and orbital phase of the planet 
     """
-    Load data from specified sources
-    """
+
     # Check settings
 
     parameters = conf['parameters']
@@ -96,7 +130,6 @@ def get_data(conf, star, planet, **kwargs):
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
     bpmap[obs.wl < 8400] = True
     obs.wl = obs.wl[~bpmap]
-    #obs = obs[:, ~bpmap]
 
     stellar.wl = obs.wl
     intensities.wl = obs.wl
@@ -111,6 +144,34 @@ def get_data(conf, star, planet, **kwargs):
 
 
 def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
+    """ Calculate the planetary spectrum
+
+    Combine all data products and reduce the problem to the linear equation f*x-g = 0, where x is the planetary spectrum
+    f = tellurics * specific_intensities_planetatmosphere
+    g = observation - (stellar_flux - specific_intensities_planetbody) * tellurics
+
+    Parameters:
+    ----------
+    conf : {dict}
+        configration settings
+    par : {dict}
+        stellar and orbital parameters
+    obs : {dataset}
+        transit observations for the planet
+    tell : {dataset}
+        telluric transmission
+    flux : {dataset}
+        stellar flux
+    star_int : {dataset}
+        specific intensities
+    phase : {np.ndarray}
+        orbital phases of the planet
+    Returns
+    -------
+    planet: np.ndarray
+        Planetary transmission spectrum
+    """
+
     """ calculate solution from input """
     print('   - Stellar specific intensities covered by planet and atmosphere')
     i_planet, i_atm = iy.specific_intensities(par, phase, star_int)
@@ -139,11 +200,32 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
+    # return sol.RidgeRegression(f.flux, g.flux, lamb)
     return sol.Tikhonov(f.flux, g.flux, lamb)
 
 
 def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
-    """ plot resulting data """
+    """ Plot the available data products
+
+    Plot everything
+
+    Parameters:
+    ----------
+    conf : {dict}
+        configuration settings
+    par : {dict}
+        stellar and orbital parameters
+    obs : {dataset}
+        transit observations
+    tell : {dataset}
+        telluric transmission
+    flux : {dataset}
+        stellar flux
+    sol_t : {np.ndarray}
+        planetary transmission solution
+    source : {str, 'psg'}
+        string identifying the source for a comparison planet spectrum
+    """
     try:
         if source in ['psg']:
             planet = psg.load_input(conf, par)
@@ -179,8 +261,16 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
 
 
 def main(star, planet, lamb='auto', **kwargs):
-    """
-    Main entry point for the ExoSpectrum Programm
+    """ Main entry point for the ExoSpectrum programm
+
+    Parameters:
+    ----------
+    star : {str}
+        name of the observed star
+    planet : {str}
+        name of the observed planet, just the letter, e.g. 'b'
+    **kwargs
+        various parameters to be passed on to the modules
     """
     # Step 0: Configuration
     combo = star + planet if star is not None and planet is not None else None
@@ -194,7 +284,7 @@ def main(star, planet, lamb='auto', **kwargs):
     print('Load data')
     par, flux, intensities, tell, obs, phase = get_data(
         conf, star, planet, **kwargs)
-    exit()
+
     # Step 2: Calc Solution
     print('Calculate solution')
     sol_t = calculate(conf, par, obs, tell, flux,
@@ -204,7 +294,7 @@ def main(star, planet, lamb='auto', **kwargs):
     print('Plot')
     # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
-    #plot(conf, par, obs, tell, flux, sol_t + offset)
+    plot(conf, par, obs, tell, flux, sol_t + offset)
 
 
 if __name__ == '__main__':
@@ -234,7 +324,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 100
+        lamb = 1000000000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

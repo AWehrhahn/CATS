@@ -14,6 +14,23 @@ class limb_darkening(data_module):
 
     @classmethod
     def round_to(cls, n, precision, limits=None):
+        """ Round to the closest value within the given precison or the next limit
+
+        Parameters:
+        ----------
+        n : {float}
+            value to round
+        precision : {float}
+            precision of the rounding, e.g. 0.5
+        limits : {tuple(min, max), None}, optional
+            Limits the results to min, max, or no limits if None (the default is None)
+
+        Returns
+        -------
+        rounded : float
+            rounded value
+        """
+
         """
         Round a value to the next closest value with precision p inside the limits
         """
@@ -33,12 +50,47 @@ class limb_darkening(data_module):
 
     @staticmethod
     def limb_darkening_formula(mu, a):
-        """ Limb darkening fomula by Claret 2000 """
+        """ Limb darkening formula
+
+        from Claret 2000
+
+        Parameters:
+        ----------
+        mu : {float}
+            limb distance
+        a : {(a1, a2, a3, a4) float}
+            limb darkening parameters
+        Returns
+        -------
+        factor : float
+            limb darkening factor
+        """
         return 1 - a[0] * (1 - mu**0.5) - \
             a[1] * (1 - mu) - a[2] * (1 - mu**1.5) - a[3] * (1 - mu**2)
 
     @classmethod
     def load_specific_intensities(cls, config, par, stellar):
+        """ Use limb darkening formula to estimate specific intensities
+        
+        The limb distances to evaluate are set in config
+        formula from Claret 2000
+        paramters from
+        http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
+        
+        Parameters:
+        ----------
+        config : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        stellar : {dataset}
+            stellar flux
+        Returns
+        -------
+        spec_intensities : dataset
+            specific intensities for several limb distances mu
+        """
+
         """
         Limb darkening
         I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
@@ -83,7 +135,8 @@ class limb_darkening(data_module):
 
         a = [a1, a2, a3, a4]
         mus = config['star_intensities']
-        star_int = {i: stellar.flux * cls.limb_darkening_formula(i, a) for i in mus}
+        star_int = {i: stellar.flux *
+                    cls.limb_darkening_formula(i, a) for i in mus}
 
         star_int = pd.DataFrame.from_dict(star_int)
         ds = dataset(stellar.wl, star_int)

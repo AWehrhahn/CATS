@@ -25,6 +25,22 @@ class marcs(data_module):
 
     @classmethod
     def apply_modifiers(cls, conf, par, ds):
+        """ Apply modifiers from conf to dataset ds
+
+        Parameters:
+        ----------
+        conf : {dict}
+            configuration setting
+        par : {dict}
+            stellar and planetary parameters
+        ds : {dataset}
+            dataset to modify
+        Returns
+        -------
+        ds : dataset
+            modified dataset
+        """
+
         if 'marcs_flux_mod' in conf.keys():
             ds.scale *= float(conf['marcs_flux_mod'])
         if 'marcs_wl_mod' in conf.keys():
@@ -33,7 +49,19 @@ class marcs(data_module):
 
     @classmethod
     def load_stellar_flux_from_intensities(cls, config, par):
-        """ load MARCS flux from specific intensities """
+        """ generate MARCS flux from specific intensities
+
+        Parameters:
+        ----------
+        config : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        Returns
+        -------
+        stellar : dataset
+            stellar flux
+        """
         data = cls.load_data(config, par)
         imu = config['star_intensities']
 
@@ -45,7 +73,25 @@ class marcs(data_module):
 
     @classmethod
     def load_stellar_flux(cls, conf, par, fname=None, apply_air2vac=True):
-        """ Load MARCS flux directly from flx file """
+        """ Load MARCS flux from flx file
+
+        [description]
+
+        Parameters:
+        ----------
+        conf : {dict}
+            configuration settings
+        par : {dict}
+            stelllar and planetary parameters
+        fname : {str}, optional
+            overrides default filename from conf, must be complete path (the default is None)
+        apply_air2vac : {bool}, optional
+            If True, convert MARCS wavelengths to vacuum wavelengths. Only use this if MARCS values are in air. (the default is True)
+        Returns
+        -------
+        stellar : dataset
+            stellar flux
+        """
         if fname is None:
             fname = join(conf['input_dir'], conf['marcs_dir'],
                          conf['marcs_file_flux'])
@@ -71,15 +117,39 @@ class marcs(data_module):
 
     @classmethod
     def linear(cls, new, old, values):
-        # TODO use spline interpolation?
+        """ linear interpolation """
         return np.interp(new, old, values)
 
     @classmethod
     def spline(cls, new, old, values):
+        """ quadratic spline interpolation """
         return interp1d(old, values, kind='quadratic')(new)
 
     @classmethod
     def read(cls, fname, imu, interpolate='linear'):
+        """ read a single specific intensity file and interpolate to given mu values
+
+
+
+        Parameters:
+        ----------
+        fname : {str}
+            filenames
+        imu : {list}
+            new limb distances mu, to interpolate to
+        interpolate : {'linear', 'spline'}
+            method to use for interpolation of the specific intensities
+        Raises
+        ------
+        AttributeError
+            Interpolation method not recognised
+
+        Returns
+        -------
+        data : np.ndarray
+            specific intensity data
+        """
+
         """
         reads one limb darkening file and interpolates the values to the given mu values
         fname: filename
@@ -141,13 +211,22 @@ class marcs(data_module):
 
     @classmethod
     def read_all(cls, fname, imu, ld_format, interpolate='linear'):
-        """
-        read several files in a series
-        fname: filename unformated
-        imu: range of mu values
-        frim: first value to use in fname.format
-        to: last value
-        interpolate: interpolation method
+        """ read several specific intensity files in a series
+
+        Parameters:
+        ----------
+        fname : {str}
+            unformated filename
+        imu : {list}
+            range of mu values
+        ld_format : {str}
+            input for fname.format()
+        interpolate : {'linear', 'spline'}
+            interpolation method to use
+        Returns
+        -------
+        spec_intensity : np.ndarray
+            specific intensity
         """
         result = [cls.read(fname.format(i), imu, interpolate=interpolate)[100:-100]
                   for i in ld_format]
@@ -157,6 +236,20 @@ class marcs(data_module):
 
     @classmethod
     def load_data(cls, config, par):
+        """ load data from specific intensity files
+
+        Parameters:
+        ----------
+        config : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        Returns
+        -------
+        spec_int : dataset
+            specific intensities
+        """
+
         # filename
         flux_file = join(config['input_dir'],
                          config['marcs_dir'], config['marcs_file_ld'])
@@ -186,6 +279,24 @@ class marcs(data_module):
 
     @classmethod
     def load_specific_intensities(cls, config, par, *args, **kwargs):
+        """ load specific intensities
+
+        Parameters:
+        ----------
+        config : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        *args
+
+        **kwargs
+
+        Returns
+        -------
+        specific_intensity : dataset
+            specific intensity
+        """
+
         imu = config['star_intensities']
         result = cls.load_data(config, par)
         result = cls.apply_modifiers(config, par, result)
@@ -195,6 +306,20 @@ class marcs(data_module):
 
     @classmethod
     def load_limb_darkening(cls, config, par):
+        """ load limb darkening factors by comparing specific intensities and stellar flux
+
+        Parameters:
+        ----------
+        config : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        Returns
+        -------
+        factors : dataset
+            limb darkening factors
+        """
+
         # TODO do I need a factor mu somewhere?
         # to convert from specific intensity to flux I had to integrate with mu
         wl_i, intensities = cls.load_intensities(config, par)
@@ -212,6 +337,22 @@ class marcs(data_module):
     ###
     @classmethod
     def load_solar(cls, conf, par, calib_dir):
+        """ load solar model
+
+        Parameters:
+        ----------
+        conf : {dict}
+            configuration settings
+        par : {dict}
+            stellar and planetary parameters
+        calib_dir : {str}
+            calibration directory, where the model file is located
+        Returns
+        -------
+        solar : dataset
+            solar spectrum
+        """
+
         s_fname = join(calib_dir, 'sun.flx')
         solar = cls.load_stellar_flux(
             conf, par, s_fname, apply_air2vac=False)

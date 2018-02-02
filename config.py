@@ -15,14 +15,47 @@ except ImportError:
 
 
 def __load_yaml__(fname):
-    """ load json data from file with given filename """
+    """ load yaml data from a file
+    
+    Parameters:
+    ----------
+    fname : {str}
+        filename of the yaml file
+    Raises
+    ------
+    IOError
+        file not found, or other io problem
+    
+    Returns
+    -------
+    contents: dict
+        contents of the loaded yaml file
+    """
     with open(fname, 'r') as fp:
         return yaml.load(fp, Loader=Loader)
     raise IOError
 
 
 def load_config(target, filename='config.yaml'):
-    """ Load configuration from file """
+    """ load a configuration file
+    
+    The configuration file is loaded from the current working directory
+    and the contents are updated with the contents of the appropiate parameter file
+    
+    Parameters:
+    ----------
+    target : {str}
+        name of the star + planet combination, e.g. K2-3b
+    Raises
+    ------
+    FileNotFoundError
+        If any of the defined directories of files in config is not found
+    
+    Returns
+    -------
+    conf : dict
+        configuration settings
+    """
     filename = join(os.getcwd(), filename)
     conf = __load_yaml__(filename)
 

@@ -14,18 +14,40 @@ from dataset import dataset
 warnings.simplefilter('ignore', category=Warning)
 
 
-
 def create_bad_pixel_map(obs, threshold=0):
-    """ Create a map of all bad pixels from the given set of observations """
+    """ Create a map of all bad pixels from the given set of observations
+
+    Parameters:
+    ----------
+    obs : {dataset}
+        observations
+    threshold : {float}, optional
+        determines how close a pixel has to be to 0 or 1 to be considered a bad pixel (the default is 0, which is exact)
+    Returns
+    -------
+    badpixelmap : np.ndarray
+        Bad pixel map, same dimensions as obs.flux - 1
+    """
     return np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
 
 
-def rv_star(self):
-    """ linearly distribute radial velocities during transit """
-    return self.config['radial_velocity']
-
-
 def rv_planet(par, phases):
+    """ Calculate the radial velocity of the planet at a given phase
+
+    Uses only simple geometry
+
+    Parameters:
+    ----------
+    par : {dict}
+        stellar and planetary parameters
+    phases : {float, np.ndarray}
+        orbital phases of the planet
+    Returns
+    -------
+    rv : {float, np.ndarray}
+        radial velocity of the planet
+    """
+
     """ calculate radial velocities of the planet along the orbit """
     # Orbital speed
     v_orbit = par['sma'] * \
@@ -35,31 +57,69 @@ def rv_planet(par, phases):
 
 
 def interpolate_intensity(mu, i):
+    """ Interpolate the stellar intensity for given limb distance mu
+
+    use linear interpolation, because it is much faster
+
+    Parameters:
+    ----------
+    mu : {float, np.ndarray}
+        cos(limb distance), i.e. 1 is the center of the star, 0 is the outer edge
+    i : {pd.DataFrame}
+        specific intensities
+    Returns
+    -------
+    intensity : np.ndarray
+        interpolated intensity
+    """
+
     """ interpolate the stellar intensity for given limb distance mu """
     values = i.values.swapaxes(0, 1)
     return interp1d(i.keys(), values, kind='zero', copy=False, axis=0, assume_sorted=True)(mu)
 
 
 def calc_mu(par, phase):
-    """ calculate the distance from the center of the planet to the center of the star as seen from earth (in radians) """
-    """
-    distance = self.par['sma'] / self.par['r_star'] * \
-        np.sqrt(np.cos(self.par['inc'])**2 +
-                np.sin(self.par['inc'])**2 * np.sin(phase)**2)
+    """calculate the distance from the center of the planet to the center of the star as seen from earth
+
+    Parameters:
+    ----------
+    par : {dict}
+        stellar and planetary parameters
+    phase : {float, np.ndarray}
+        orbital phase of the planet
+    Returns
+    -------
+    mu : {float, np.ndarray}
+        cos(limb distance), where 0 is the center of the star and 1 is the outer edge
     """
     return np.sqrt(1 - (par['sma'] / par['r_star'])**2 * (np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2))
 
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
-    """
-    Calculate the average specific intensity in a given radius range around the planet center
-    phase: Phase (in radians) of the planetary transit, with 0 at transit center
-    intensity: specific intensity profile of the host star, a pandas DataFrame with keys from 0.0 to 1.0
-    min_radius: minimum radius (in km) to sample
-    max_radius: maximum radius (in km) to sample
-    n_radii: number of radius points to sample
-    n_angle: number of angles to sample
-    spacing: how to space the samples, 'equidistant' means linear spacing between points, 'random' places them at random positions
+    """Calculate the average specific intensity in a given radius range around the planet center
+
+    Parameters:
+    ----------
+    par : {dict}
+        stellar and planetary parameters
+    phase : {float, np.ndarray}
+        orbital phase of the planet (in radians)
+    intensity : {datset}
+        specific intensities
+    min_radius : {float}
+        minimum radius from the planet center to use for calculations (in km)
+    max_radius : {float}
+        maximum radius from planet center to use for calculations (im km)
+    n_radii : {int}
+        number of radii to sample
+    n_angle : {int}
+        number of angles to sample
+    spacing : {'equidistant', 'random'}
+        wether to use equidistant sampling points or a random distribution (default is 'equidistant')
+    Returns
+    -------
+    intensity : np.ndarray
+        specific intensities
     """
     # Step 1: Calculate sampling positions in the given radii
     if spacing in ['e', 'equidistant']:
@@ -85,7 +145,7 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     mu[np.isnan(mu)] = -1
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
 
-    #TODO optimize this somehow?
+    # TODO optimize this somehow?
     intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=2)
     intens = np.average(intens, axis=1, weights=radii)
@@ -93,24 +153,52 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
 
 
 def maximum_phase(par):
-    """ The maximum phase for which the planet is still completely inside the stellar disk """
-    # This is the inverse of calc_mu(maximum_phase()) = 1.0
+    """ The maximum phase for which the planet is still completely inside the stellar disk
+
+    based only on geometry
+    This is the inverse of calc_mu(maximum_phase()) = 0.0, if there is no inclination
+
+    Parameters:
+    ----------
+    par : {dict}
+        stellar and planetary parameters
+    Returns
+    -------
+    phase : float
+        maximum phase (in radians)
+    """
     return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
         par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
 
 
 def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
-    """
-    Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
+    """Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
     over the different phases of transit
-    phase: phases (in radians) of the transit, with 0 at transit center
-    intensity: specific intensity profile of the host star, a pandas DataFrame with keys from 0.0 to 1.0
-    n_radii: number of radii to sample, if tuple use n_radii[0] for i_planet and n_radii[1] for i_atm
-    n_angle: number of angles to sample, if tuple use n_angle[0] for i_planet and n_angle[1] for i_atm
-    mode: fast or precise, fast ignores the planetary disk and only uses the center of the planet, precise uses sample positions inside the radii to determine the average intensity
+
+    TODO: are the precise calculation worth it ???
+    TODO: Allow user to specify different n_radii and n_angle for i_planet and i_atm
+
+    Parameters:
+    ----------
+    par : {dict}
+        stellar and planetary parameters
+    phase : {float, np.ndarray}
+        orbital phase in radians
+    intensity : {dataset}
+        specific intensities
+    n_radii : {int}, optional
+        number of radii to sample (the default is 11)
+    n_angle : {int}, optional
+        number of angles to sample (the default is 7)
+    mode : {'precise', 'fast'}
+        in precise mode, various radii and angle in the atmosphere and body of the planet are sampled
+        inb fast mode, use only the center of the planet
+    Returns
+    -------
+    i_planet, i_atm : dataset, dataset
+        specific intensities blocked by the planet body and the atmosphere
     """
-    #TODO are the precise calculation worth it ???
-    # Allow user to specify different n_radii and n_angle for i_planet and i_atm
+
     if isinstance(n_radii, (float, int)):
         n_radii = (n_radii, n_radii)
     if isinstance(n_angle, (float, int)):

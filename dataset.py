@@ -20,16 +20,30 @@ class dataset:
     Therefore any changes to the wavelength are stored seperately and the flux is interpolated only when necessary from the original grid
 
     Properties:
-    wl      --  Wavelength, 1D Array
-    flux    --  Flux, 1D/2D Array
-    err     --  Errors, 1D/2D Array
-    scale   --  Multiplier for the flux and error, Scalar
-    gaussian--  Gaussian broadening sigma, Scalar
+    ----------
+    wl : np.ndarray
+        Wavelength
+    flux : np.ndarray
+        Flux
+    err : np.ndarray
+        Errors on the flux
+    scale : float
+        Multiplier for the flux and error
+    gaussian : float
+        Gaussian broadening sigma
 
-    Function:
+    Functions:
+    ----------
     __init__(wl, flux, err=None, scale=1, gaussian=None)
+
     doppler_shift(velocity)
+        doppler shift flux and wavelength
+
     gaussbroad(sigma)
+        apply gaussian broadening to the flux
+
+    change_grid(value)
+        change the underlying wavelength grid
     """
 
     def __init__(self, wl, flux, err=None, scale=1, gaussian=None):
@@ -52,11 +66,13 @@ class dataset:
         if self.flux.ndim == 2:
             _flux = self.flux[:, key]
             _err = self.err[:, key]
+            _wl = self.wl[key]
         else:
             _flux = self.flux[key]
             _err = self.err[key]
+            _wl = self.wl[key]
 
-        return dataset(self.wl[key], _flux, _err)
+        return dataset(_wl, _flux, _err)
 
     def __mul__(self, other):
         # if used in multiplication dataset acts as a proxy for the flux
@@ -210,11 +226,23 @@ class dataset:
         return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=0, axis=-1)(new)
 
     def doppler_shift(self, vel):
-        """ Doppler shift the spectrum with velocity vel """
+        """ Doppler shift the flux spectrum and the wavelength
+        
+        Parameters:
+        ----------
+        vel : {float}
+            velocity in km/s to doppler shift. Negative is moving towards Earth, positive away
+        """
         self.wl *= (1 + vel / c)
 
     def gaussbroad(self, sigma):
-        """ Apply gaussian broadening to the spectrum """
+        """ Apply gaussian broadening to the flux
+        
+        Parameters:
+        ----------
+        sigma : {float}
+            width of the kernel in pixel
+        """
         if sigma is None:
             self.gaussian = None
         elif self.gaussian is None:
@@ -234,7 +262,22 @@ class dataset:
 
     @wl.setter
     def wl(self, value):
+        self.__shift = np.copy(value)
+        self.__cache_flux__ = None
+        self.__cache_err__ = None
+
+    def change_grid(self, value):
+        """ actually change the underlying wavelenght grid and not the shifted wavelength
+        
+        Parameters:
+        ----------
+        value : {np.ndarray}
+            new wavelength grid
+        """
+
+        self.__wl = value
         self.__shift = value
+
         self.__cache_flux__ = None
         self.__cache_err__ = None
 
@@ -255,7 +298,8 @@ class dataset:
             raise ValueError(
                 "Size doesn't match, consider only changing the wavelenght")
 
-        self.__flux = value
+        self.__flux = np.copy(value)
+        self.scale = 1
         # if wavelength grid stayed the same
         if self.__shift is not self.__wl:
             # make new wavelength grid permanent
@@ -277,7 +321,7 @@ class dataset:
     @err.setter
     def err(self, value):
         self.__cache_err__ = None
-        self.__err = value
+        self.__err = value/self.scale
         if self.__shift is not self.__wl:
             self.__flux = self.flux
             self.__wl = self.__shift
