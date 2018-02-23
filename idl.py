@@ -41,3 +41,19 @@ class idl(data_module):
 
         ds = dataset(wave, flux)
         return ds
+
+    @classmethod
+    def load_SME(cls, conf, par):
+        fname = join(conf['input_dir'], conf['idl_dir'], conf['idl_file_sme'])
+        data = readsav(fname)
+        sme = data['sme']
+        #wavelength grid
+        wave = sme.wave[0]
+        # continuum modifier ?
+        continuum = sme.cmod[0]
+
+        #wavelength indices of the various sections
+        wave_index = sme.wind[0]
+        #observed spectrum
+        obs_flux = sme.sob[0]
+        return wave, wave_index, obs_flux, continuum

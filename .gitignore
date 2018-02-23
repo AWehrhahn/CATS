@@ -6,3 +6,9 @@ limb_darkening.fit
 plot.html
 plot.html.tar.gz
 test.prof
+*.c
+*.o
+*.so
+plot_1.html
+temp-plot.html
+test.cprof

@@ -71,12 +71,12 @@ class limb_darkening(data_module):
     @classmethod
     def load_specific_intensities(cls, config, par, stellar):
         """ Use limb darkening formula to estimate specific intensities
-        
+
         The limb distances to evaluate are set in config
         formula from Claret 2000
         paramters from
         http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
-        
+
         Parameters:
         ----------
         config : {dict}
@@ -89,12 +89,6 @@ class limb_darkening(data_module):
         -------
         spec_intensities : dataset
             specific intensities for several limb distances mu
-        """
-
-        """
-        Limb darkening
-        I(mu)/I(1) = 1 - a1 * (1-mu**1/2) -a2 * (1-mu) - a3 * (1-mu**3/2)-a4*(1-mu**2)
-        from Claret 2000, http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081
         """
         file_limb_darkening = config['ld_file']
         hdulist = fits.open(file_limb_darkening)

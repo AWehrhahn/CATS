@@ -249,8 +249,7 @@ class harps(data_module):
         ref = cls.load_solar(conf, par, reference)
         ref.doppler_shift(par['radial_velocity'])
         ref.wl = obs.wl
-        ref.gaussbroad(2)
-        #ref.flux = gaussbroad(ref.flux, 2)
+        #ref.gaussbroad(2)
 
         if source == 'marcs':
             # load marcs solar spectrum
@@ -281,7 +280,7 @@ class harps(data_module):
         def func2(x):
             return np.sum(np.abs(gaussbroad(solar.flux, x) - ref.flux))
 
-        sol = minimize(func, x0=1)  # par['radial_velocity'])
+        sol = minimize(func, x0=par['radial_velocity'], method='Nelder-Mead')
         v = sol.x[0]
         print('shift: ', v)
         solar.doppler_shift(v)
@@ -307,7 +306,8 @@ class harps(data_module):
         tmp = np.all(tmp, axis=0)
 
         # be careful to only broaden within individual sections
-        profile = np.where(tmp, solar.flux / ref.flux, 0)
+        sensitivity = np.where(tmp, solar.flux / ref.flux, 0)
+        
         low, high = min(obs.wl), max(obs.wl)
         for i in range(exclusion.shape[0] + 1):
             if i < exclusion.shape[0]:
@@ -315,30 +315,36 @@ class harps(data_module):
                 low = exclusion[i, 1]
             else:
                 band = (obs.wl >= low) & (obs.wl < high)
-            profile[band] = gaussbroad(profile[band], 1000, mode='reflect')
+            sensitivity[band] = gaussbroad(sensitivity[band], 1000, mode='reflect')
 
-        profile = cls.interpolate(obs.wl, obs.wl[tmp], profile[tmp])
-
+        sensitivity = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[tmp])
+        
+        bbflux = planck(obs.wl, 3800)  # Teff of the star
+        bbflux2 = planck(obs.wl, 5770)  # Teff of the sun
         if apply_temp_ratio:
             # Fix Difference between solar and star temperatures
-            bbflux = planck(obs.wl, 4000)  # Teff of the star
-            bbflux2 = planck(obs.wl, 6770)  # Teff of the sun
-            ratio = bbflux2 / bbflux * 10  # TODO the factor 10 doesn't belong here anyway
+            ratio = bbflux2 / bbflux
         else:
             ratio = 1
 
         # Apply changes
-        calibrated = obs.flux * profile[None, :] * ratio
+        calibrated = obs.flux * sensitivity[None, :] * ratio
         calibrated[:, :50] = calibrated[:, 51, None]
 
         # Any errors in s_flux and r_flux are broadened away
-        c_err = obs.err * profile[None, :]
+        c_err = obs.err * sensitivity[None, :]
         c_err[:, :50] = c_err[:, 51, None]
 
         calibrated = dataset(obs.wl, calibrated, c_err)
+        calibrated.flux *= 13.5
 
         if plot:
             import matplotlib.pyplot as plt
+            import matplotlib.transforms as mtransforms
+            #import plotly.offline as py
+            #from awlib.pltly import pltly
+            #plt = pltly()
+
             # calibrated.gaussbroad(50)
             # solar.gaussbroad(50)
 
@@ -349,18 +355,27 @@ class harps(data_module):
             else:
                 _flux = obs.flux[0]
 
-            plt.plot(wl, normalize(_flux), label='observation')
-            plt.plot(wl, normalize(ref.flux), label='reference')
+            fig, ax = plt.subplots()
+            trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+            ax.fill_between(wl, 0, 1.2, where=~tmp,
+                            facecolor='green', alpha=0.5, transform=trans)
 
-            plt.plot(wl, solar.flux, label='solar')
-            plt.plot(wl, calibrated.flux[0], label='calibrated')
-            plt.plot(wl, tell.flux, label='tellurics')
-            plt.plot(wl, profile * 1e4, label='profile')
-            #plt.plot(wl, ratio, label='ratio')
-            plt.xlim([4000, 7000])
+            ax.plot(wl, solar.flux, label='solar', color='tab:blue')
+            plt.plot(wl, _flux / max(_flux) * 3, label='observation', color='tab:green')
+            ax.plot(wl, ref.flux / max(ref.flux), label='reference', color='tab:pink')
+
+            plt.plot(wl,
+                calibrated.flux[0], label='calibrated', color='tab:orange')
+            #plt.plot(wl, tell.flux, label='tellurics', color='tab:green')
+            #ax.plot(wl, bbflux / max(bbflux), label='4000 K', color='tab:pink')
+            #ax.plot(wl, bbflux2 / max(bbflux2), label='5770 K', color='tab:purple')
+            ax.plot(wl, sensitivity * 1e4, label='sensitivity', color='tab:red')
+            #plt.plot(wl, ratio / ratio.max(), label='ratio')
+            plt.xlim([4700, 5000])
             plt.ylim([0, 1.2])
             plt.title(plot_title)
             plt.legend(loc='best')
+            #py.plot_mpl(plt.gcf())
             plt.show()
 
         return calibrated

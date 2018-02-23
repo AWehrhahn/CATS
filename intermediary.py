@@ -1,3 +1,5 @@
+# cython: profile=True
+
 """
 Calculate intermediary data products like
 specific intensities or F and G
@@ -72,8 +74,7 @@ def interpolate_intensity(mu, i):
     intensity : np.ndarray
         interpolated intensity
     """
-
-    """ interpolate the stellar intensity for given limb distance mu """
+    #TODO can I optimize this?
     values = i.values.swapaxes(0, 1)
     return interp1d(i.keys(), values, kind='zero', copy=False, axis=0, assume_sorted=True)(mu)
 

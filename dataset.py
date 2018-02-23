@@ -227,17 +227,18 @@ class dataset:
 
     def doppler_shift(self, vel):
         """ Doppler shift the flux spectrum and the wavelength
-        
+
         Parameters:
         ----------
         vel : {float}
             velocity in km/s to doppler shift. Negative is moving towards Earth, positive away
         """
-        self.wl *= (1 + vel / c)
+        self.__wl = (1 + vel / c) * self.wl
+        self.wl = self.__wl
 
     def gaussbroad(self, sigma):
         """ Apply gaussian broadening to the flux
-        
+
         Parameters:
         ----------
         sigma : {float}
@@ -268,7 +269,7 @@ class dataset:
 
     def change_grid(self, value):
         """ actually change the underlying wavelenght grid and not the shifted wavelength
-        
+
         Parameters:
         ----------
         value : {np.ndarray}
@@ -321,7 +322,7 @@ class dataset:
     @err.setter
     def err(self, value):
         self.__cache_err__ = None
-        self.__err = value/self.scale
+        self.__err = value / self.scale
         if self.__shift is not self.__wl:
             self.__flux = self.flux
             self.__wl = self.__shift

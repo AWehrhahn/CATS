@@ -17,7 +17,7 @@ class data_module(ABC):
 
     @classmethod
     @abstractmethod
-    def load_observations(cls, conf: dict, par: dict, *args, **kwargs)->(list, list):
+    def load_observations(cls, conf, par, *args, **kwargs):
         """ load observations for this module
 
         Parameters:
@@ -40,7 +40,7 @@ class data_module(ABC):
 
     @classmethod
     @abstractmethod
-    def load_tellurics(cls, conf: dict, par: dict, *args, **kwargs)->(list, list):
+    def load_tellurics(cls, conf, par, *args, **kwargs):
         """ Load the telluric transmission spectrum
 
         Parameters:
@@ -63,7 +63,7 @@ class data_module(ABC):
 
     @classmethod
     @abstractmethod
-    def load_stellar_flux(cls, conf: dict, par: dict, *args, **kwargs)->(list, list):
+    def load_stellar_flux(cls, conf, par, *args, **kwargs):
         """ Load the stellar flux
 
         Parameters:
@@ -86,7 +86,7 @@ class data_module(ABC):
 
     @classmethod
     @abstractmethod
-    def load_specific_intensities(cls, conf: dict, par: dict, *args, **kwargs)->(list, (list, list)):
+    def load_specific_intensities(cls, conf, par, *args, **kwargs):
         """ Load the stellar specific intensities
 
         Parameters:
@@ -109,7 +109,7 @@ class data_module(ABC):
 
     @classmethod
     @abstractmethod
-    def apply_modifiers(cls, conf: dict, par: dict, ds: dataset)->(list, list):
+    def apply_modifiers(cls, conf, par, ds):
         """ apply modifiers for wavelength and flux from config file
 
         Parameters:
