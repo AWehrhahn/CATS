@@ -8,6 +8,7 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import intermediary as iy
 from data_module_interface import data_module
 from psg import psg
+from harps import harps
 
 import matplotlib.pyplot as plt
 
@@ -45,10 +46,11 @@ class synthetic(data_module):
         obs : dataset
             synthetic observations
         """
-        # TODO determine suitable phases independently
         max_phase = iy.maximum_phase(par)
         n_obs = 20
         phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
+        #TODO do this properly
+        stellar = harps.load_reduced(conf, par)
 
         # Sigma of Instrumental FWHM in pixels
         sigma = 1 / 2.355 * conf['fwhm']
@@ -78,6 +80,7 @@ class synthetic(data_module):
         noise = np.random.randn(len(phase), len(stellar.wl)) / conf['snr']
 
         # Apply instrumental broadening and noise
-        obs.flux = gaussbroad(obs.flux, sigma) * (1 + noise)
+        obs.gaussbroad(sigma)
+        obs.flux *= (1 + noise)
         obs.phase = phase
         return obs

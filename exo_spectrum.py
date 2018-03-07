@@ -21,6 +21,7 @@ from harps import harps
 from limb_darkening import limb_darkening
 from marcs import marcs
 from psg import psg
+from idl import idl
 from synthetic import synthetic
 
 
@@ -52,7 +53,7 @@ def assign_module(key):
         or a string if special actions need to be used later
     """
     modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
-               'combined': 'combined', 'syn': synthetic, 'ones': 'ones'}
+               'combined': 'combined', 'syn': synthetic, 'ones': 'ones', 'idl': idl}
 
     if key in modules.keys():
         return modules[key]
@@ -127,8 +128,12 @@ def get_data(conf, star, planet, **kwargs):
     phase = obs.phase
 
     # Unify wavelength grid
+    #TODO bad pixel determination isn't great
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    bpmap[obs.wl < 8400] = True
+    bpmap[obs.wl > 6700] = True
+    bpmap[obs.wl < 6000] = True
+    bpmap[(obs.wl > 5850) & (obs.wl < 5950)] = True
+    bpmap[(obs.wl > 6342) & (obs.wl < 6404)] = True
     obs.wl = obs.wl[~bpmap]
 
     stellar.wl = obs.wl
@@ -136,8 +141,8 @@ def get_data(conf, star, planet, **kwargs):
     tell.wl = obs.wl
 
     # TODO DEBUG
-    if observation is harps:
-        obs = harps.flux_calibration(conf, par, obs)
+    #if observation is harps:
+    #    obs = harps.flux_calibration(conf, par, obs)
     # TODO END_DEBUG
 
     return par, stellar, intensities, tell, obs, phase
@@ -235,8 +240,8 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
         is_planet = False
 
     plt.plot(tell.wl, normalize1d(tell.flux), label='Telluric')
-    plt.plot(obs.wl, normalize1d(obs.flux[0]), label='Observation')
-    plt.plot(flux.wl, normalize1d(flux.flux), label='Flux')
+    plt.plot(obs.wl, obs.flux[0], label='Observation')
+    plt.plot(flux.wl, flux.flux, label='Flux')
     if is_planet:
         plt.plot(planet.wl, planet.flux, label='Planet')
     sol_t = normalize1d(sol_t)  # TODO
@@ -324,7 +329,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 1000000
+        lamb = 500
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

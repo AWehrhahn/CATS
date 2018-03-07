@@ -30,7 +30,7 @@ def create_bad_pixel_map(obs, threshold=0):
     badpixelmap : np.ndarray
         Bad pixel map, same dimensions as obs.flux - 1
     """
-    return np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
+    return np.all(np.gradient(obs.flux) == 0, axis=0) | np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
 
 
 def rv_planet(par, phases):
@@ -217,7 +217,14 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         outer = (par['r_planet'] + par['h_atm']) / par['r_star']
         i_atm = calc_intensity(par, phase, intensity.flux,
                                inner, outer, n_radii[1], n_angle[1])
-        return dataset(intensity.wl, i_planet), dataset(intensity.wl, i_atm)
+        ds_planet =  dataset(intensity.wl, i_planet)
+        ds_atm = dataset(intensity.wl, i_atm)
+
+        vel = 2 * np.pi * par['sma'] / par['period'] * np.sin(phase)
+        ds_planet.flux *= (1+vel[:, None]/3e5)
+        
+
+        return ds_planet, ds_atm
 
     if mode == 'fast':
         # Alternative version that only uses the center of the planet

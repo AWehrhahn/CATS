@@ -43,6 +43,19 @@ class idl(data_module):
         return ds
 
     @classmethod
+    def load_stellar_flux(cls, conf, par):
+        wave, wave_index, obs_flux, continuum = cls.load_SME(conf, par)
+
+        sort = np.argsort(wave)
+        wave = wave[sort]
+        obs_flux = obs_flux[sort]
+
+        wave = np.ascontiguousarray(wave)
+        obs_flux = np.ascontiguousarray(obs_flux)
+
+        return dataset(wave, obs_flux)
+
+    @classmethod
     def load_SME(cls, conf, par):
         fname = join(conf['input_dir'], conf['idl_dir'], conf['idl_file_sme'])
         data = readsav(fname)
@@ -56,4 +69,6 @@ class idl(data_module):
         wave_index = sme.wind[0]
         #observed spectrum
         obs_flux = sme.sob[0]
+        #synthetic spectrum
+        obs_flux = sme.smod[0]
         return wave, wave_index, obs_flux, continuum

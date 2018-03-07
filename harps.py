@@ -15,6 +15,7 @@ from scipy.optimize import minimize
 import intermediary as iy
 from awlib.astro import air2vac, doppler_shift, planck
 from awlib.util import normalize
+from awlib.reduce.echelle import rdech
 from data_module_interface import data_module
 from dataset import dataset
 from marcs import marcs
@@ -249,7 +250,7 @@ class harps(data_module):
         ref = cls.load_solar(conf, par, reference)
         ref.doppler_shift(par['radial_velocity'])
         ref.wl = obs.wl
-        #ref.gaussbroad(2)
+        # ref.gaussbroad(2)
 
         if source == 'marcs':
             # load marcs solar spectrum
@@ -307,7 +308,7 @@ class harps(data_module):
 
         # be careful to only broaden within individual sections
         sensitivity = np.where(tmp, solar.flux / ref.flux, 0)
-        
+
         low, high = min(obs.wl), max(obs.wl)
         for i in range(exclusion.shape[0] + 1):
             if i < exclusion.shape[0]:
@@ -315,10 +316,11 @@ class harps(data_module):
                 low = exclusion[i, 1]
             else:
                 band = (obs.wl >= low) & (obs.wl < high)
-            sensitivity[band] = gaussbroad(sensitivity[band], 1000, mode='reflect')
+            sensitivity[band] = gaussbroad(
+                sensitivity[band], 1000, mode='reflect')
 
         sensitivity = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[tmp])
-        
+
         bbflux = planck(obs.wl, 3800)  # Teff of the star
         bbflux2 = planck(obs.wl, 5770)  # Teff of the sun
         if apply_temp_ratio:
@@ -356,26 +358,66 @@ class harps(data_module):
                 _flux = obs.flux[0]
 
             fig, ax = plt.subplots()
-            trans = mtransforms.blended_transform_factory(ax.transData, ax.transAxes)
+            trans = mtransforms.blended_transform_factory(
+                ax.transData, ax.transAxes)
             ax.fill_between(wl, 0, 1.2, where=~tmp,
                             facecolor='green', alpha=0.5, transform=trans)
 
             ax.plot(wl, solar.flux, label='solar', color='tab:blue')
-            plt.plot(wl, _flux / max(_flux) * 3, label='observation', color='tab:green')
-            ax.plot(wl, ref.flux / max(ref.flux), label='reference', color='tab:pink')
+            plt.plot(wl, _flux / max(_flux) * 3,
+                     label='observation', color='tab:green')
+            ax.plot(wl, ref.flux / max(ref.flux),
+                    label='reference', color='tab:pink')
 
             plt.plot(wl,
-                calibrated.flux[0], label='calibrated', color='tab:orange')
+                     calibrated.flux[0], label='calibrated', color='tab:orange')
             #plt.plot(wl, tell.flux, label='tellurics', color='tab:green')
             #ax.plot(wl, bbflux / max(bbflux), label='4000 K', color='tab:pink')
             #ax.plot(wl, bbflux2 / max(bbflux2), label='5770 K', color='tab:purple')
-            ax.plot(wl, sensitivity * 1e4, label='sensitivity', color='tab:red')
+            ax.plot(wl, sensitivity * 1e4,
+                    label='sensitivity', color='tab:red')
             #plt.plot(wl, ratio / ratio.max(), label='ratio')
             plt.xlim([4700, 5000])
             plt.ylim([0, 1.2])
             plt.title(plot_title)
             plt.legend(loc='best')
-            #py.plot_mpl(plt.gcf())
+            # py.plot_mpl(plt.gcf())
             plt.show()
 
         return calibrated
+
+    @classmethod
+    def load_reduced(cls, conf, par, no_cont=False):
+        """Load a reduced echelle file
+
+        It is assumed that the reduced .ech file has also been wavelength calibrated
+
+        Parameters:
+        ----------
+        conf : {dict}
+            configuration settings
+        par : {dict}
+            stellar parameters
+        no_cont : {bool}, optional
+            wether to apply the continuum (the default is False, which [default_description])
+
+        Returns
+        -------
+        dataset
+            the observation
+        """
+
+        fname = 'HARPS.2016-04-09T01:55:25.400c.ech'
+        fname = join(conf['input_dir'], conf['harps_dir'], fname)
+
+        ech = rdech(fname)
+        
+        wave = ech.wave.reshape(-1)
+        sort = np.argsort(wave)
+
+        wave = wave[sort]
+        spec = ech.spec.reshape(-1)[sort]
+        sig = ech.sig.reshape(-1)[sort]
+
+        ds = dataset(wave, spec, sig)
+        return ds

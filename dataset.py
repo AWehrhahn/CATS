@@ -256,6 +256,11 @@ class dataset:
             return gaussian_filter1d(flux, self.gaussian)
         return flux
 
+    def write(self, fname):
+        fname = join(fname)
+        data = np.array([self.wl, self.flux, self.err]).swapaxes(0, 1)
+        np.savetxt(fname, data, delimiter=', ')
+
     @property
     def wl(self):
         """ The wavelength array of the spectrum """

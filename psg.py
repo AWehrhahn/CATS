@@ -56,7 +56,8 @@ class psg(data_module):
                           config['psg_dir'], config['psg_file_atm'])
 
         planet = pd.read_csv(input_file)
-        wl = planet['Wave/freq'].values
+        #TODO remove wl offset
+        wl = planet['Wave/freq'].values / 10 + 5000/10000
         planet = planet['Total'].values
 
         ds = dataset(wl, planet)

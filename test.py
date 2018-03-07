@@ -4,6 +4,8 @@ Test new stuff
 from os.path import join
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap, BoundaryNorm
+import matplotlib.lines as mlines
 from scipy.optimize import fsolve, minimize, minimize_scalar
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
@@ -27,6 +29,11 @@ def write(fname, obs):
     data = np.array([obs.wl, obs.flux[0], obs.err[0]]).swapaxes(0, 1)
     np.savetxt(fname, data, delimiter=', ')
 
+def load(fname):
+    fname = join(conf['input_dir'], conf['dir_tmp'], fname)
+    wl, flx, err = np.genfromtxt(fname, delimiter=', ', unpack=True)
+    ds = dataset(wl, flx, err)
+    return ds
 
 star = 'K2-3'
 planet = 'd'
@@ -44,6 +51,27 @@ def func(x):
 
 
 wave, wave_index, obs_flux, continuum = idl.load_SME(conf, par)
+
+ds = harps.load_reduced(conf, par, no_cont=True)
+#ds = load('K23_calibrated_with_HD157881.asc')
+#ds.doppler_shift(-83)
+norm = (ds.wl - min(ds.wl)) / max(ds.wl - min(ds.wl))
+cmap = plt.get_cmap('rainbow')
+plt.plot(ds.wl, ds.flux)
+plt.scatter(ds.wl, ds.flux, marker=',', c = norm, cmap=cmap, label='observation', linewidths=1, linestyle='solid')
+
+
+for i in range(1, len(wave_index)):
+    s, e = wave_index[i-1:i+1]
+    plt.plot(wave[s+1:e], obs_flux[s+1:e], label='section %i' % i)
+
+
+#plt.plot(wave, continuum, '-k', label='continuum')
+#plt.xlim([min(wave), max(wave)])
+plt.xlim([5875, 5905])
+plt.legend(loc='best')
+plt.show()
+
 
 d = {'input_dir': conf['input_dir'], 'harps_dir': 'UVES'}
 ds = harps.load(d, par, 'ADP.2017-10-23T120920.538.fits',
@@ -126,6 +154,8 @@ plt.xlim([5210, 5217])
 
 plt.show()
 
+calibrated = dataset(x, calibrated[None, :], err = calibrated[None, :] * 0.001)
+write('K23_calibrated_with_HD157881.asc', calibrated)
 
 # Test harps flux calibrationc
 reference = 'Vesta.fits'

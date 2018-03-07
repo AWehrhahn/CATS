@@ -54,7 +54,7 @@ harps_wl_mod: 1
 
 idl_dir: SME
 idl_file_solar: sol.dat
-idl_file_sme: k2-3_test06.out
+idl_file_sme: k2-3new_test02.out
 
 # Intermediary data file
 file_intermediary: intermediary.npz
