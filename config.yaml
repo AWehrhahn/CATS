@@ -11,7 +11,7 @@ path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
 name_target: K2-3
-#name_target: HD209458
+#name_target: WASP-29
 name_planet: d
 dir_input: input
 dir_output: output
@@ -54,7 +54,8 @@ harps_wl_mod: 1
 
 idl_dir: SME
 idl_file_solar: sol.dat
-idl_file_sme: k2-3new_test02.out
+idl_file_sme: wasp29_4nlte.out
+idl_file_obs: '*.ech'
 
 # Intermediary data file
 file_intermediary: intermediary.npz

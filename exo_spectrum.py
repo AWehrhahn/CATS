@@ -24,6 +24,8 @@ from psg import psg
 from idl import idl
 from synthetic import synthetic
 
+from scipy.constants import c
+
 
 def prepare(target, phase):
     """ Load data from PSG if necessary """
@@ -130,10 +132,10 @@ def get_data(conf, star, planet, **kwargs):
     # Unify wavelength grid
     #TODO bad pixel determination isn't great
     bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    bpmap[obs.wl > 6700] = True
-    bpmap[obs.wl < 6000] = True
-    bpmap[(obs.wl > 5850) & (obs.wl < 5950)] = True
-    bpmap[(obs.wl > 6342) & (obs.wl < 6404)] = True
+    #bpmap[obs.wl > 6700] = True
+    #bpmap[obs.wl < 6250] = True
+    #bpmap[(obs.wl > 5850) & (obs.wl < 5950)] = True
+    #bpmap[(obs.wl > 6342) & (obs.wl < 6404)] = True
     obs.wl = obs.wl[~bpmap]
 
     stellar.wl = obs.wl
@@ -193,6 +195,28 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     i_planet.gaussbroad(sigma)
     flux.gaussbroad(sigma)  # Add an extra dimension
 
+
+    #TODO make sure everything is in barycentric or stellar rest frame
+    #shift everything into the rest frame of the planet, it should be barycentric before that
+    vel = -iy.rv_planet(par, obs.phase)
+
+    tell.doppler_shift(vel)
+    i_atm.doppler_shift(vel)
+    i_planet.doppler_shift(vel)
+    flux.doppler_shift(vel)
+    obs.doppler_shift(vel)
+
+    bpmap = np.full(obs.wl.shape, False, dtype=bool)
+    bpmap[obs.wl < 5600] = True
+    bpmap[obs.wl > 6600] = True
+
+    obs.wl = obs.wl[~bpmap]
+    tell.wl = obs.wl
+    i_atm.wl = obs.wl
+    i_planet.wl = obs.wl
+    flux.wl = obs.wl
+
+
     print('   - Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
@@ -239,9 +263,9 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     except FileNotFoundError:
         is_planet = False
 
-    plt.plot(tell.wl, normalize1d(tell.flux), label='Telluric')
+    plt.plot(tell.wl, normalize1d(tell.flux[0]), label='Telluric')
     plt.plot(obs.wl, obs.flux[0], label='Observation')
-    plt.plot(flux.wl, flux.flux, label='Flux')
+    plt.plot(flux.wl, flux.flux[0], label='Flux')
     if is_planet:
         plt.plot(planet.wl, planet.flux, label='Planet')
     sol_t = normalize1d(sol_t)  # TODO

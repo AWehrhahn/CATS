@@ -53,7 +53,7 @@ def rv_planet(par, phases):
     """ calculate radial velocities of the planet along the orbit """
     # Orbital speed
     v_orbit = par['sma'] * \
-        np.sin(par['inc']) * 2 * np.pi / par['period_s']
+        np.sin(par['inc']) * 2 * np.pi / par['period_h']
     # Modulate with phase
     return v_orbit * np.sin(phases)
 
@@ -219,11 +219,6 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
                                inner, outer, n_radii[1], n_angle[1])
         ds_planet =  dataset(intensity.wl, i_planet)
         ds_atm = dataset(intensity.wl, i_atm)
-
-        vel = 2 * np.pi * par['sma'] / par['period'] * np.sin(phase)
-        ds_planet.flux *= (1+vel[:, None]/3e5)
-        
-
         return ds_planet, ds_atm
 
     if mode == 'fast':

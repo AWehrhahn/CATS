@@ -235,7 +235,23 @@ class marcs(data_module):
         return result
 
     @classmethod
-    def load_data(cls, config, par):
+    def load_simple_data(cls, config, par, fname=None):
+        if fname is None:
+            fname = config['marcs_file_ld']
+
+        flux_file = join(config['input_dir'],
+                         config['marcs_dir'], fname)
+        wl_file = join(config['input_dir'],
+                         config['marcs_dir'], 'flx_wavelengths.vac')
+
+        flux = pd.read_table(flux_file, header=None, names=['flx']).values.reshape(-1)
+        wl = pd.read_table(wl_file, header=None, names=['wave']).values.reshape(-1)
+
+        ds = dataset(wl, flux)
+        return ds
+
+    @classmethod
+    def load_data(cls, config, par, fname=None):
         """ load data from specific intensity files
 
         Parameters:
@@ -251,8 +267,11 @@ class marcs(data_module):
         """
 
         # filename
+        if fname is None:
+            fname = config['marcs_file_ld']
+
         flux_file = join(config['input_dir'],
-                         config['marcs_dir'], config['marcs_file_ld'])
+                         config['marcs_dir'], fname)
         imu = config['star_intensities']
         ld_format = config['marcs_ld_format']
         interpolation = config['marcs_ld_interpolation_method']
@@ -336,7 +355,7 @@ class marcs(data_module):
     # Solar Model
     ###
     @classmethod
-    def load_solar(cls, conf, par, calib_dir):
+    def load_solar(cls, conf, par, calib_dir, fname='sun.flx'):
         """ load solar model
 
         Parameters:
@@ -353,8 +372,8 @@ class marcs(data_module):
             solar spectrum
         """
 
-        s_fname = join(calib_dir, 'sun.flx')
+        s_fname = join(calib_dir, fname)
         solar = cls.load_stellar_flux(
             conf, par, s_fname, apply_air2vac=False)
-        solar.scale = 1 / (2 * np.pi)
+        #solar.scale = 1 / (2 * np.pi)
         return solar

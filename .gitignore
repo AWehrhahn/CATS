@@ -12,3 +12,4 @@ test.prof
 plot_1.html
 temp-plot.html
 test.cprof
+*.pkl

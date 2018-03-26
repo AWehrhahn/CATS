@@ -10,8 +10,10 @@ from scipy.ndimage.filters import gaussian_filter1d
 # Convert to km/s
 c = c * 1e-3  # km/s
 
+# TODO decide which version of dataset is better
 
-class dataset:
+
+class dataset_old:
     """
     Stores the wavelength, the flux, and the errors of a single spectrum and provides some simple functionality
     Also supports math operators together with scalars, arrays, and other datasets
@@ -230,9 +232,12 @@ class dataset:
 
         Parameters:
         ----------
-        vel : {float}
+        vel : {float, array}
             velocity in km/s to doppler shift. Negative is moving towards Earth, positive away
         """
+        if isinstance(vel, np.ndarray) and vel.ndim == 1:
+            vel = vel[:, None]
+            #self.__wl = self.wl[None, :]
         self.__wl = (1 + vel / c) * self.wl
         self.wl = self.__wl
 
@@ -257,7 +262,6 @@ class dataset:
         return flux
 
     def write(self, fname):
-        fname = join(fname)
         data = np.array([self.wl, self.flux, self.err]).swapaxes(0, 1)
         np.savetxt(fname, data, delimiter=', ')
 
@@ -273,7 +277,7 @@ class dataset:
         self.__cache_err__ = None
 
     def change_grid(self, value):
-        """ actually change the underlying wavelenght grid and not the shifted wavelength
+        """ actually change the underlying wavelength grid and not the shifted wavelength
 
         Parameters:
         ----------
@@ -331,3 +335,262 @@ class dataset:
         if self.__shift is not self.__wl:
             self.__flux = self.flux
             self.__wl = self.__shift
+
+
+class dataset:
+    """
+    Simpler version of dataset, that does not cache flux/err but just performs the calculations required
+    """
+
+    def __init__(self, wl, flux, err=None):
+        self.__wl = wl
+        self.__flux = flux
+        if err is not None:
+            self.__err = err
+        else:
+            self.__err = np.zeros_like(flux)
+            if isinstance(flux, pd.DataFrame):
+                self.__err = self.__err.swapaxes(0, 1)
+
+    def __interpolate__(self, new, old, flux):
+        # Avoid unnecessary interpolation
+        if len(new) == len(old) and np.all(new == old):
+            return flux
+
+        if isinstance(flux, pd.DataFrame):
+            values = interp1d(old, flux, kind='zero',
+                              bounds_error=False, fill_value=0, axis=0)(new)
+            return pd.DataFrame(data=values, columns=flux.keys())
+        if old.ndim == 2:
+            res = np.empty_like(old)
+            if flux.ndim == 1:
+                for i in range(old.shape[0]):
+                    res[i] = interp1d(old[i], flux, kind='zero', bounds_error=False, fill_value=0)(new)
+            else:
+                for i in range(old.shape[0]):
+                    res[i] = interp1d(old[i], flux[i], kind='zero', bounds_error=False, fill_value=0)(new)
+            return res
+        return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=0, axis=-1)(new)
+
+    def __len__(self):
+        return len(self.wl)
+
+    def __getitem__(self, key):
+        # Create a new object with changed values
+        if self.flux.ndim == 2:
+            _flux = self.flux[:, key]
+            _err = self.err[:, key]
+            _wl = self.wl[key]
+        else:
+            _flux = self.flux[key]
+            _err = self.err[key]
+            _wl = self.wl[key]
+
+        return dataset(_wl, _flux, _err)
+
+    def __mul__(self, other):
+        # if used in multiplication dataset acts as a proxy for the flux
+        if isinstance(other, (float, int)):
+            ds = dataset(self.wl, self.flux, self.err)
+            ds.scale = other
+            return ds
+        if isinstance(other, np.ndarray):
+            return dataset(self.wl, self.flux * other, self.err * other)
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            err = np.sqrt((other.flux * self.err)**2 +
+                          (self.flux * other.err)**2)
+            return dataset(self.wl, self.flux * other.flux, err)
+        raise NotImplementedError
+
+    def __truediv__(self, other):
+        # if used in multiplication dataset acts as a proxy for the flux
+        if isinstance(other, (float, int)):
+            ds = dataset(self.wl, self.flux, self.err)
+            ds.scale = 1 / other
+            return ds
+        if isinstance(other, np.ndarray):
+            return dataset(self.wl, self.flux / other, self.err / other)
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            err = np.sqrt((self.err / other.flux)**2 +
+                          (self.flux * other.err / other.flux**2)**2)
+            return dataset(self.wl, self.flux / other.flux, err)
+        raise NotImplementedError
+
+    def __add__(self, other):
+        if isinstance(other, (float, int)):
+            return dataset(self.wl, self.flux + other, self.err)
+        if isinstance(other, np.ndarray):
+            return dataset(self.wl, self.flux + other, self.err)
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            err = np.sqrt(self.err**2 + other.err**2)
+            return dataset(self.wl, self.flux + other.flux, err)
+        raise NotImplementedError
+
+    def __sub__(self, other):
+        if isinstance(other, (float, int)):
+            return dataset(self.wl, self.flux - other, self.err)
+        if isinstance(other, np.ndarray):
+            return dataset(self.wl, self.flux - other, self.err)
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            err = np.sqrt(self.err**2 + other.err**2)
+            return dataset(self.wl, self.flux - other.flux, err)
+        raise NotImplementedError
+
+    def __rmul__(self, other):
+        return self * other
+
+    def __rtruediv__(self, other):
+        return self * other
+
+    def __radd__(self, other):
+        return self * other
+
+    def __rsub__(self, other):
+        return self * other
+
+    def __imul__(self, other):
+        # if used in multiplication dataset acts as a proxy for the flux
+        if isinstance(other, (float, int)):
+            self.scale *= other
+            return self
+        if isinstance(other, np.ndarray):
+            self.flux *= other
+            self.err *= other
+            return self
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            self.err = np.sqrt((other.flux * self.err)**2 +
+                               (self.flux * other.err)**2)
+            self.flux *= other.flux
+            return self
+        raise NotImplementedError
+
+    def __itruediv__(self, other):
+        # if used in multiplication dataset acts as a proxy for the flux
+        if isinstance(other, (float, int)):
+            self.scale /= other
+            return self
+        if isinstance(other, np.ndarray):
+            self.flux /= other
+            self.err /= other
+            return self
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            self.err = np.sqrt((self.err / other.flux)**2 +
+                               (self.flux * other.err / other.flux**2)**2)
+            self.flux /= other.flux
+            return self
+        raise NotImplementedError
+
+    def __iadd__(self, other):
+        if isinstance(other, (float, int)):
+            self.flux += other
+            return self
+        if isinstance(other, np.ndarray):
+            self.flux += other
+            return self
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            self.err = np.sqrt(self.err**2 + other.err**2)
+            self.flux += other.flux
+            return self
+        raise NotImplementedError
+
+    def __isub__(self, other):
+        if isinstance(other, (float, int)):
+            self.flux -= other
+            return self
+        if isinstance(other, np.ndarray):
+            self.flux -= other
+            return self
+        if isinstance(other, dataset):
+            if np.all(self.wl != other.wl):
+                raise ValueError("Different wavelength scales")
+            self.err = np.sqrt(self.err**2 + other.err**2)
+            self.flux -= other.flux
+            return self
+        raise NotImplementedError
+
+    def __neg__(self):
+        return dataset(self.wl, -1 * self.flux, self.err)
+
+    def __abs__(self):
+        return dataset(self.wl, np.abs(self.flux), self.err)
+
+    def doppler_shift(self, vel):
+        """ doppler shift spectrum """
+        if isinstance(vel, np.ndarray) and vel.ndim == 1:
+            vel = vel[:, None]
+
+        shift = self.wl * (1 + vel / c)
+        self.flux = self.__interpolate__(self.wl, shift, self.flux)
+
+    def gaussbroad(self, sigma):
+        """ broaden spectrum """
+        self.flux = gaussian_filter1d(self.flux, sigma)
+
+    def write(self, fname):
+        """ save dataset to disk """
+        data = np.array([self.wl, self.flux, self.err]).swapaxes(0, 1)
+        np.savetxt(fname, data, delimiter=', ')
+
+    def change_grid(self, value):
+        """ actually change the underlying wavelength grid and not the shifted wavelength
+
+        Parameters:
+        ----------
+        value : {np.ndarray}
+            new wavelength grid
+        """
+        self.__wl = value
+
+    @property
+    def wl(self):
+        """ Wavelength """
+        return self.__wl
+
+    @wl.setter
+    def wl(self, value):
+        self.__flux = self.__interpolate__(value, self.__wl, self.__flux)
+        self.__err = self.__interpolate__(value, self.__wl, self.__err)
+        self.__wl = value
+
+    @property
+    def flux(self):
+        """ Flux """
+        return self.__flux
+
+    @flux.setter
+    def flux(self, value):
+        #assert self.flux.shape[-1] == value.shape[-1]
+        self.__flux = value
+
+    @property
+    def err(self):
+        """ Error on flux """
+        return self.__err
+
+    @err.setter
+    def err(self, value):
+        assert self.err.shape == value.shape
+        self.__err = value
+
+    @property
+    def scale(self):
+        """ Scale of the flux """
+        return 1
+
+    @scale.setter
+    def scale(self, value):
+        self.flux *= value

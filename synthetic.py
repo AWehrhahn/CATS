@@ -49,8 +49,8 @@ class synthetic(data_module):
         max_phase = iy.maximum_phase(par)
         n_obs = 20
         phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
-        #TODO do this properly
-        stellar = harps.load_reduced(conf, par)
+        #TODO do this properly, which restframe is that?
+        #stellar = harps.load_reduced(conf, par)
 
         # Sigma of Instrumental FWHM in pixels
         sigma = 1 / 2.355 * conf['fwhm']
@@ -60,6 +60,9 @@ class synthetic(data_module):
             if source == 'psg':
                 planet = psg.load_input(conf, par)
                 planet.wl = stellar.wl
+                vel = iy.rv_planet(par, phase)
+                planet.doppler_shift(vel)
+
         except FileNotFoundError:
             print('No planet spectrum for synthetic observation found')
             raise FileNotFoundError

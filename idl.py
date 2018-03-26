@@ -1,10 +1,14 @@
 """
 Load data generated in IDL
 """
+import glob
 from os.path import join
 
 import numpy as np
 from scipy.io import readsav
+import astropy.io.fits as fits
+import jdcal
+from awlib.reduce import echelle
 
 from data_module_interface import data_module
 from dataset import dataset
@@ -54,6 +58,43 @@ class idl(data_module):
         obs_flux = np.ascontiguousarray(obs_flux)
 
         return dataset(wave, obs_flux)
+
+    @classmethod
+    def load_observations(cls, conf, par, *args, **kwargs):
+        fname = join(conf['input_dir'], conf['idl_dir'], conf['idl_file_obs'])
+        files = glob.glob(fname)
+        obs = [cls.load(conf=conf, par=par, fname=g) for g in files]
+
+        # Fix wl grid
+        for i in range(1, len(obs)):
+            obs[i].wl = obs[0].wl
+
+        # Organize everything into a single dataset
+        flux = np.array([ob.flux for ob in obs])
+        err = np.array([ob.err for ob in obs])
+        phase = np.array([ob.phase for ob in obs])
+
+        obs = dataset(obs[0].wl, flux, err)
+        obs.phase = phase
+
+        return obs
+
+    @classmethod
+    def load(cls, conf, par, fname):
+        ech = echelle.rdech(fname)
+        header = fits.open(fname)[0].header
+
+         # calc phases
+        tmid = header['MJD-OBS']  # in mjd
+        transit = par['transit'] - jdcal.MJD_0
+        period = par['period']
+        phase = ((tmid - (transit - period / 2)) / period) % 1
+        phase = 360 * phase
+
+        ds = dataset(ech.wave, ech.spec, ech.sig)
+        ds.phase = phase
+        return ds
+
 
     @classmethod
     def load_SME(cls, conf, par):

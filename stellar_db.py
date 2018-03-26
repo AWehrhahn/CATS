@@ -56,6 +56,7 @@ def load_parameters(name_star, name_planet, atm_factor=0.1, **kwargs):
     star['r_planet'] = star['r_planet'] * r_jup
     star['sma'] = star['sma'] * au
     star['period_s'] = star['period'] * secs
+    star['period_h'] = star['period'] * 24
     star['duration'] = star['duration'] * secs
 
     # Convert to radians

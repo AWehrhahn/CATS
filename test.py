@@ -50,6 +50,11 @@ def func(x):
     return -np.correlate(obs_flux, ds.__interpolate__(ds.wl, shift, ds.flux))[0]
 
 
+d = {'input_dir': conf['input_dir'], 'harps_dir': 'HARPS'}
+ds = harps.load(d, par, 'ADP.2015-01-23T22:55:24.657.fits', apply_barycentric=False)
+harps.flux_calibration(conf, par, ds, apply_temp_ratio=False, source='marcs')
+
+
 wave, wave_index, obs_flux, continuum = idl.load_SME(conf, par)
 
 ds = harps.load_reduced(conf, par, no_cont=True)

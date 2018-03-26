@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import minimize
+import joblib
 
 import intermediary as iy
 from awlib.astro import air2vac, doppler_shift, planck
@@ -321,7 +322,7 @@ class harps(data_module):
 
         sensitivity = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[tmp])
 
-        bbflux = planck(obs.wl, 3800)  # Teff of the star
+        bbflux = planck(obs.wl, par['t_eff'])  # Teff of the star
         bbflux2 = planck(obs.wl, 5770)  # Teff of the sun
         if apply_temp_ratio:
             # Fix Difference between solar and star temperatures
@@ -333,14 +334,26 @@ class harps(data_module):
         calibrated = obs.flux * sensitivity[None, :] * ratio
         calibrated[:, :50] = calibrated[:, 51, None]
 
-        # Any errors in s_flux and r_flux are broadened away
-        c_err = obs.err * sensitivity[None, :]
+        # Any errors in s_flux and r_flux are broadened away ?
+        c_err = obs.err * sensitivity[None, :] * ratio
         c_err[:, :50] = c_err[:, 51, None]
 
+        distance = 1 / (1e-3 * par['parallax'])
+        distance_modulus = 800/6
+
+        calibrated *= distance_modulus
         calibrated = dataset(obs.wl, calibrated, c_err)
-        calibrated.flux *= 13.5
+
+        name = 'correction.pkl'
+        func = sensitivity * ratio * distance_modulus
+        joblib.dump([obs.wl, func], name)
 
         if plot:
+
+            calib_dir = join(conf['input_dir'], conf['marcs_dir'])
+            comparison = marcs.load_simple_data(conf, par, fname='comparison.flx')
+            
+
             import matplotlib.pyplot as plt
             import matplotlib.transforms as mtransforms
             #import plotly.offline as py
@@ -357,16 +370,19 @@ class harps(data_module):
             else:
                 _flux = obs.flux[0]
 
+            comparison.wl = wl
+
             fig, ax = plt.subplots()
             trans = mtransforms.blended_transform_factory(
                 ax.transData, ax.transAxes)
             ax.fill_between(wl, 0, 1.2, where=~tmp,
                             facecolor='green', alpha=0.5, transform=trans)
 
-            ax.plot(wl, solar.flux, label='solar', color='tab:blue')
-            plt.plot(wl, _flux / max(_flux) * 3,
+            #ax.plot(wl, solar.flux, label='solar', color='tab:blue')
+            plt.plot(wl, comparison.flux, label='comparison', color='tab:blue')
+            plt.plot(wl, _flux,
                      label='observation', color='tab:green')
-            ax.plot(wl, ref.flux / max(ref.flux),
+            ax.plot(wl, ref.flux,
                     label='reference', color='tab:pink')
 
             plt.plot(wl,
