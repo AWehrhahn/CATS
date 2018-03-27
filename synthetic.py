@@ -9,6 +9,7 @@ import intermediary as iy
 from data_module_interface import data_module
 from psg import psg
 from harps import harps
+from idl import idl
 
 import matplotlib.pyplot as plt
 
@@ -46,11 +47,16 @@ class synthetic(data_module):
         obs : dataset
             synthetic observations
         """
+        cls.log(2, 'synthetic')
+        cls.log(3, 'n_exposures:', conf['n_exposures'])
+        cls.log(3, 'snr:', conf['snr'])
+        cls.log(3, 'planet spectrum:', source) 
+
         max_phase = iy.maximum_phase(par)
-        n_obs = 20
+        n_obs = conf['n_exposures']
         phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
         #TODO do this properly, which restframe is that?
-        #stellar = harps.load_reduced(conf, par)
+        #stellar = idl.load_stellar_flux(conf, par)
 
         # Sigma of Instrumental FWHM in pixels
         sigma = 1 / 2.355 * conf['fwhm']

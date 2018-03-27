@@ -123,6 +123,7 @@ class harps(data_module):
         observation : dataset
             Observations
         """
+        cls.log(2, 'HARPS')
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_file_obs'])
 
@@ -166,6 +167,7 @@ class harps(data_module):
         Average observations to get stellar flux
         Requires some observations out of transit
         """
+        cls.log(2, 'HARPS')
         obs = cls.load_observations(conf, par)
         # Don't use observations during transit
         obs.flux = obs.flux[(obs.phase > np.pi + iy.maximum_phase(par)) |
@@ -194,6 +196,7 @@ class harps(data_module):
         telluric : dataset
             telluric transmission spectrum
         """
+        cls.log(2, 'HARPS')
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['harps_file_tell'])
         df = pd.read_table(fname, delim_whitespace=True)

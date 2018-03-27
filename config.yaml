@@ -10,9 +10,9 @@ path_cache: /DATA/Cache/
 path_exoSpectro: /DATA/exoSpectro/
 
 # Specifics
-name_target: K2-3
-#name_target: WASP-29
-name_planet: d
+#name_target: K2-3
+name_target: WASP-29
+name_planet: b
 dir_input: input
 dir_output: output
 dir_tmp: tmp
@@ -65,7 +65,7 @@ file_spectrum: spectrum.png
 file_data_out: solution.dat
 
 # Setup
-psg_wl_mod: 10000
+#psg_wl_mod: 10000
 #psg_flux_mod: 1.5e-17
 marcs_flux_mod: 0.3184 #1/pi
 

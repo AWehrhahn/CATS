@@ -112,4 +112,5 @@ class idl(data_module):
         obs_flux = sme.sob[0]
         #synthetic spectrum
         obs_flux = sme.smod[0]
+
         return wave, wave_index, obs_flux, continuum

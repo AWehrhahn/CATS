@@ -357,20 +357,22 @@ class dataset:
         if len(new) == len(old) and np.all(new == old):
             return flux
 
+
+        fill_value = np.nan
         if isinstance(flux, pd.DataFrame):
             values = interp1d(old, flux, kind='zero',
-                              bounds_error=False, fill_value=0, axis=0)(new)
+                              bounds_error=False, fill_value=fill_value, axis=0)(new)
             return pd.DataFrame(data=values, columns=flux.keys())
         if old.ndim == 2:
             res = np.empty_like(old)
             if flux.ndim == 1:
                 for i in range(old.shape[0]):
-                    res[i] = interp1d(old[i], flux, kind='zero', bounds_error=False, fill_value=0)(new)
+                    res[i] = interp1d(old[i], flux, kind='zero', bounds_error=False, fill_value=fill_value)(new)
             else:
                 for i in range(old.shape[0]):
-                    res[i] = interp1d(old[i], flux[i], kind='zero', bounds_error=False, fill_value=0)(new)
+                    res[i] = interp1d(old[i], flux[i], kind='zero', bounds_error=False, fill_value=fill_value)(new)
             return res
-        return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=0, axis=-1)(new)
+        return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=fill_value, axis=-1)(new)
 
     def __len__(self):
         return len(self.wl)

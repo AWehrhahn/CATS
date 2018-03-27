@@ -72,6 +72,10 @@ def Tikhonov(f, g, l):
     b = np.sum(f, axis=0)
     r = np.sum(g, axis=0)
 
+    mask = ~np.isnan(b)
+    b = b[mask]
+    r = r[mask]
+
     n = len(b)
     # Difference Operator D
     D = __difference_matrix__(n)
@@ -80,8 +84,12 @@ def Tikhonov(f, g, l):
     # Inverse
     A.I = diags(1 / b, 0)
 
-    return spsolve(A + l**2 * A.I * D.T * D, r)
+    sol = spsolve(A + l**2 * A.I * D.T * D, r)
 
+    #TODO use nan instead of 0
+    s = np.full(len(mask), 0, dtype=float)
+    s[mask] = sol
+    return s
 
 def __difference_matrix__(size):
     """Get the difference operator matrix

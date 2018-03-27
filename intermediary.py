@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.optimize import fsolve
 
 from dataset import dataset
 
@@ -47,13 +48,13 @@ def rv_planet(par, phases):
     Returns
     -------
     rv : {float, np.ndarray}
-        radial velocity of the planet
+        radial velocity of the planet in km/s
     """
 
     """ calculate radial velocities of the planet along the orbit """
     # Orbital speed
     v_orbit = par['sma'] * \
-        np.sin(par['inc']) * 2 * np.pi / par['period_h']
+        np.sin(par['inc']) * 2 * np.pi / par['period_s']
     # Modulate with phase
     return v_orbit * np.sin(phases)
 
@@ -74,9 +75,9 @@ def interpolate_intensity(mu, i):
     intensity : np.ndarray
         interpolated intensity
     """
-    #TODO can I optimize this?
+    # TODO can I optimize this?
     values = i.values.swapaxes(0, 1)
-    return interp1d(i.keys(), values, kind='zero', copy=False, axis=0, assume_sorted=True)(mu)
+    return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=0)(mu)
 
 
 def calc_mu(par, phase):
@@ -93,6 +94,11 @@ def calc_mu(par, phase):
     mu : {float, np.ndarray}
         cos(limb distance), where 0 is the center of the star and 1 is the outer edge
     """
+    a_dash = par['sma'] * (1 - np.sin(phase) * np.sin(par['inc']))
+    i_dash = np.cos(par['inc']) * a_dash
+    mu = np.sqrt(a_dash**2 * np.sin(phase)**2 + i_dash**2) / par['r_star']
+    return mu
+    
     return np.sqrt(1 - (par['sma'] / par['r_star'])**2 * (np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2))
 
 
@@ -146,7 +152,6 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     mu[np.isnan(mu)] = -1
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
 
-    # TODO optimize this somehow?
     intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=2)
     intens = np.average(intens, axis=1, weights=radii)
@@ -168,6 +173,17 @@ def maximum_phase(par):
     phase : float
         maximum phase (in radians)
     """
+
+    return np.arcsin((par['r_star'] + par['r_planet'])/par['sma'])
+
+    r_dash = par['r_star'] + par['r_planet'] + par['h_atm']
+    a_dash = lambda p: par['sma'] * (1 - np.sin(p) * np.sin(par['inc']))
+    i_dash = lambda p: a_dash(p) * np.cos(par['inc'])
+
+    func = lambda p: np.sqrt(r_dash**2 - i_dash(p)**2)/a_dash(p) - np.sin(p)
+    return fsolve(func, 0) 
+    
+
     return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
         par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
 
@@ -217,7 +233,7 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         outer = (par['r_planet'] + par['h_atm']) / par['r_star']
         i_atm = calc_intensity(par, phase, intensity.flux,
                                inner, outer, n_radii[1], n_angle[1])
-        ds_planet =  dataset(intensity.wl, i_planet)
+        ds_planet = dataset(intensity.wl, i_planet)
         ds_atm = dataset(intensity.wl, i_atm)
         return ds_planet, ds_atm
 

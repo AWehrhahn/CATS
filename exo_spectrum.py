@@ -14,7 +14,7 @@ import numpy as np
 import config
 import intermediary as iy
 import solution as sol
-import stellar_db
+from stellar_db import stellar_db
 from awlib.util import normalize as normalize1d
 from dataset import dataset
 from harps import harps
@@ -23,6 +23,7 @@ from marcs import marcs
 from psg import psg
 from idl import idl
 from synthetic import synthetic
+from REDUCE import reduce
 
 from scipy.constants import c
 
@@ -30,7 +31,7 @@ from scipy.constants import c
 def prepare(target, phase):
     """ Load data from PSG if necessary """
     conf = config.load_config(target)
-    psg.load_psg(conf, phase)
+    psg.load_psg(conf, phase, star=False, obs=False, tell=False, planet=True)
     return np.deg2rad(phase)
 
 
@@ -55,7 +56,7 @@ def assign_module(key):
         or a string if special actions need to be used later
     """
     modules = {'marcs': marcs, 'psg': psg, 'harps': harps, 'limb_darkening': limb_darkening,
-               'combined': 'combined', 'syn': synthetic, 'ones': 'ones', 'idl': idl}
+               'combined': 'combined', 'syn': synthetic, 'ones': 'ones', 'idl': idl, 'reduce': reduce}
 
     if key in modules.keys():
         return modules[key]
@@ -120,6 +121,7 @@ def get_data(conf, star, planet, **kwargs):
 
     print('   - Tellurics')
     if tellurics == 'ones':
+        print('      - None')
         tell = dataset(stellar.wl, np.ones_like(stellar.flux))
     else:
         tell = tellurics.load_tellurics(conf, par)
@@ -129,23 +131,21 @@ def get_data(conf, star, planet, **kwargs):
         conf, par, tell, stellar, intensities, source='psg')
     phase = obs.phase
 
+    plt.plot(phase, 'o')
+    mp = iy.maximum_phase(par)
+    plt.plot(np.full(len(phase), np.pi+mp), '--r')
+    plt.plot(np.full(len(phase), np.pi-mp), '--r')
+    plt.show()
+
     # Unify wavelength grid
     #TODO bad pixel determination isn't great
-    bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
-    #bpmap[obs.wl > 6700] = True
-    #bpmap[obs.wl < 6250] = True
-    #bpmap[(obs.wl > 5850) & (obs.wl < 5950)] = True
-    #bpmap[(obs.wl > 6342) & (obs.wl < 6404)] = True
+    #bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
+    bpmap = np.full(obs.wl.shape, False, dtype=bool)
+    bpmap[obs.wl < 5600] = True
+    bpmap[obs.wl > 6750] = True
     obs.wl = obs.wl[~bpmap]
 
-    stellar.wl = obs.wl
-    intensities.wl = obs.wl
-    tell.wl = obs.wl
-
-    # TODO DEBUG
-    #if observation is harps:
-    #    obs = harps.flux_calibration(conf, par, obs)
-    # TODO END_DEBUG
+    stellar.wl = intensities.wl = tell.wl = obs.wl
 
     return par, stellar, intensities, tell, obs, phase
 
@@ -193,7 +193,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     i_atm.gaussbroad(sigma)
     i_planet.scale *= par['A_planet+atm']
     i_planet.gaussbroad(sigma)
-    flux.gaussbroad(sigma)  # Add an extra dimension
+    flux.gaussbroad(sigma)
 
 
     #TODO make sure everything is in barycentric or stellar rest frame
@@ -206,16 +206,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     flux.doppler_shift(vel)
     obs.doppler_shift(vel)
 
-    bpmap = np.full(obs.wl.shape, False, dtype=bool)
-    bpmap[obs.wl < 5600] = True
-    bpmap[obs.wl > 6600] = True
-
-    obs.wl = obs.wl[~bpmap]
-    tell.wl = obs.wl
-    i_atm.wl = obs.wl
-    i_planet.wl = obs.wl
-    flux.wl = obs.wl
-
+    tell.wl = i_atm.wl = i_planet.wl = flux.wl = obs.wl
 
     print('   - Intermediary products f and g')
     f = tell * i_atm
@@ -229,7 +220,6 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
-    # return sol.RidgeRegression(f.flux, g.flux, lamb)
     return sol.Tikhonov(f.flux, g.flux, lamb)
 
 
@@ -255,6 +245,7 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     source : {str, 'psg'}
         string identifying the source for a comparison planet spectrum
     """
+
     try:
         if source in ['psg']:
             planet = psg.load_input(conf, par)
@@ -264,7 +255,7 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
         is_planet = False
 
     plt.plot(tell.wl, normalize1d(tell.flux[0]), label='Telluric')
-    plt.plot(obs.wl, obs.flux[0], label='Observation')
+    plt.plot(obs.wl, obs.flux[-1], label='Observation')
     plt.plot(flux.wl, flux.flux[0], label='Flux')
     if is_planet:
         plt.plot(planet.wl, planet.flux, label='Planet')
@@ -311,6 +302,7 @@ def main(star, planet, lamb='auto', **kwargs):
 
     # Step 1: Get Data
     print('Load data')
+    prepare(star + planet, 0)
     par, flux, intensities, tell, obs, phase = get_data(
         conf, star, planet, **kwargs)
 
@@ -353,7 +345,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 500
+        lamb = 1000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

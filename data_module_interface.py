@@ -128,6 +128,10 @@ class data_module(ABC):
         """
         raise NotImplementedError
 
+    @classmethod
+    def log(cls, level, *msg):
+        print('   '*level + '-', *msg)
+
     @staticmethod
     def interpolate(newx, oldx, y, kind='linear'):
         """ interpolate between two grids

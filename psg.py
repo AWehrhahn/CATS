@@ -57,7 +57,7 @@ class psg(data_module):
 
         planet = pd.read_csv(input_file)
         #TODO remove wl offset
-        wl = planet['Wave/freq'].values / 10 + 5000/10000
+        wl = planet['Wave/freq'].values * 1000 + 5000
         planet = planet['Total'].values
 
         ds = dataset(wl, planet)
@@ -177,7 +177,7 @@ class psg(data_module):
         return wl, tell
 
     @classmethod
-    def load_psg(cls, config, phase, wl_low=0.6, wl_high=2.0, steps=140):
+    def load_psg(cls, config, phase, wl_low=5300, wl_high=6800, steps=140, obs=True, star=True, planet=True, tell=True):
         """ load synthetic spectra from Planetary Spectrum Generator webservice
 
         PSG doesn't allow large wavelength ranges at high resolution, therefore split it into small parts that will be calculated
@@ -191,9 +191,9 @@ class psg(data_module):
         phase : {float, np.ndarray}
 
         wl_low : {float}, optional
-            lower end of the wavelength range to calculate in microns (the default is 0.6)
+            lower end of the wavelength range to calculate in Angström (the default is 0.6)
         wl_high : {float}, optional
-            upper end of the wavelength range to calculate in microns (the default is 2.0)
+            upper end of the wavelength range to calculate in Ansgtröm (the default is 2.0)
         steps : {int}, optional
             number of parts that the wavelength range is split into, should be around 100 steps
             per 0.1 micron (the default is 140, which fits the default values for wl_low and wl_high)
@@ -202,34 +202,38 @@ class psg(data_module):
                         config['psg_dir'], config['psg_file'])
         psg = PSG(config_file=psg_file)
 
-        # Get telluric
-        tell_file = join(config['input_dir'],
-                         config['psg_dir'], config['psg_file_tell'])
-        if not exists(tell_file):
-            df = psg.get_data_in_range(
-                wl_low, wl_high, steps, wephm='T', type='tel')
-            df.to_csv(tell_file, index=False)
+        if tell:
+            # Get telluric
+            tell_file = join(config['input_dir'],
+                            config['psg_dir'], config['psg_file_tell'])
+            if not exists(tell_file):
+                df = psg.get_data_in_range(
+                    wl_low, wl_high, steps, wephm='T', type='tel')
+                df.to_csv(tell_file, index=False)
 
-        # Get planet
-        atm_file = join(config['input_dir'],
-                        config['psg_dir'], config['psg_file_atm'])
-        if not exists(atm_file):
-            df = psg.get_data_in_range(
-                wl_low, wl_high, steps, wephm='T', type='trn')
-            df.to_csv(atm_file, index=False)
+        if planet:
+            # Get planet
+            atm_file = join(config['input_dir'],
+                            config['psg_dir'], config['psg_file_atm'])
+            if not exists(atm_file):
+                df = psg.get_data_in_range(
+                    wl_low, wl_high, steps, wephm='T', type='trn')
+                df.to_csv(atm_file, index=False)
 
-        # Get stellar flux
-        flx_file = join(config['input_dir'],
-                        config['psg_dir'], config['psg_file_star'])
-        if not exists(flx_file):
-            df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
-            df.to_csv(flx_file, index=False)
-
-        for i, p in enumerate(phase):
-            # Get radiance
-            obs_file = join(config['input_dir'], config['psg_dir'],
-                            config['psg_file_obs'].replace('*', str(i)))
-            if not exists(obs_file):
-                psg.change_config({'OBJECT-SEASON': p})
+        if star:
+            # Get stellar flux
+            flx_file = join(config['input_dir'],
+                            config['psg_dir'], config['psg_file_star'])
+            if not exists(flx_file):
                 df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
-                df.to_csv(obs_file, index=False)
+                df.to_csv(flx_file, index=False)
+
+        if obs:
+            for i, p in enumerate(phase):
+                # Get radiance
+                obs_file = join(config['input_dir'], config['psg_dir'],
+                                config['psg_file_obs'].replace('*', str(i)))
+                if not exists(obs_file):
+                    psg.change_config({'OBJECT-SEASON': p})
+                    df = psg.get_data_in_range(wl_low, wl_high, steps, wephm='T')
+                    df.to_csv(obs_file, index=False)

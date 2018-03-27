@@ -90,6 +90,7 @@ class limb_darkening(data_module):
         spec_intensities : dataset
             specific intensities for several limb distances mu
         """
+        cls.log(2, 'Limb darkening formula by Claret 2000')
         file_limb_darkening = config['ld_file']
         hdulist = fits.open(file_limb_darkening)
         lddata = hdulist[1].data
@@ -109,6 +110,8 @@ class limb_darkening(data_module):
         if vmt == 7:
             vmt = 8
 
+        cls.log(2, 'T_eff: %s, logg: %s, met: %s, micro_turbulence: %s' % (T, logg, met, vmt))
+
         # Select correct coefficients
         lddata = lddata[(lddata['Teff'] == T) & (lddata['logg'] == logg) & (
             lddata['VT'] == vmt) & (lddata['log_M_H_'] == met)]
@@ -124,14 +127,12 @@ class limb_darkening(data_module):
         a2 = np.interp(stellar.wl, wl, values.loc['a2 '])
         a3 = np.interp(stellar.wl, wl, values.loc['a3 '])
         a4 = np.interp(stellar.wl, wl, values.loc['a4 '])
-
         # Apply limb darkening to each point and set values of mu, and store the results
 
         a = [a1, a2, a3, a4]
         mus = config['star_intensities']
         star_int = {i: stellar.flux *
                     cls.limb_darkening_formula(i, a) for i in mus}
-
-        star_int = pd.DataFrame.from_dict(star_int)
+        star_int = pd.DataFrame(star_int)
         ds = dataset(stellar.wl, star_int)
         return ds
