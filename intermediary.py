@@ -77,10 +77,10 @@ def interpolate_intensity(mu, i):
     """
     # TODO can I optimize this?
     values = i.values.swapaxes(0, 1)
-    return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=0)(mu)
+    return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=(0, values[1]))(mu)
 
 
-def calc_mu(par, phase):
+def calc_mu(par, phase, angles=None, radii=None):
     """calculate the distance from the center of the planet to the center of the star as seen from earth
 
     Parameters:
@@ -89,6 +89,10 @@ def calc_mu(par, phase):
         stellar and planetary parameters
     phase : {float, np.ndarray}
         orbital phase of the planet
+    angles: {np.ndarray}, optional
+        set of angles to sample around the center of the planet (in radians)
+    radii: {np.ndarray}, optional
+        set of radii to sample around the center of the planet (in km)
     Returns
     -------
     mu : {float, np.ndarray}
@@ -96,10 +100,16 @@ def calc_mu(par, phase):
     """
     a_dash = par['sma'] * (1 - np.sin(phase) * np.sin(par['inc']))
     i_dash = np.cos(par['inc']) * a_dash
-    mu = np.sqrt(a_dash**2 * np.sin(phase)**2 + i_dash**2) / par['r_star']
+
+    if angles is not None and radii is not None:
+        dx = (a_dash * np.sin(phase))[:, None, None] + radii[None, :, None] * np.cos(angles)[None, None, :]
+        dy = i_dash[:, None, None] + radii[None, :, None] * np.sin(angles)[None, None, :]
+    else:
+        dx = a_dash * np.sin(phase)
+        dy = i_dash
+
+    mu = np.sqrt(dx**2 + dy**2) / par['r_star']
     return mu
-    
-    return np.sqrt(1 - (par['sma'] / par['r_star'])**2 * (np.cos(par['inc'])**2 + np.sin(par['inc'])**2 * np.sin(phase)**2))
 
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
@@ -139,19 +149,13 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
         radii = np.random.random_sample(
             n_radii) * (max_radius - min_radius) + min_radius
         angles = np.random.random_sample(n_angle) * 2 * np.pi
-    # Step 2: Calculate d_x and d_y, distances from the stellar center
-    d_x = par['sma'] / par['r_star'] * \
-        np.sin(par['inc']) * np.sin(phase)
-    d_x = d_x[:, None, None] + \
-        (radii[:, None] * np.cos(angles)[None, :])[None, :, :]
-    d_y = par['sma'] / par['r_star'] * \
-        np.cos(par['inc']) + radii[:, None] * np.sin(angles)[None, :]
-    # mu = sqrt(1 - d**2)
-    mu = np.sqrt(1 - (d_x**2 + d_y[None, :, :]**2))
+    
+    # Step 2: Calculate mu, distances from the stellar center
+    mu = calc_mu(par, phase, angles=angles, radii=radii)
     # -1 is out of bounds, which will be filled with 0 intensity
     mu[np.isnan(mu)] = -1
-    # Step 3: Average specific intensity, outer points weight more, as the area is larger
 
+    # Step 3: Average specific intensity, outer points weight more, as the area is larger
     intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=2)
     intens = np.average(intens, axis=1, weights=radii)
@@ -174,18 +178,12 @@ def maximum_phase(par):
         maximum phase (in radians)
     """
 
-    return np.arcsin((par['r_star'] + par['r_planet'])/par['sma'])
-
     r_dash = par['r_star'] + par['r_planet'] + par['h_atm']
     a_dash = lambda p: par['sma'] * (1 - np.sin(p) * np.sin(par['inc']))
     i_dash = lambda p: a_dash(p) * np.cos(par['inc'])
 
     func = lambda p: np.sqrt(r_dash**2 - i_dash(p)**2)/a_dash(p) - np.sin(p)
     return fsolve(func, 0) 
-    
-
-    return np.arcsin(np.sqrt(((par['r_star'] - par['r_planet'] - par['h_atm']) / (
-        par['sma'] * np.sin(par['inc'])))**2 - np.tan(par['inc'])**-2))
 
 
 def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
@@ -224,13 +222,13 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
     if mode == 'precise':
         # from r=0 to r = r_planet + r_atmosphere
         inner = 0
-        outer = (par['r_planet'] + par['h_atm']) / par['r_star']
+        outer = par['r_planet'] + par['h_atm']
         i_planet = calc_intensity(
             par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0])
 
         # from r=r_planet to r=r_planet+r_atmosphere
-        inner = par['r_planet'] / par['r_star'],
-        outer = (par['r_planet'] + par['h_atm']) / par['r_star']
+        inner = par['r_planet']
+        outer = par['r_planet'] + par['h_atm']
         i_atm = calc_intensity(par, phase, intensity.flux,
                                inner, outer, n_radii[1], n_angle[1])
         ds_planet = dataset(intensity.wl, i_planet)

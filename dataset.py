@@ -344,8 +344,12 @@ class dataset:
 
     def __init__(self, wl, flux, err=None):
         self.__wl = wl
+        if flux.ndim == 1:
+            flux = flux[None, :]
         self.__flux = flux
         if err is not None:
+            if err.ndim == 1:
+                err = err[None, :]
             self.__err = err
         else:
             self.__err = np.zeros_like(flux)
@@ -357,22 +361,34 @@ class dataset:
         if len(new) == len(old) and np.all(new == old):
             return flux
 
+        # if flux is a DataFrame the axes are swapped
+        isDataFrame = isinstance(flux, pd.DataFrame)
+        if isDataFrame:
+            keys = flux.keys()
+            flux = flux.values.swapaxes(0, 1)
 
+        kind = "linear"
         fill_value = np.nan
-        if isinstance(flux, pd.DataFrame):
-            values = interp1d(old, flux, kind='zero',
-                              bounds_error=False, fill_value=fill_value, axis=0)(new)
-            return pd.DataFrame(data=values, columns=flux.keys())
-        if old.ndim == 2:
-            res = np.empty_like(old)
-            if flux.ndim == 1:
-                for i in range(old.shape[0]):
-                    res[i] = interp1d(old[i], flux, kind='zero', bounds_error=False, fill_value=fill_value)(new)
-            else:
-                for i in range(old.shape[0]):
-                    res[i] = interp1d(old[i], flux[i], kind='zero', bounds_error=False, fill_value=fill_value)(new)
-            return res
-        return interp1d(old, flux, kind='zero', bounds_error=False, fill_value=fill_value, axis=-1)(new)
+        mask = ~np.isnan(flux)
+        ndim = flux.shape[0]
+        if old.ndim > 1:
+            ndim = old.shape[0]
+
+        res = np.full((ndim, new.shape[0]), np.nan, dtype=float)
+        for i in range(ndim):
+            # fix dimensions
+            _old = old[i] if old.ndim > 1 else old
+            _flux = flux[i] if flux.shape[0] > 1 else flux[0]
+            _mask = mask[i] if mask.shape[0] > 1 and ndim == 1 else mask[0]
+
+            res[i] = interp1d(_old[_mask], _flux[_mask], kind=kind,
+                              bounds_error=False, fill_value=fill_value)(new)
+            #res[i] = np.clip(res[i], 0, 1)
+
+        if isDataFrame:
+            res = res.swapaxes(0, 1)
+            return pd.DataFrame(data=res, columns=keys)
+        return res
 
     def __len__(self):
         return len(self.wl)
@@ -575,7 +591,9 @@ class dataset:
 
     @flux.setter
     def flux(self, value):
-        #assert self.flux.shape[-1] == value.shape[-1]
+        if value.ndim == 1:
+            value = value[None, :]
+        #assert self.flux.shape == value.shape
         self.__flux = value
 
     @property
@@ -585,6 +603,8 @@ class dataset:
 
     @err.setter
     def err(self, value):
+        if value.ndim == 1:
+            value = value[None, :]
         assert self.err.shape == value.shape
         self.__err = value
 

@@ -69,16 +69,18 @@ def Tikhonov(f, g, l):
     np.ndarray
         x
     """
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
+    b = np.nansum(f, axis=0)
+    r = np.nansum(g, axis=0)
 
-    mask = ~np.isnan(b)
+    mask = (~np.isnan(b)) & (~np.isnan(r))
     b = b[mask]
     r = r[mask]
 
     n = len(b)
     # Difference Operator D
     D = __difference_matrix__(n)
+    #l = diags(np.full(n, l), 0)
+    #alpha = 1
 
     A = diags(b, 0)
     # Inverse

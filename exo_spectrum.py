@@ -131,11 +131,12 @@ def get_data(conf, star, planet, **kwargs):
         conf, par, tell, stellar, intensities, source='psg')
     phase = obs.phase
 
-    plt.plot(phase, 'o')
-    mp = iy.maximum_phase(par)
-    plt.plot(np.full(len(phase), np.pi+mp), '--r')
-    plt.plot(np.full(len(phase), np.pi-mp), '--r')
-    plt.show()
+    if False:
+        plt.plot(phase, 'o')
+        mp = iy.maximum_phase(par)
+        plt.plot(np.full(len(phase), np.pi+mp), '--r')
+        plt.plot(np.full(len(phase), np.pi-mp), '--r')
+        plt.show()
 
     # Unify wavelength grid
     #TODO bad pixel determination isn't great
@@ -258,8 +259,9 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     plt.plot(obs.wl, obs.flux[-1], label='Observation')
     plt.plot(flux.wl, flux.flux[0], label='Flux')
     if is_planet:
-        plt.plot(planet.wl, planet.flux, label='Planet')
-    sol_t = normalize1d(sol_t)  # TODO
+        plt.plot(planet.wl, planet.flux[0], label='Planet')
+    #TODO no normalization
+    sol_t = normalize1d(sol_t)
     plt.plot(obs.wl, sol_t, label='Solution')
 
     plt.title('%s\nLambda = %.3g, S/N = %s' %
@@ -345,7 +347,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 1000
+        lamb = 500
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

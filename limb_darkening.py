@@ -131,7 +131,7 @@ class limb_darkening(data_module):
 
         a = [a1, a2, a3, a4]
         mus = config['star_intensities']
-        star_int = {i: stellar.flux *
+        star_int = {i: stellar.flux[0] *
                     cls.limb_darkening_formula(i, a) for i in mus}
         star_int = pd.DataFrame(star_int)
         ds = dataset(stellar.wl, star_int)
