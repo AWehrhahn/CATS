@@ -9,6 +9,7 @@ import os.path
 import sys
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 
 import config
@@ -247,6 +248,10 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
         string identifying the source for a comparison planet spectrum
     """
 
+
+    colors = ['#46cdcf', '#0081c6', '#48466d']
+    #colors = ['#b4f5f0', '#2ceef0', '#041f60']
+
     try:
         if source in ['psg']:
             planet = psg.load_input(conf, par)
@@ -255,17 +260,17 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     except FileNotFoundError:
         is_planet = False
 
-    plt.plot(tell.wl, normalize1d(tell.flux[0]), label='Telluric')
-    plt.plot(obs.wl, obs.flux[-1], label='Observation')
-    plt.plot(flux.wl, flux.flux[0], label='Flux')
+    #plt.plot(tell.wl, normalize1d(tell.flux[0]), label='Telluric', c=colors[0])
+    plt.plot(obs.wl, obs.flux[-1], label='Observation', c=colors[0])
+    #plt.plot(flux.wl, flux.flux[0], label='Flux', c=colors[2])
     if is_planet:
-        plt.plot(planet.wl, planet.flux[0], label='Planet')
+        plt.plot(planet.wl, planet.flux[0], label='Planet', c=colors[1])
     #TODO no normalization
     sol_t = normalize1d(sol_t)
-    plt.plot(obs.wl, sol_t, label='Solution')
+    plt.plot(obs.wl, sol_t, label='Solution', c=colors[2], linewidth=2)
 
-    plt.title('%s\nLambda = %.3g, S/N = %s' %
-              (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr']))
+    plt.title('%s\nLambda = %i, S/N = %s, n_obs = %s' %
+              (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr'], conf['n_exposures']))
     plt.xlabel('Wavelength [Å]')
     plt.ylabel('Intensity [norm.]')
     plt.legend(loc='best')
@@ -347,7 +352,7 @@ if __name__ == '__main__':
         star = None
         planet = None
         #lamb = 'auto'
-        lamb = 500
+        lamb = 5000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

@@ -17,9 +17,10 @@ from awlib.util import interpolate_DataFrame
 from dataset import dataset
 import intermediary as iy
 import config
-import stellar_db
+from stellar_db import stellar_db
 from marcs import marcs
 from harps import harps
+from REDUCE import reduce
 from synthetic import synthetic
 from idl import idl
 
@@ -35,8 +36,8 @@ def load(fname):
     ds = dataset(wl, flx, err)
     return ds
 
-star = 'K2-3'
-planet = 'd'
+star = 'WASP-29'
+planet = 'b'
 
 conf = config.load_config(star + planet)
 par = stellar_db.load_parameters(star, planet)
@@ -49,63 +50,41 @@ def func(x):
     shift = doppler_shift(ds.wl, x)
     return -np.correlate(obs_flux, ds.__interpolate__(ds.wl, shift, ds.flux))[0]
 
+stellar = idl.load_stellar_flux(conf, par)
+stellar2 = reduce.load_stellar_flux(conf, par)
+stellar2.gaussbroad(2)
 
-d = {'input_dir': conf['input_dir'], 'harps_dir': 'HARPS'}
-ds = harps.load(d, par, 'ADP.2015-01-23T22:55:24.657.fits', apply_barycentric=False)
-harps.flux_calibration(conf, par, ds, apply_temp_ratio=False, source='marcs')
+stellar.wl = stellar2.wl
 
+ratio = stellar.flux[0]/stellar2.flux[0]
+ratio = gaussbroad(ratio, 1000)
 
-wave, wave_index, obs_flux, continuum = idl.load_SME(conf, par)
-
-ds = harps.load_reduced(conf, par, no_cont=True)
-#ds = load('K23_calibrated_with_HD157881.asc')
-#ds.doppler_shift(-83)
-norm = (ds.wl - min(ds.wl)) / max(ds.wl - min(ds.wl))
-cmap = plt.get_cmap('rainbow')
-plt.plot(ds.wl, ds.flux)
-plt.scatter(ds.wl, ds.flux, marker=',', c = norm, cmap=cmap, label='observation', linewidths=1, linestyle='solid')
-
-
-for i in range(1, len(wave_index)):
-    s, e = wave_index[i-1:i+1]
-    plt.plot(wave[s+1:e], obs_flux[s+1:e], label='section %i' % i)
-
-
-#plt.plot(wave, continuum, '-k', label='continuum')
-#plt.xlim([min(wave), max(wave)])
-plt.xlim([5875, 5905])
+plt.plot(stellar.wl, stellar.flux[0], label='syn')
+plt.plot(stellar2.wl,np.clip(stellar2.flux[0] * ratio, 0, 1), label='obs')
+plt.plot(stellar.wl, ratio, label='ratio')
 plt.legend(loc='best')
 plt.show()
 
-
-d = {'input_dir': conf['input_dir'], 'harps_dir': 'UVES'}
-ds = harps.load(d, par, 'ADP.2017-10-23T120920.538.fits',
-                apply_barycentric=False)
-
+fname = 'HARPS.2013-10-02T01:56:54.060c.ech'
+fname = join(conf['input_dir'], conf['harps_dir'], fname)
+obs = reduce.load(conf, par, fname)
+#harps.flux_calibration(conf, par, obs, apply_temp_ratio=False, source='marcs', plot=True)
 
 #shift = minimize(func, x0=23.5, method='Nelder-Mead')
 #v = shift.x[0] + 1.5
-v = 26.1759143829
+v = -0.5
 print('shift: ', v)
-ds.doppler_shift(v)
-
-#section = 6
-#scale = 2e-2
-#l = wave_index[section] + 1
-#h = wave_index[section + 1] + 1
-index = (4782 < wave) & (wave < 6808)
-x = wave[index]
-y = obs_flux[index] * continuum[index]
-
-index = (4782 < ds.wl) & (ds.wl < 6808)
-x2 = ds.wl[index]
-y2 = ds.flux[index]
+obs.doppler_shift(v)
 
 
-obs = dataset(x, y)
-ref = dataset(x, y)
-solar = dataset(x2, y2)
+tellurics = False
+calib_dir = join(conf['input_dir'], 'HARPS', 'Calibration')
+#solar = idl.load_solar(conf, par, calib_dir)
+solar = idl.load_stellar_flux(conf, par)
+#solar.gaussbroad(10)
 solar.wl = obs.wl
+
+ref = obs
 
 ###
 # Create broadened profile
@@ -113,7 +92,7 @@ solar.wl = obs.wl
 
 # Define Exclusion areas manually, usually telluric lines or detector gaps
 # TODO get these areas automatically/from somewhere else
-exclusion = np.array([(5300, 5340), (5757, 5840)])
+exclusion = np.array([(5880, 5910), (6340, 6410), (6562, 6565)])
 tmp = np.zeros((exclusion.shape[0], obs.wl.shape[0]))
 for i, ex in enumerate(exclusion):
     tmp[i] = ~((obs.wl > ex[0]) & (obs.wl < ex[1]))
@@ -129,9 +108,9 @@ for i in range(exclusion.shape[0] + 1):
         low = exclusion[i, 1]
     else:
         band = (obs.wl >= low) & (obs.wl < high)
-    sensitivity[band] = gaussbroad(sensitivity[band], 1000, mode='reflect')
+    sensitivity[0, band] = gaussbroad(sensitivity[0, band], 500, mode='reflect')
 
-sensitivity = np.interp(obs.wl, obs.wl[tmp], sensitivity[tmp])
+sensitivity[0] = np.interp(obs.wl, obs.wl[tmp], sensitivity[0, tmp])
 
 """
 bbflux = planck(obs.wl, 3800)  # Teff of the star
@@ -144,18 +123,17 @@ else:
 """
 ratio = 1
 # Apply changes
-calibrated = obs.flux * sensitivity[None, :] * ratio
-calibrated[:, -50:] = calibrated[:, -51, None]
+calibrated = obs.flux * sensitivity * ratio
+#calibrated[:, -50:] = calibrated[:, -51, None]
 calibrated = calibrated[0]
+calibrated = np.clip(calibrated, 0, 1)
 
-
+x = obs.wl
+plt.plot(obs.wl, obs.flux[0], label='observation')
+plt.plot(solar.wl, solar.flux[0], label='solar')
 plt.plot(x, calibrated, label='calibrated')
-plt.plot(x2, y2, label='HD 157881')
-plt.plot(x, sensitivity * 1e6, label='correction profile')
+plt.plot(x, sensitivity[0], label='correction profile')
 plt.legend(loc='best')
-
-plt.ylim([0, 35000])
-plt.xlim([5210, 5217])
 
 plt.show()
 

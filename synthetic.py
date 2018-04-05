@@ -10,6 +10,7 @@ from data_module_interface import data_module
 from psg import psg
 from harps import harps
 from idl import idl
+from REDUCE import reduce
 
 import matplotlib.pyplot as plt
 
@@ -56,7 +57,8 @@ class synthetic(data_module):
         n_obs = conf['n_exposures']
         phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
         #TODO do this properly, which restframe is that?
-        #stellar = idl.load_stellar_flux(conf, par)
+        tmp = stellar
+        #stellar = reduce.load_stellar_flux(conf, par)
 
         # Sigma of Instrumental FWHM in pixels
         sigma = 1 / 2.355 * conf['fwhm']

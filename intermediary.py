@@ -156,7 +156,8 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     mu[np.isnan(mu)] = -1
 
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
-    intens = interpolate_intensity(mu, intensity)
+    # flux = integrate intensity(mu) * mu dmu = Area * average(Intensity * mu)
+    intens = interpolate_intensity(mu, intensity) * mu[..., None]
     intens = np.average(intens, axis=2)
     intens = np.average(intens, axis=1, weights=radii)
     return intens

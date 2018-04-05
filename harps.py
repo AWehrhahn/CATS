@@ -280,10 +280,10 @@ class harps(data_module):
         def func(x):
             # also fitting for best broadening at the same time doesn't work
             shift = doppler_shift(obs.wl, x)
-            return -np.correlate(ref.flux, cls.interpolate(shift, obs.wl, solar.flux))[0]
+            return -np.correlate(ref.flux[0], cls.interpolate(shift, obs.wl, solar.flux[0]))[0]
 
         def func2(x):
-            return np.sum(np.abs(gaussbroad(solar.flux, x) - ref.flux))
+            return np.sum(np.abs(gaussbroad(solar.flux[0], x) - ref.flux[0]))
 
         sol = minimize(func, x0=par['radial_velocity'], method='Nelder-Mead')
         v = sol.x[0]
@@ -320,10 +320,10 @@ class harps(data_module):
                 low = exclusion[i, 1]
             else:
                 band = (obs.wl >= low) & (obs.wl < high)
-            sensitivity[band] = gaussbroad(
-                sensitivity[band], 1000, mode='reflect')
+            sensitivity[0, band] = gaussbroad(
+                sensitivity[0, band], 1000, mode='reflect')
 
-        sensitivity = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[tmp])
+        sensitivity[0] = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[0, tmp])
 
         bbflux = planck(obs.wl, par['t_eff'])  # Teff of the star
         bbflux2 = planck(obs.wl, 5770)  # Teff of the sun
@@ -334,11 +334,11 @@ class harps(data_module):
             ratio = 1
 
         # Apply changes
-        calibrated = obs.flux * sensitivity[None, :] * ratio
+        calibrated = obs.flux * sensitivity * ratio
         calibrated[:, :50] = calibrated[:, 51, None]
 
         # Any errors in s_flux and r_flux are broadened away ?
-        c_err = obs.err * sensitivity[None, :] * ratio
+        c_err = obs.err * sensitivity * ratio
         c_err[:, :50] = c_err[:, 51, None]
 
         distance = 1 / (1e-3 * par['parallax'])
@@ -354,7 +354,7 @@ class harps(data_module):
         if plot:
 
             calib_dir = join(conf['input_dir'], conf['marcs_dir'])
-            comparison = marcs.load_simple_data(conf, par, fname='comparison.flx')
+            #comparison = marcs.load_simple_data(conf, par, fname='comparison.flx')
             
 
             import matplotlib.pyplot as plt
@@ -373,7 +373,7 @@ class harps(data_module):
             else:
                 _flux = obs.flux[0]
 
-            comparison.wl = wl
+            #comparison.wl = wl
 
             fig, ax = plt.subplots()
             trans = mtransforms.blended_transform_factory(
@@ -382,10 +382,10 @@ class harps(data_module):
                             facecolor='green', alpha=0.5, transform=trans)
 
             #ax.plot(wl, solar.flux, label='solar', color='tab:blue')
-            plt.plot(wl, comparison.flux, label='comparison', color='tab:blue')
+            #plt.plot(wl, comparison.flux, label='comparison', color='tab:blue')
             plt.plot(wl, _flux,
                      label='observation', color='tab:green')
-            ax.plot(wl, ref.flux,
+            ax.plot(wl, ref.flux[0],
                     label='reference', color='tab:pink')
 
             plt.plot(wl,
@@ -393,7 +393,7 @@ class harps(data_module):
             #plt.plot(wl, tell.flux, label='tellurics', color='tab:green')
             #ax.plot(wl, bbflux / max(bbflux), label='4000 K', color='tab:pink')
             #ax.plot(wl, bbflux2 / max(bbflux2), label='5770 K', color='tab:purple')
-            ax.plot(wl, sensitivity * 1e4,
+            ax.plot(wl, sensitivity[0] * 1e4,
                     label='sensitivity', color='tab:red')
             #plt.plot(wl, ratio / ratio.max(), label='ratio')
             plt.xlim([4700, 5000])

@@ -381,7 +381,8 @@ class dataset:
             _flux = flux[i] if flux.shape[0] > 1 else flux[0]
             _mask = mask[i] if mask.shape[0] > 1 and ndim == 1 else mask[0]
 
-            res[i] = interp1d(_old[_mask], _flux[_mask], kind=kind,
+            if len(np.where(mask)[0]) > 0: 
+                res[i] = interp1d(_old[_mask], _flux[_mask], kind=kind,
                               bounds_error=False, fill_value=fill_value)(new)
             #res[i] = np.clip(res[i], 0, 1)
 
@@ -553,6 +554,7 @@ class dataset:
 
         shift = self.wl * (1 + vel / c)
         self.flux = self.__interpolate__(self.wl, shift, self.flux)
+        self.err = self.__interpolate__(self.wl, shift, self.err)
 
     def gaussbroad(self, sigma):
         """ broaden spectrum """
@@ -605,7 +607,7 @@ class dataset:
     def err(self, value):
         if value.ndim == 1:
             value = value[None, :]
-        assert self.err.shape == value.shape
+        #assert self.err.shape == value.shape
         self.__err = value
 
     @property

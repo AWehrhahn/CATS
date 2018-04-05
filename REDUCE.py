@@ -7,9 +7,11 @@ from os.path import join
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.io import readsav
+from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 import astropy.io.fits as fits
 import jdcal
 from awlib.reduce import echelle
+from idl import idl
 
 from data_module_interface import data_module
 from dataset import dataset
@@ -24,6 +26,16 @@ class reduce(data_module):
         fname = join(conf['input_dir'], conf['harps_dir'],
                      conf['reduce_file_stellar'])
         stellar = cls.load(conf, par, fname)
+
+        """
+        stellar2 = idl.load_stellar_flux(conf, par)
+        stellar.gaussbroad(2)
+        stellar2.wl = stellar.wl
+
+        ratio = stellar2.flux/stellar.flux
+        ratio = gaussbroad(ratio, 1000)
+        stellar.flux = np.clip(ratio * stellar.flux, 0, 1)
+        """
         return stellar
 
     @classmethod

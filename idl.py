@@ -109,7 +109,7 @@ class idl(data_module):
         #wavelength indices of the various sections
         wave_index = sme.wind[0]
         #observed spectrum
-        obs_flux = sme.sob[0]
+        #obs_flux = sme.sob[0]
         #synthetic spectrum
         obs_flux = sme.smod[0]
 
