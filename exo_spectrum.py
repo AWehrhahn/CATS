@@ -216,9 +216,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
 
     if lamb == 'auto' or lamb is None:
         print('   - Finding optimal regularization parameter lambda')
-        # TODO currently doesn't work as intended
-        lamb = sol.best_lambda_dirty(obs.wl, f, g, lamb0=1)
-        #lamb = sol.best_lambda(wl, f, g)
+        lamb = sol.best_lambda(obs.wl, f.flux, g.flux)
     print('      - Lambda: ', lamb)
     conf['lamb'] = lamb
     print('   - Solving inverse problem')
@@ -351,8 +349,8 @@ if __name__ == '__main__':
     else:
         star = None
         planet = None
-        #lamb = 'auto'
-        lamb = 5000
+        lamb = 'auto'
+        #lamb = 5000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1

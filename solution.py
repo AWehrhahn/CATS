@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import solve_banded
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from scipy.optimize import fsolve
+from scipy.optimize import fsolve, minimize_scalar
 
 
 def Franklin(wl, f, g, lamb):
@@ -143,7 +143,7 @@ def RidgeRegression(f, g, l):
     return rcv.predict(A)
 
 
-def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Franklin', plot=False, sampling='log'):
+def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], method='Tikhonov'):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -168,94 +168,45 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], npoints=300, method='Frankli
     lambda : float
         Best fit regularization parameter lambda
     """
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
 
-    D = __difference_matrix__(len(wl))
-    A = diags(b, offsets=0)
-    A.I = diags(1 / b, 0)
-
-    def get_point(lamb):
+    def get_point(lamb, A, D, r):
         """ calculate points of the L-curve"""
         if method == 'Tikhonov':
-            #    sol = self.Tikhonov(wl, f, g, lamb)
             sol = spsolve(A + lamb**2 * A.I * D.T * D, r)
         if method == 'Franklin':
-            #    sol = self.Franklin(wl, f, g, lamb)
             sol = spsolve(A + lamb * D, r)
         y = np.sum((D * sol)**2)
         x = np.sum(((A + lamb * D) * sol - r)**2)
         return x, y
 
-    sampling = 'log'
-    if sampling == 'log':
-        lamb = np.geomspace(sample_range[0], sample_range[1], npoints)
-        tmp = [get_point(l) for l in lamb]
-        x = np.array([t[0] for t in tmp])
-        y = np.array([t[1] for t in tmp])
-        p1 = [x[0], y[0]]
-        p2 = [x[-1], y[-1]]
+    def func(lamb, x_scale, y_scale, A, D, r, angle=-np.pi / 4):
+        """ get "goodness" value for a given lambda using L-parameter """
+        x, y = get_point(lamb, A, D, r)
+        # scale point
+        x *= x_scale
+        y *= y_scale
+        # rotate point
+        return -x * np.sin(angle) + y * np.cos(angle)
 
-    if sampling == 'iterative':
-        # TODO doesn't work properly
-        _lamb = np.empty(npoints)
-        _x = np.empty(npoints)
-        _y = np.empty(npoints)
+    # reduce data, and filter nans
+    b, r = np.sum(f, axis=0), np.sum(g, axis=0)
+    mask = ~np.isnan(b) & ~np.isnan(r)
+    b, r = b[mask], r[mask]
 
-        l_low = sample_range[0]
-        l_high = sample_range[1]
-        lamb = (l_low + l_high) / 2
+    # prepare matrices
+    D = __difference_matrix__(len(b))
+    A = diags(b, offsets=0)
+    A.I = diags(1 / b, 0)
 
-        p1 = get_point(l_low)
-        p2 = get_point(l_high)
+    # Calculate scales
+    p1 = get_point(sample_range[0], A, D, r)
+    p2 = get_point(sample_range[1], A, D, r)
+    x_scale = p1[0]**-1
+    y_scale = p2[1]**-1
 
-        _lamb[0] = l_low
-        _lamb[1] = l_high
-        x_min = p1[0]
-        y_min = p2[1]
-
-        _x[0] = p1[0]
-        _x[1] = p2[0]
-        _y[0] = p1[1]
-        _y[1] = p2[1]
-
-        for i in range(2, npoints):
-            p = get_point(lamb)
-            _lamb[i] = lamb
-            _x[i] = p[0]
-            _y[i] = p[1]
-
-            if abs(1 - p[0] / x_min) < abs(1 - p[1] / y_min):
-                l_low = lamb
-                lamb = (lamb + l_high) / 2
-            else:
-                l_high = lamb
-                lamb = (lamb + l_low) / 2
-
-        sort = np.argsort(_x)
-        x = _x[sort]
-        y = _y[sort]
-        lamb = _lamb[sort]
-
-    def distance(x, y):
-        return x**2 + y**2
-
-    # Scales are necessary as large difference in size will make x and y incomparable
-    # TODO Standardize x, y instead, i.e. sum(x**2) = 1, sum will be dominated by largest value
-    y_scale = np.max(y)**-1
-    x_scale = np.max(x)**-1
-    d = distance(x * x_scale, y * y_scale)
-
-    if plot:
-        import matplotlib.pyplot as plt
-        plt.plot(x * x_scale, y * y_scale, '+')
-        plt.plot(p1[0] * x_scale, p1[1] * y_scale, 'r+')
-        plt.plot(p2[0] * x_scale, p2[1] * y_scale, 'g+')
-        plt.plot(x[np.argmin(d) - 10] * x_scale,
-                 y[np.argmin(d) - 10] * y_scale, 'd')
-        plt.show()
-
-    return lamb[np.argmin(d) - 10]
+    # Calculate best lambda
+    res = minimize_scalar(func, args=(x_scale, y_scale, A, D, r), tol=1)
+    return res.x
 
 
 def best_lambda_dirty(wl, f, g, lamb0=100):
