@@ -112,38 +112,7 @@ def __difference_matrix__(size):
     return diags([a, b, c], offsets=[-1, 0, 1])
 
 
-def RidgeRegression(f, g, l):
-    """Use Ridge Regression to solve f*x-g=0
-
-    .. note:: WARNING: EXPERIMENTAL
-
-    Parameters:
-    ----------
-    f : np.ndarray
-        f
-    g : np.ndarray
-        g
-    l : float
-        regulaization paramter
-    Returns
-    -------
-    np.ndarray
-        Planet spectrum
-    """
-
-    import sklearn.linear_model as linear
-
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
-
-    A = diags(b, 0)
-
-    rcv = linear.RidgeCV(fit_intercept=False, cv=10, alphas=(l,))
-    rcv.fit(A, r)
-    return rcv.predict(A)
-
-
-def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], method='Tikhonov'):
+def best_lambda(f, g, sample_range=[1e-4, 1e6], method='Tikhonov', plot=False):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -175,6 +144,7 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], method='Tikhonov'):
             sol = spsolve(A + lamb**2 * A.I * D.T * D, r)
         if method == 'Franklin':
             sol = spsolve(A + lamb * D, r)
+
         y = np.sum((D * sol)**2)
         x = np.sum(((A + lamb * D) * sol - r)**2)
         return x, y
@@ -206,6 +176,23 @@ def best_lambda(wl, f, g, sample_range=[1e-4, 1e6], method='Tikhonov'):
 
     # Calculate best lambda
     res = minimize_scalar(func, args=(x_scale, y_scale, A, D, r), tol=1)
+
+    if plot:
+        import matplotlib.pyplot as plt
+        ls = np.geomspace(sample_range[0], sample_range[1], 300)
+        tmp = [get_point(l, A, D, r) for l in ls]
+        x = np.array([t[0] for t in tmp])
+        y = np.array([t[1] for t in tmp])
+        p3 = get_point(res.x, A, D, r)
+
+        plt.plot(x, y, '+')
+        plt.plot(p1[0], p1[1], 'r+')
+        plt.plot(p2[0], p2[1], 'g+')
+        plt.plot(p3[0], p3[1], 'd')
+        plt.xlabel('Residual')
+        plt.ylabel('Sum of the first derivative squared')
+        plt.show()
+
     return res.x
 
 

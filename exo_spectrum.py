@@ -29,6 +29,10 @@ from REDUCE import reduce
 from scipy.constants import c
 
 
+def log(level, *msg):
+    print('   ' * level + '-', *msg)
+
+
 def prepare(target, phase):
     """ Load data from PSG if necessary """
     conf = config.load_config(target)
@@ -97,7 +101,7 @@ def get_data(conf, star, planet, **kwargs):
     tellurics = assign_module(conf['tellurics'])
 
     # Parameters
-    print('   - Parameters')
+    log(1, 'Parameters')
     if parameters in ['stellar_db', 'sdb']:
         par = stellar_db.load_parameters(star, planet, **kwargs)
 
@@ -108,10 +112,10 @@ def get_data(conf, star, planet, **kwargs):
             conf['star_intensities'] = imu
             star_intensities = imu
 
-    print('   - Stellar flux')
+    log(1, 'Stellar flux')
     stellar = stellar.load_stellar_flux(conf, par)
 
-    print('   - Specific intensities')
+    log(1, 'Specific intensities')
     if intensities == 'combined':
         intensities = marcs.load_limb_darkening(conf, par)
         intensities.wl = stellar.wl
@@ -120,14 +124,14 @@ def get_data(conf, star, planet, **kwargs):
         intensities = intensities.load_specific_intensities(
             conf, par, stellar)
 
-    print('   - Tellurics')
+    log(1, 'Tellurics')
     if tellurics == 'ones':
-        print('      - None')
+        log(2, 'None')
         tell = dataset(stellar.wl, np.ones_like(stellar.flux))
     else:
         tell = tellurics.load_tellurics(conf, par)
 
-    print('   - Observations')
+    log(1, 'Observations')
     obs = observation.load_observations(
         conf, par, tell, stellar, intensities, source='psg')
     phase = obs.phase
@@ -135,12 +139,12 @@ def get_data(conf, star, planet, **kwargs):
     if False:
         plt.plot(phase, 'o')
         mp = iy.maximum_phase(par)
-        plt.plot(np.full(len(phase), np.pi+mp), '--r')
-        plt.plot(np.full(len(phase), np.pi-mp), '--r')
+        plt.plot(np.full(len(phase), np.pi + mp), '--r')
+        plt.plot(np.full(len(phase), np.pi - mp), '--r')
         plt.show()
 
     # Unify wavelength grid
-    #TODO bad pixel determination isn't great
+    # TODO bad pixel determination isn't great
     #bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
     bpmap = np.full(obs.wl.shape, False, dtype=bool)
     bpmap[obs.wl < 5600] = True
@@ -181,11 +185,10 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
         Planetary transmission spectrum
     """
 
-    """ calculate solution from input """
-    print('   - Stellar specific intensities covered by planet and atmosphere')
+    log(1, 'Stellar specific intensities covered by planet and atmosphere')
     i_planet, i_atm = iy.specific_intensities(par, phase, star_int)
 
-    print('   - Broaden spectra')
+    log(1, 'Broaden spectra')
     # Sigma of Instrumental FWHM in pixels
     sigma = 1 / 2.355 * conf['fwhm']
 
@@ -197,9 +200,8 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     i_planet.gaussbroad(sigma)
     flux.gaussbroad(sigma)
 
-
-    #TODO make sure everything is in barycentric or stellar rest frame
-    #shift everything into the rest frame of the planet, it should be barycentric before that
+    # TODO make sure everything is in barycentric or stellar rest frame
+    # shift everything into the rest frame of the planet, it should be barycentric before that
     vel = -iy.rv_planet(par, obs.phase)
 
     tell.doppler_shift(vel)
@@ -210,17 +212,18 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
 
     tell.wl = i_atm.wl = i_planet.wl = flux.wl = obs.wl
 
-    print('   - Intermediary products f and g')
+    log(1, 'Intermediary products f and g')
     f = tell * i_atm
     g = obs - (flux - i_planet) * tell
+    f, g = f.flux, g.flux
 
     if lamb == 'auto' or lamb is None:
-        print('   - Finding optimal regularization parameter lambda')
-        lamb = sol.best_lambda(obs.wl, f.flux, g.flux)
-    print('      - Lambda: ', lamb)
+        log(1, 'Finding optimal regularization parameter lambda')
+        lamb = sol.best_lambda(f, g)
+    log(1, 'Lambda: ', lamb)
     conf['lamb'] = lamb
-    print('   - Solving inverse problem')
-    return sol.Tikhonov(f.flux, g.flux, lamb)
+    log(1, 'Solving inverse problem')
+    return sol.Tikhonov(f, g, lamb)
 
 
 def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
@@ -246,9 +249,7 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
         string identifying the source for a comparison planet spectrum
     """
 
-
     colors = ['#46cdcf', '#0081c6', '#48466d']
-    #colors = ['#b4f5f0', '#2ceef0', '#041f60']
 
     try:
         if source in ['psg']:
@@ -263,7 +264,7 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
     #plt.plot(flux.wl, flux.flux[0], label='Flux', c=colors[2])
     if is_planet:
         plt.plot(planet.wl, planet.flux[0], label='Planet', c=colors[1])
-    #TODO no normalization
+    # TODO no normalization
     sol_t = normalize1d(sol_t)
     plt.plot(obs.wl, sol_t, label='Solution', c=colors[2], linewidth=2)
 
@@ -306,18 +307,18 @@ def main(star, planet, lamb='auto', **kwargs):
     planet = conf['name_planet']
 
     # Step 1: Get Data
-    print('Load data')
+    log(0, 'Load data')
     prepare(star + planet, 0)
     par, flux, intensities, tell, obs, phase = get_data(
         conf, star, planet, **kwargs)
 
     # Step 2: Calc Solution
-    print('Calculate solution')
+    log(0, 'Calculate solution')
     sol_t = calculate(conf, par, obs, tell, flux,
                       intensities, phase, lamb=lamb)
 
     # Step 3: Output
-    print('Plot')
+    log(0, 'Plot')
     # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
     plot(conf, par, obs, tell, flux, sol_t + offset)
@@ -341,21 +342,17 @@ if __name__ == '__main__':
             try:
                 lamb = float(lamb)
             except ValueError:
-                print('Invalid value for -l/-lambda')
+                log(0, 'Invalid value for -l/-lambda')
                 exit()
-        else:
-            # TODO
-            print('WARNING: lambda=auto does currently not work properly')
     else:
         star = None
         planet = None
         lamb = 'auto'
-        #lamb = 5000
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
     atm_factor = 0.1
     try:
         main(star, planet, lamb=lamb, atm_factor=atm_factor)
     except FileNotFoundError as fnfe:
-        print("Some files seem to be missing, can't complete calculation")
-        print(fnfe)
+        log(0, "Some files seem to be missing, can't complete calculation")
+        log(0, fnfe)
