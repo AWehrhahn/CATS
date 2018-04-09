@@ -4,8 +4,8 @@ Data Module provides an abstract class for all other data modules, e.g. harps, m
 
 from abc import ABC, abstractmethod
 from scipy.interpolate import interp1d
-from dataset import dataset
 
+from log import log
 
 class data_module(ABC):
     """ An abstract class for data sources
@@ -130,7 +130,7 @@ class data_module(ABC):
 
     @classmethod
     def log(cls, level, *msg):
-        print('   '*level + '-', *msg)
+        log(level, *msg)
 
     @staticmethod
     def interpolate(newx, oldx, y, kind='linear'):

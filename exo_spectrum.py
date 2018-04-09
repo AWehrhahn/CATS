@@ -25,9 +25,7 @@ from idl import idl
 from synthetic import synthetic
 from REDUCE import reduce
 
-def log(level, *msg):
-    """ log/print stuff """
-    print('   ' * level + '-', *msg)
+from log import log
 
 
 def prepare(target, phase):
