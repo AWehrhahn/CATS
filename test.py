@@ -21,6 +21,7 @@ from stellar_db import stellar_db
 from marcs import marcs
 from harps import harps
 from REDUCE import reduce
+from limb_darkening import limb_darkening
 from synthetic import synthetic
 from idl import idl
 
@@ -50,20 +51,21 @@ def func(x):
     shift = doppler_shift(ds.wl, x)
     return -np.correlate(obs_flux, ds.__interpolate__(ds.wl, shift, ds.flux))[0]
 
-stellar = idl.load_stellar_flux(conf, par)
-stellar2 = reduce.load_stellar_flux(conf, par)
-stellar2.gaussbroad(2)
+sme = idl.load_stellar_flux(conf, par)
+obs = reduce.load_stellar_flux(conf, par)
 
-stellar.wl = stellar2.wl
+intensity = limb_darkening.load_specific_intensities(conf, par, obs)
+telluric = dataset(obs.wl, np.ones_like(obs.flux))
+syn = synthetic.load_observations(conf, par, telluric, obs, intensity)
 
-ratio = stellar.flux[0]/stellar2.flux[0]
-ratio = gaussbroad(ratio, 1000)
 
-plt.plot(stellar.wl, stellar.flux[0], label='syn')
-plt.plot(stellar2.wl,np.clip(stellar2.flux[0] * ratio, 0, 1), label='obs')
-plt.plot(stellar.wl, ratio, label='ratio')
+plt.plot(sme.wl, sme.flux[0], label='SME syn')
+plt.plot(obs.wl, obs.flux[0], label='observed')
+plt.plot(syn.wl, syn.flux[0], label='syn observation')
+
 plt.legend(loc='best')
 plt.show()
+
 
 fname = 'HARPS.2013-10-02T01:56:54.060c.ech'
 fname = join(conf['input_dir'], conf['harps_dir'], fname)

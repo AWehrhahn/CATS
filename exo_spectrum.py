@@ -9,7 +9,6 @@ import os.path
 import sys
 
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
 
 import config
@@ -26,10 +25,8 @@ from idl import idl
 from synthetic import synthetic
 from REDUCE import reduce
 
-from scipy.constants import c
-
-
 def log(level, *msg):
+    """ log/print stuff """
     print('   ' * level + '-', *msg)
 
 
@@ -87,7 +84,7 @@ def get_data(conf, star, planet, **kwargs):
     Returns
     -------
     par, stellar, intensities, tell, obs, phase
-        stellar parameter dictionary, stellar flux, specific intensities, telluric transmission, observations, and orbital phase of the planet 
+        stellar parameter dictionary, stellar flux, specific intensities, telluric transmission, observations, and orbital phase of the planet
     """
 
     # Check settings
@@ -347,10 +344,11 @@ if __name__ == '__main__':
     else:
         star = None
         planet = None
+        #lamb = 200
         lamb = 'auto'
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
-    atm_factor = 0.1
+    atm_factor = 0.01
     try:
         main(star, planet, lamb=lamb, atm_factor=atm_factor)
     except FileNotFoundError as fnfe:

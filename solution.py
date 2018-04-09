@@ -3,6 +3,7 @@ Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 """
 
 import numpy as np
+from numpy.linalg import norm
 from scipy.linalg import solve_banded
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
@@ -112,23 +113,25 @@ def __difference_matrix__(size):
     return diags([a, b, c], offsets=[-1, 0, 1])
 
 
-def best_lambda(f, g, sample_range=[1e-4, 1e6], method='Tikhonov', plot=False):
+def best_lambda(f, g, ratio=80, method='Tikhonov', plot=False):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
-    TODO: is there a good sample range for all situations?
-    TODO: Maybe an iterative approach works better/faster?
+    
+    x = Residual
+    y = First Derivative
+    
+    this will create a L shaped curve, with the optimal lambda in the corner
+    to find that value rotate the curve by pi/4 (45 degrees) and search for the minimum
 
     Parameters:
     ----------
-    wl : np.ndarray
-        wavelength grid
     f : np.ndarray
     g : np.ndarray
-    sample_range : tuple(int), optional
-        range of lambda values to test (the default is (1e-4, 1e6), which should be enough)
-    npoints : int, optional
-        number of sampling points (the default is 300, which should be enough)
+    ratio: float, optional
+        how much more important y is relative to x (default is 80, which gives "nice" results)
+    method: {'Tikhonov', 'Franklin'}, optional
+        which regularization method to use, for best lambda finding, should be the same, that is used for the final calculation (default is 'Tikhonov')
     plot : bool, optional
         show a plot of the L curve if True (the default is False, which means no plot)
 
@@ -145,18 +148,15 @@ def best_lambda(f, g, sample_range=[1e-4, 1e6], method='Tikhonov', plot=False):
         if method == 'Franklin':
             sol = spsolve(A + lamb * D, r)
 
-        y = np.sum((D * sol)**2)
-        x = np.sum(((A + lamb * D) * sol - r)**2)
+        x = norm(A * sol - r, 2)
+        y = norm(D * sol, 2)
         return x, y
 
-    def func(lamb, x_scale, y_scale, A, D, r, angle=-np.pi / 4):
+    def func(lamb, ratio, A, D, r, angle=-np.pi / 4):
         """ get "goodness" value for a given lambda using L-parameter """
         x, y = get_point(lamb, A, D, r)
-        # scale point
-        x *= x_scale
-        y *= y_scale
-        # rotate point
-        return -x * np.sin(angle) + y * np.cos(angle)
+        # scale and rotate point
+        return -x * np.sin(angle) + y * ratio * np.cos(angle)
 
     # reduce data, and filter nans
     b, r = np.sum(f, axis=0), np.sum(g, axis=0)
@@ -168,31 +168,41 @@ def best_lambda(f, g, sample_range=[1e-4, 1e6], method='Tikhonov', plot=False):
     A = diags(b, offsets=0)
     A.I = diags(1 / b, 0)
 
-    # Calculate scales
-    p1 = get_point(sample_range[0], A, D, r)
-    p2 = get_point(sample_range[1], A, D, r)
-    x_scale = p1[0]**-1
-    y_scale = p2[1]**-1
-
     # Calculate best lambda
-    res = minimize_scalar(func, args=(x_scale, y_scale, A, D, r), tol=1)
+    res = minimize_scalar(func, args=(ratio, A, D, r))
 
     if plot:
         import matplotlib.pyplot as plt
-        ls = np.geomspace(sample_range[0], sample_range[1], 300)
+        ls = np.geomspace(1, 1e6, 300)
         tmp = [get_point(l, A, D, r) for l in ls]
         x = np.array([t[0] for t in tmp])
         y = np.array([t[1] for t in tmp])
+
+        p1 = get_point(10, A, D, r)
+        p2 = get_point(1e6, A, D, r)
         p3 = get_point(res.x, A, D, r)
+
+        def rotate(x, y, angle):
+            i = x * np.cos(angle) + y *ratio* np.sin(angle)
+            j = -x * np.sin(angle) + y *ratio* np.cos(angle)
+            return i, j
+
+        angle = -np.pi/4
+        x, y = rotate(x, y, angle)
+        p1 = rotate(*p1, angle)
+        p2 = rotate(*p2, angle)
+        p3 = rotate(*p3, angle)
 
         plt.plot(x, y, '+')
         plt.plot(p1[0], p1[1], 'r+')
         plt.plot(p2[0], p2[1], 'g+')
         plt.plot(p3[0], p3[1], 'd')
-        plt.xlabel('Residual')
-        plt.ylabel('Sum of the first derivative squared')
+        plt.loglog()
+        plt.xlabel(r'$||\mathrm{Residual}||_2$')
+        plt.ylabel(str(ratio) + r'$ * ||\mathrm{first derivative}||_2$')
         plt.show()
 
+    #TODO scale with atmosphere height?????
     return res.x
 
 
