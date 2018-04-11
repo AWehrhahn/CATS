@@ -15,7 +15,7 @@ from awlib.util import interpolate_DataFrame
 
 #from test_project.Plot import Plot
 from dataset import dataset
-import intermediary as iy
+import orbit as orb
 import config
 from stellar_db import stellar_db
 from marcs import marcs
@@ -152,7 +152,7 @@ ref.doppler_shift(par['radial_velocity'])
 
 # Load HARPS
 obs = harps.load_observations(conf, par)
-bpmap = iy.create_bad_pixel_map(obs, threshold=1e-3)
+bpmap = orb.create_bad_pixel_map(obs, threshold=1e-3)
 
 obs.wl = obs.wl[~bpmap]
 

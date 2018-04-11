@@ -114,7 +114,7 @@ def __difference_matrix__(size):
     return diags([a, b, c], offsets=[-1, 0, 1])
 
 
-def best_lambda(f, g, ratio=80, method='Tikhonov', plot=False):
+def best_lambda(f, g, ratio=40, method='Tikhonov', plot=False):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf

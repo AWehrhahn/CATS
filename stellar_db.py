@@ -48,6 +48,7 @@ class stellar_db(data_module):
         star['period'] = planet['period']
         star['transit'] = planet['transit_epoch']
         star['duration'] = planet['transit_duration']
+        star['eccentricity'] = planet['eccentricity']
 
         # Convert all parameters into km and seconds
         r_sun = 696000      # Radius Sun
@@ -78,5 +79,8 @@ class stellar_db(data_module):
         star['A_planet'] = star['A_planet'] / star['A_star']
         star['A_atm'] = star['A_atm'] / star['A_star']
         star['A_planet+atm'] = star['A_planet'] + star['A_atm']
+
+        if 'periastron' not in star or star['periastron'] is None:
+            star['periastron'] = star['transit']
 
         return star

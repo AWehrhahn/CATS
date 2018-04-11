@@ -7,6 +7,7 @@ specific intensities or F and G
 import warnings
 
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -14,7 +15,168 @@ from scipy.optimize import fsolve
 
 from dataset import dataset
 
+import jdcal
+
 warnings.simplefilter('ignore', category=Warning)
+
+# TODO include eccentricity in orbit solution
+
+
+class orbit:
+    def __init__(self, par):
+        self.par = par
+
+    def get_phase(self, obs_time):
+        """Calculate the orbit phase depending on the obs_time
+
+        (time - (trasit-period/2)) / period modulo 1
+
+        Parameters:
+        ----------
+        par : {dict}
+            dict of orbit parameters
+        obs_time : {float, np.ndarray}
+            observation times in MJD
+        Returns
+        -------
+        phase: {float, np.ndarray}
+            orbital phase in degrees
+        """
+
+        transit = self.par['transit'] - jdcal.MJD_0
+        period = self.par['period']
+        phase = ((obs_time - (transit - period / 2)) / period) % 1
+        phase = 2 * np.pi * phase  # in rad
+        return phase
+
+    def get_radius(self, phase):
+        """calculate the radius at the given phase
+
+        this is NOT the radius in the direction of observation, but the radius in polar coordinates
+
+        Parameters:
+        ----------
+        phase : {float, np.ndarray}
+            orbital phase in radians
+        Returns
+        -------
+        radius : {float, np.ndarray}
+            radius in units of stellar radii
+        """
+
+        phi = phase - self.get_phase(self.par['periastron'])
+        a = self.par['sma']
+        e = self.par['eccentricity']
+        radius = a * (1 - e**2) / (1 + e * np.cos(phi))
+        return radius/self.par['r_star']
+
+    def get_pos(self, phase):
+        """Calculate the 3D position of the planet
+
+        the coordinate system is centered in the star, x is towards the observer, z is orthagonal to the planet orbit, and y to the "right"
+
+          z ^
+            | 
+            | -¤-
+            |̣_____>
+            /      y
+           / x
+
+        Parameters:
+        ----------
+        phase : {float, np.ndarray}
+            phase in radians
+        Returns
+        -------
+        x, y, z: {float, np.ndarray}
+            position in stellar radii
+        """
+
+        r = self.get_radius(phase)
+        i = self.par['inc']
+        x = -r * np.cos(phase) * np.sin(i)
+        y = -r * np.sin(phase)
+        z = -r * np.cos(phase) * np.cos(i)
+        return x, y, z
+
+    def maximum_phase(self):
+        """ The maximum phase for which the planet is still completely inside the stellar disk
+
+        based only on geometry
+        This is the inverse of calc_mu(maximum_phase()) = 0.0, if there is no inclination
+
+        Parameters:
+        ----------
+        par : {dict}
+            stellar and planetary parameters
+        Returns
+        -------
+        phase : float
+            maximum phase (in radians)
+        """
+
+        #func == y**2 + z**2 - 1 = 0
+        max_phase =  fsolve(lambda phase: np.sum(np.power(self.get_pos(phase)[1:], 2))-1, 3.14)
+
+        #self.plot(*self.get_pos(max_phase))
+        return max_phase
+
+    def get_mu(self, x, y, z, angles=None, radii=None):
+        """get mu = cos(distance to stellar center)
+        cos(limb distance), where 1 is the center of the star and 0 is the outer edge
+
+        project onto yz-plane, i.e. ignore x and calculate the distance
+
+        Parameters:
+        ----------
+        x : {float, np.ndarray}
+            x position in stellar radii
+        y : {float, np.ndarray}
+            y position in stellar radii
+        z : {float, np.ndarray}
+            z position in stellar radii
+        Returns
+        -------
+        mu : float, np.ndarray
+            cos(sqrt(y**2 + z**2))
+        """
+        if radii is not None and angles is not None:
+            y = y[:, None, None] + radii[None, :, None] * np.cos(angles)[None, None, :]
+            z = z[:, None, None] + radii[None, :, None] * np.sin(angles)[None, None, :]
+
+        mu = np.sqrt(1 - (y**2 + z**2))
+        return mu
+
+    def plot(self, x, y, z):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_proj_type('ortho')
+
+        #draw sphere/star
+        def plot_sphere(x, y, z, radius, color='b', alpha=0.5):
+            u = np.linspace(0, 2 * np.pi, 100)
+            v = np.linspace(0, np.pi, 100)
+
+            _x = x + radius * np.outer(np.cos(u), np.sin(v))
+            _y = y + radius * np.outer(np.sin(u), np.sin(v))
+            _z = z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
+            ax.plot_surface(_x, _y, _z,  rstride=4, cstride=4, color=color, linewidth=0, alpha=alpha)
+
+
+        plot_sphere(0, 0, 0, 1, 'y', 1)
+
+        for i, j, k in zip(x, y, z):
+            ax.scatter(i, j, k, color='r')
+            r = (self.par['r_planet'] + self.par['h_atm'])/self.par['r_star']
+            plot_sphere(i, j, k, r, 'b')
+
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        ax.view_init(elev=0, azim=0)
+
+        plt.show()
+
 
 
 def create_bad_pixel_map(obs, threshold=0):
@@ -98,18 +260,14 @@ def calc_mu(par, phase, angles=None, radii=None):
     mu : {float, np.ndarray}
         cos(limb distance), where 0 is the center of the star and 1 is the outer edge
     """
-    a_dash = par['sma'] * (1 - np.sin(phase) * np.sin(par['inc']))
-    i_dash = np.cos(par['inc']) * a_dash
 
-    if angles is not None and radii is not None:
-        dx = (a_dash * np.sin(phase))[:, None, None] + radii[None, :, None] * np.cos(angles)[None, None, :]
-        dy = i_dash[:, None, None] + radii[None, :, None] * np.sin(angles)[None, None, :]
-    else:
-        dx = a_dash * np.sin(phase)
-        dy = i_dash
+    orb = orbit(par)
+    pos = orb.get_pos(phase)
 
-    mu = np.sqrt(dx**2 + dy**2) / par['r_star']
-    return mu
+    #orb.plot(*pos)
+
+    return orb.get_mu(*pos, angles=angles, radii=radii)
+
 
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
@@ -149,8 +307,9 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
         radii = np.random.random_sample(
             n_radii) * (max_radius - min_radius) + min_radius
         angles = np.random.random_sample(n_angle) * 2 * np.pi
-    
+
     # Step 2: Calculate mu, distances from the stellar center
+    radii /= par['r_star']
     mu = calc_mu(par, phase, angles=angles, radii=radii)
     # -1 is out of bounds, which will be filled with 0 intensity
     mu[np.isnan(mu)] = -1
@@ -178,13 +337,8 @@ def maximum_phase(par):
     phase : float
         maximum phase (in radians)
     """
-
-    r_dash = par['r_star'] + par['r_planet'] + par['h_atm']
-    a_dash = lambda p: par['sma'] * (1 - np.sin(p) * np.sin(par['inc']))
-    i_dash = lambda p: a_dash(p) * np.cos(par['inc'])
-
-    func = lambda p: np.sqrt(r_dash**2 - i_dash(p)**2)/a_dash(p) - np.sin(p)
-    return fsolve(func, 0) 
+    orb = orbit(par)
+    return orb.maximum_phase()
 
 
 def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):

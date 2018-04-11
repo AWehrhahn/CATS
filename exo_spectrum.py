@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import config
-import intermediary as iy
+import orbit as orb
 import solution as sol
 from stellar_db import stellar_db
 from awlib.util import normalize as normalize1d
@@ -131,16 +131,16 @@ def get_data(conf, star, planet, **kwargs):
         conf, par, tell, stellar, intensities, source='psg')
     phase = obs.phase
 
-    if False:
+    if True:
         plt.plot(phase, 'o')
-        mp = iy.maximum_phase(par)
+        mp = np.pi - orb.maximum_phase(par)
         plt.plot(np.full(len(phase), np.pi + mp), '--r')
         plt.plot(np.full(len(phase), np.pi - mp), '--r')
         plt.show()
 
     # Unify wavelength grid
     # TODO bad pixel determination isn't great
-    #bpmap = iy.create_bad_pixel_map(obs, threshold=1e-6)
+    #bpmap = orb.create_bad_pixel_map(obs, threshold=1e-6)
     bpmap = np.full(obs.wl.shape, False, dtype=bool)
     bpmap[obs.wl < 5600] = True
     bpmap[obs.wl > 6750] = True
@@ -181,7 +181,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     """
 
     log(1, 'Stellar specific intensities covered by planet and atmosphere')
-    i_planet, i_atm = iy.specific_intensities(par, phase, star_int)
+    i_planet, i_atm = orb.specific_intensities(par, phase, star_int)
 
     log(1, 'Broaden spectra')
     # Sigma of Instrumental FWHM in pixels
@@ -197,7 +197,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
 
     # TODO make sure everything is in barycentric or stellar rest frame
     # shift everything into the rest frame of the planet, it should be barycentric before that
-    vel = -iy.rv_planet(par, obs.phase)
+    vel = -orb.rv_planet(par, obs.phase)
 
     tell.doppler_shift(vel)
     i_atm.doppler_shift(vel)
@@ -221,7 +221,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     return sol.Tikhonov(f, g, lamb)
 
 
-def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
+def plot(conf, par, obs, tell, flux, sol_t, source='psg'):
     """ Plot the available data products
 
     Plot everything
@@ -244,7 +244,7 @@ def plot(conf, par,  obs, tell, flux, sol_t, source='psg'):
         string identifying the source for a comparison planet spectrum
     """
 
-    colors = ['#46cdcf', '#0081c6', '#48466d']
+    colors = ['#B0E5F7', '#1fa6dc', '#256B9E']
 
     try:
         if source in ['psg']:
@@ -342,7 +342,6 @@ if __name__ == '__main__':
     else:
         star = None
         planet = None
-        #lamb = 200
         lamb = 'auto'
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)

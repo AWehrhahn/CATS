@@ -13,7 +13,7 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import minimize
 import joblib
 
-import intermediary as iy
+import orbit as orb
 from awlib.astro import air2vac, doppler_shift, planck
 from awlib.util import normalize
 from awlib.reduce.echelle import rdech
@@ -170,8 +170,8 @@ class harps(data_module):
         cls.log(2, 'HARPS')
         obs = cls.load_observations(conf, par)
         # Don't use observations during transit
-        obs.flux = obs.flux[(obs.phase > np.pi + iy.maximum_phase(par)) |
-                            (obs.phase < np.pi - iy.maximum_phase(par))]
+        obs.flux = obs.flux[(obs.phase > np.pi + orb.maximum_phase(par)) |
+                            (obs.phase < np.pi - orb.maximum_phase(par))]
         total = np.mean(obs.flux)
         avg = np.mean(obs.flux, 1)
         obs.flux = obs.flux * total / avg[:, None]
@@ -323,7 +323,8 @@ class harps(data_module):
             sensitivity[0, band] = gaussbroad(
                 sensitivity[0, band], 1000, mode='reflect')
 
-        sensitivity[0] = cls.interpolate(obs.wl, obs.wl[tmp], sensitivity[0, tmp])
+        sensitivity[0] = cls.interpolate(
+            obs.wl, obs.wl[tmp], sensitivity[0, tmp])
 
         bbflux = planck(obs.wl, par['t_eff'])  # Teff of the star
         bbflux2 = planck(obs.wl, 5770)  # Teff of the sun
@@ -342,7 +343,7 @@ class harps(data_module):
         c_err[:, :50] = c_err[:, 51, None]
 
         distance = 1 / (1e-3 * par['parallax'])
-        distance_modulus = 800/6
+        distance_modulus = 800 / 6
 
         calibrated *= distance_modulus
         calibrated = dataset(obs.wl, calibrated, c_err)
@@ -355,7 +356,6 @@ class harps(data_module):
 
             calib_dir = join(conf['input_dir'], conf['marcs_dir'])
             #comparison = marcs.load_simple_data(conf, par, fname='comparison.flx')
-            
 
             import matplotlib.pyplot as plt
             import matplotlib.transforms as mtransforms
@@ -430,7 +430,7 @@ class harps(data_module):
         fname = join(conf['input_dir'], conf['harps_dir'], fname)
 
         ech = rdech(fname)
-        
+
         wave = ech.wave.reshape(-1)
         sort = np.argsort(wave)
 

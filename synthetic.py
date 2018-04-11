@@ -5,7 +5,7 @@ Create synthetic observation spectra, when telluric, stellar flux etc are given
 import numpy as np
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
-import intermediary as iy
+import orbit as orb
 from data_module_interface import data_module
 from psg import psg
 from harps import harps
@@ -53,9 +53,10 @@ class synthetic(data_module):
         cls.log(3, 'snr:', conf['snr'])
         cls.log(3, 'planet spectrum:', source) 
 
-        max_phase = iy.maximum_phase(par)
+        max_phase = np.pi - orb.maximum_phase(par)
         n_obs = conf['n_exposures']
-        phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
+        phase = np.random.uniform(low = np.pi - max_phase, high = np.pi + max_phase, size = n_obs)
+        #phase = np.linspace(np.pi - max_phase, np.pi + max_phase, num=n_obs)
         #TODO do this properly, which restframe is that?
         tmp = stellar
         #stellar = reduce.load_stellar_flux(conf, par)
@@ -68,7 +69,7 @@ class synthetic(data_module):
             if source == 'psg':
                 planet = psg.load_input(conf, par)
                 planet.wl = stellar.wl
-                vel = iy.rv_planet(par, phase)
+                vel = orb.rv_planet(par, phase)
                 planet.doppler_shift(vel)
 
         except FileNotFoundError:
@@ -78,15 +79,16 @@ class synthetic(data_module):
         #planet = gaussbroad(planet, sigma)
 
         # Specific intensities
-        i_planet, i_atm = iy.specific_intensities(par, phase, intensity)
+        i_planet, i_atm = orb.specific_intensities(par, phase, intensity)
 
         telluric.wl = stellar.wl
         i_planet.wl = stellar.wl
         i_atm.wl = stellar.wl
 
         # Observed spectrum
+        a = 1 #TODO atmosphere density profile
         obs = (stellar - i_planet * par['A_planet+atm'] +
-               par['A_atm'] * i_atm * planet) * telluric
+               par['A_atm'] * i_atm * (planet*a - a + 1)) * telluric
         # Generate noise
         noise = np.random.randn(len(phase), len(stellar.wl)) / conf['snr']
 
