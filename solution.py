@@ -4,7 +4,7 @@ Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 
 import numpy as np
 from numpy.linalg import norm
-from scipy.linalg import solve_banded
+from scipy.linalg import solve_banded, dft
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve, minimize_scalar
@@ -81,6 +81,7 @@ def Tikhonov(f, g, l):
     n = len(b)
     # Difference Operator D
     D = __difference_matrix__(n)
+    #D = __fourier_matrix__(n)
 
     A = diags(b, 0)
     # Inverse
@@ -114,7 +115,10 @@ def __difference_matrix__(size):
     return diags([a, b, c], offsets=[-1, 0, 1])
 
 
-def best_lambda(f, g, ratio=40, method='Tikhonov', plot=False):
+def __fourier_matrix__(size):
+    return dft(size, 'sqrtn')
+
+def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -168,6 +172,7 @@ def best_lambda(f, g, ratio=40, method='Tikhonov', plot=False):
 
     # prepare matrices
     D = __difference_matrix__(len(b))
+    #D = __fourier_matrix__(len(b))
     A = diags(b, offsets=0)
     A.I = diags(1 / b, 0)
 
@@ -205,7 +210,6 @@ def best_lambda(f, g, ratio=40, method='Tikhonov', plot=False):
         plt.ylabel(str(ratio) + r'$ * ||\mathrm{first derivative}||_2$')
         plt.show()
 
-    #TODO scale with atmosphere height?????
     return res.x
 
 

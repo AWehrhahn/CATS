@@ -33,6 +33,7 @@ class stellar_db(data_module):
         # Stellar parameters
         star['name_star'] = star['name'][0]
         star['r_star'] = star['radius']
+        star['m_star'] = star['mass']
         star['star_temp'] = star['t_eff']
         star['star_logg'] = star['logg']
         star['star_vt'] = star['vel_turb']
@@ -51,11 +52,13 @@ class stellar_db(data_module):
         star['eccentricity'] = planet['eccentricity']
 
         # Convert all parameters into km and seconds
-        r_sun = 696000      # Radius Sun
-        r_jup = 71350       # Radius Jupiter
+        r_sun = 696342      # Radius Sun
+        r_jup = 69911       # Radius Jupiter
         au = 149597871      # Astronomical Unit
         secs = 24 * 60 * 60  # Seconds in a day
+        m_sol = 1.98855e30 #kg
 
+        star['m_star'] *= m_sol
         star['r_star'] = star['r_star'] * r_sun
         star['r_planet'] = star['r_planet'] * r_jup
         star['sma'] = star['sma'] * au

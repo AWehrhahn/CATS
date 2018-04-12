@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
+import scipy.constants
 
 from dataset import dataset
 
@@ -68,7 +69,7 @@ class orbit:
         a = self.par['sma']
         e = self.par['eccentricity']
         radius = a * (1 - e**2) / (1 + e * np.cos(phi))
-        return radius/self.par['r_star']
+        return radius / self.par['r_star']
 
     def get_pos(self, phase):
         """Calculate the 3D position of the planet
@@ -115,10 +116,9 @@ class orbit:
             maximum phase (in radians)
         """
 
-        #func == y**2 + z**2 - 1 = 0
-        max_phase =  fsolve(lambda phase: np.sum(np.power(self.get_pos(phase)[1:], 2))-1, 3.14)
-
-        #self.plot(*self.get_pos(max_phase))
+        # func == y**2 + z**2 - 1 = 0
+        max_phase = fsolve(lambda phase: np.sum(
+            np.power(self.get_pos(phase)[1:], 2)) - 1, 3.14)
         return max_phase
 
     def get_mu(self, x, y, z, angles=None, radii=None):
@@ -141,42 +141,109 @@ class orbit:
             cos(sqrt(y**2 + z**2))
         """
         if radii is not None and angles is not None:
-            y = y[:, None, None] + radii[None, :, None] * np.cos(angles)[None, None, :]
-            z = z[:, None, None] + radii[None, :, None] * np.sin(angles)[None, None, :]
+            y = y[:, None, None] + radii[None, :, None] * \
+                np.cos(angles)[None, None, :]
+            z = z[:, None, None] + radii[None, :, None] * \
+                np.sin(angles)[None, None, :]
 
         mu = np.sqrt(1 - (y**2 + z**2))
         return mu
 
-    def plot(self, x, y, z):
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_proj_type('ortho')
+    def rv_planet(self, phase):
+        """ Calculate the radial velocity of the planet at a given phase
 
-        #draw sphere/star
-        def plot_sphere(x, y, z, radius, color='b', alpha=0.5):
-            u = np.linspace(0, 2 * np.pi, 100)
-            v = np.linspace(0, np.pi, 100)
+        Uses only simple geometry
 
-            _x = x + radius * np.outer(np.cos(u), np.sin(v))
-            _y = y + radius * np.outer(np.sin(u), np.sin(v))
-            _z = z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
-            ax.plot_surface(_x, _y, _z,  rstride=4, cstride=4, color=color, linewidth=0, alpha=alpha)
+        Parameters:
+        ----------
+        par : {dict}
+            stellar and planetary parameters
+        phases : {float, np.ndarray}
+            orbital phases of the planet
+        Returns
+        -------
+        rv : {float, np.ndarray}
+            radial velocity of the planet in km/s
+        """
 
+        """ calculate radial velocities of the planet along the orbit """
+        # radius
+        r = self.get_radius(phase) * self.par['r_star']  # km
+        a = self.par['sma']  # km
+        i = self.par['inc']  # rad
+        # standard gravitational parameter
+        sgp = scipy.constants.gravitational_constant * \
+            self.par['m_star'] * 1e-9  # km**3/s**2
 
-        plot_sphere(0, 0, 0, 1, 'y', 1)
+        # calculate orbital velocity
+        v = np.sqrt(sgp * (2 / r - 1 / a))
 
-        for i, j, k in zip(x, y, z):
-            ax.scatter(i, j, k, color='r')
-            r = (self.par['r_planet'] + self.par['h_atm'])/self.par['r_star']
-            plot_sphere(i, j, k, r, 'b')
+        # Get line of sight component
+        v *= np.sin(phase) * np.sin(i)
 
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')
-        ax.view_init(elev=0, azim=0)
+        return v
 
-        plt.show()
+    def plot(self, x, y, z, mode='2D'):
+        """Plot the star together with planet at position x, y, z
 
+        Parameters:
+        ----------
+        x : {np.ndarray}
+            x-coordinate
+        y : {np.ndarray}
+            y-coordinate
+        z : {np.ndarray}
+            z-coordinate
+        """
+
+        if mode == '2D':
+            c_star = plt.Circle((0, 0), 1, color='y')
+
+            r = (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star']
+            c = [plt.Circle((j, k), r, color='b', alpha=0.5)
+                 for i, j, k in zip(x, y, z)]
+
+            fig, ax = plt.subplots()
+            ax.add_artist(c_star)
+            ax.plot(y, z, 'o', color='r')
+            for circle in c:
+                ax.add_artist(circle)
+
+            plt.xlabel('y')
+            plt.ylabel('z')
+            plt.xlim((-1.5, 1.5))
+            plt.ylim((-1.5, 1.5))
+            plt.show()
+
+        if mode == '3D':
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.set_proj_type('ortho')
+
+            # draw sphere/star
+            def plot_sphere(x, y, z, radius, color='b', alpha=0.5):
+                u = np.linspace(0, 2 * np.pi, 100)
+                v = np.linspace(0, np.pi, 100)
+
+                _x = x + radius * np.outer(np.cos(u), np.sin(v))
+                _y = y + radius * np.outer(np.sin(u), np.sin(v))
+                _z = z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
+                ax.plot_surface(_x, _y, _z,  rstride=4, cstride=4,
+                                color=color, linewidth=0, alpha=alpha)
+
+            plot_sphere(0, 0, 0, 1, 'y', 1)
+
+            r = (self.par['r_planet'] + self.par['h_atm']) / self.par['r_star']
+            for i, j, k in zip(x, y, z):
+                ax.scatter(i, j, k, color='r')
+                plot_sphere(i, j, k, r, 'b')
+
+            ax.set_xlabel('x')
+            ax.set_ylabel('y')
+            ax.set_zlabel('z')
+            ax.view_init(elev=0, azim=0)
+
+            plt.show()
 
 
 def create_bad_pixel_map(obs, threshold=0):
@@ -212,13 +279,9 @@ def rv_planet(par, phases):
     rv : {float, np.ndarray}
         radial velocity of the planet in km/s
     """
-
-    """ calculate radial velocities of the planet along the orbit """
-    # Orbital speed
-    v_orbit = par['sma'] * \
-        np.sin(par['inc']) * 2 * np.pi / par['period_s']
-    # Modulate with phase
-    return v_orbit * np.sin(phases)
+    orb = orbit(par)
+    v = orb.rv_planet(phases)
+    return v
 
 
 def interpolate_intensity(mu, i):
@@ -264,10 +327,9 @@ def calc_mu(par, phase, angles=None, radii=None):
     orb = orbit(par)
     pos = orb.get_pos(phase)
 
-    #orb.plot(*pos)
+    # orb.plot(*pos)
 
     return orb.get_mu(*pos, angles=angles, radii=radii)
-
 
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):

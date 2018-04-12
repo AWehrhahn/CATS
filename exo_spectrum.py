@@ -263,7 +263,7 @@ def plot(conf, par, obs, tell, flux, sol_t, source='psg'):
     sol_t = normalize1d(sol_t)
     plt.plot(obs.wl, sol_t, label='Solution', c=colors[2], linewidth=2)
 
-    plt.title('%s\nLambda = %i, S/N = %s, n_obs = %s' %
+    plt.title('%s\n$\lambda$ = %i, S/N = %s, n_obs = %s' %
               (par['name_star'] + ' ' + par['name_planet'], conf['lamb'], conf['snr'], conf['n_exposures']))
     plt.xlabel('Wavelength [Å]')
     plt.ylabel('Intensity [norm.]')
