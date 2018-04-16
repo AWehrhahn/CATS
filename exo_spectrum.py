@@ -189,9 +189,9 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
 
     #def gaussbroad(x, y): return x
     tell.gaussbroad(sigma)
-    i_atm.scale *= par['A_atm']
+    #i_atm.scale *= par['A_atm']
     i_atm.gaussbroad(sigma)
-    i_planet.scale *= par['A_planet+atm']
+    #i_planet.scale *= par['A_planet+atm']
     i_planet.gaussbroad(sigma)
     flux.gaussbroad(sigma)
 
@@ -342,10 +342,10 @@ if __name__ == '__main__':
     else:
         star = None
         planet = None
-        lamb = 'auto'
+        lamb = 1.#'auto'
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
-    atm_factor = 0.01
+    atm_factor = 0.1
     try:
         main(star, planet, lamb=lamb, atm_factor=atm_factor)
     except FileNotFoundError as fnfe:

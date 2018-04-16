@@ -45,6 +45,7 @@ class stellar_db(data_module):
         star['inc'] = planet['inclination']
         if 'atm_height' in planet.keys():
             star['h_atm'] = planet['atm_height']
+        
         star['sma'] = planet['semi_major_axis']
         star['period'] = planet['period']
         star['transit'] = planet['transit_epoch']
@@ -75,10 +76,12 @@ class stellar_db(data_module):
         #    star['h_atm'] = 0.1 * star['r_planet']
         # else:
         star['h_atm'] = atm_factor * star['r_planet']
+        star['atm_scale_height'] = 1/10000 * star['h_atm'] #scale height = RT/Mg if isothermic
+        
 
-        star['A_planet'] = star['r_planet']**2
-        star['A_star'] = star['r_star']**2
-        star['A_atm'] = (star['r_planet'] + star['h_atm'])**2 - star['A_planet']
+        star['A_planet'] = np.pi * star['r_planet']**2
+        star['A_star'] = np.pi * star['r_star']**2
+        star['A_atm'] = np.pi * (star['r_planet'] + star['h_atm'])**2 - star['A_planet']
         star['A_planet'] = star['A_planet'] / star['A_star']
         star['A_atm'] = star['A_atm'] / star['A_star']
         star['A_planet+atm'] = star['A_planet'] + star['A_atm']

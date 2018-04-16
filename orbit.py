@@ -6,24 +6,42 @@ specific intensities or F and G
 """
 import warnings
 
+import jdcal
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
-import pandas as pd
+import scipy.constants
+from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
-import scipy.constants
+from scipy.integrate import quad, trapz, simps
+
+import quadpy
 
 from dataset import dataset
 
-import jdcal
-
 warnings.simplefilter('ignore', category=Warning)
-
-# TODO include eccentricity in orbit solution
 
 
 class orbit:
+    """Calculates the orbital parameters of the transiting planet
+
+    Functions
+    -------
+    get_phase(obs_time): {phase}
+
+    get_radius(phase): {radius}
+
+    get_pos(phase): {x, y, z coordinates}
+
+    get_mu(x, y, z, angles, radii): {mu}
+
+    maximum_phase(): {phase}
+        gets the maximum phase that is still considered in transit
+    rv_planet(phase): {radial velocity}
+
+    plot(x, y, z, mode='2D'): {}
+    """
+
     def __init__(self, par):
         self.par = par
 
@@ -140,6 +158,11 @@ class orbit:
         mu : float, np.ndarray
             cos(sqrt(y**2 + z**2))
         """
+        if not isinstance(y, np.ndarray):
+            y = np.array([y])
+        if not isinstance(z, np.ndarray):
+            z = np.array([z])
+
         if radii is not None and angles is not None:
             y = y[:, None, None] + radii[None, :, None] * \
                 np.cos(angles)[None, None, :]
@@ -147,6 +170,7 @@ class orbit:
                 np.sin(angles)[None, None, :]
 
         mu = np.sqrt(1 - (y**2 + z**2))
+        mu[np.isnan(mu)] = -1
         return mu
 
     def rv_planet(self, phase):
@@ -228,7 +252,7 @@ class orbit:
                 _x = x + radius * np.outer(np.cos(u), np.sin(v))
                 _y = y + radius * np.outer(np.sin(u), np.sin(v))
                 _z = z + radius * np.outer(np.ones(np.size(u)), np.cos(v))
-                ax.plot_surface(_x, _y, _z,  rstride=4, cstride=4,
+                ax.plot_surface(_x, _y, _z, rstride=4, cstride=4,
                                 color=color, linewidth=0, alpha=alpha)
 
             plot_sphere(0, 0, 0, 1, 'y', 1)
@@ -244,23 +268,6 @@ class orbit:
             ax.view_init(elev=0, azim=0)
 
             plt.show()
-
-
-def create_bad_pixel_map(obs, threshold=0):
-    """ Create a map of all bad pixels from the given set of observations
-
-    Parameters:
-    ----------
-    obs : {dataset}
-        observations
-    threshold : {float}, optional
-        determines how close a pixel has to be to 0 or 1 to be considered a bad pixel (the default is 0, which is exact)
-    Returns
-    -------
-    badpixelmap : np.ndarray
-        Bad pixel map, same dimensions as obs.flux - 1
-    """
-    return np.all(np.gradient(obs.flux) == 0, axis=0) | np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
 
 
 def rv_planet(par, phases):
@@ -284,25 +291,23 @@ def rv_planet(par, phases):
     return v
 
 
-def interpolate_intensity(mu, i):
-    """ Interpolate the stellar intensity for given limb distance mu
+def maximum_phase(par):
+    """ The maximum phase for which the planet is still completely inside the stellar disk
 
-    use linear interpolation, because it is much faster
+    based only on geometry
+    This is the inverse of calc_mu(maximum_phase()) = 0.0, if there is no inclination
 
     Parameters:
     ----------
-    mu : {float, np.ndarray}
-        cos(limb distance), i.e. 1 is the center of the star, 0 is the outer edge
-    i : {pd.DataFrame}
-        specific intensities
+    par : {dict}
+        stellar and planetary parameters
     Returns
     -------
-    intensity : np.ndarray
-        interpolated intensity
+    phase : float
+        maximum phase (in radians)
     """
-    # TODO can I optimize this?
-    values = i.values.swapaxes(0, 1)
-    return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=(0, values[1]))(mu)
+    orb = orbit(par)
+    return orb.maximum_phase()
 
 
 def calc_mu(par, phase, angles=None, radii=None):
@@ -326,10 +331,81 @@ def calc_mu(par, phase, angles=None, radii=None):
 
     orb = orbit(par)
     pos = orb.get_pos(phase)
-
-    # orb.plot(*pos)
-
     return orb.get_mu(*pos, angles=angles, radii=radii)
+
+
+def create_bad_pixel_map(obs, threshold=0):
+    """ Create a map of all bad pixels from the given set of observations
+
+    Parameters:
+    ----------
+    obs : {dataset}
+        observations
+    threshold : {float}, optional
+        determines how close a pixel has to be to 0 or 1 to be considered a bad pixel (the default is 0, which is exact)
+    Returns
+    -------
+    badpixelmap : np.ndarray
+        Bad pixel map, same dimensions as obs.flux - 1
+    """
+    return np.all(np.gradient(obs.flux) == 0, axis=0) | np.all(obs.flux <= threshold, axis=0) | np.all(obs.flux >= np.max(obs.flux) - threshold, axis=0)
+
+
+def profile_exponential(par, h):
+    scale_height = par['atm_scale_height'] / par['r_star']
+    return np.exp(-h / scale_height)
+
+
+def profile_solid(par, h):
+    r = np.min(h, axis=1)
+    ha = np.max(h)
+    L = np.sqrt(ha**2 - r**2)
+    return np.repeat(0.5 / L, h.shape[1]).reshape(h.shape)
+
+
+def atmosphere_profile(par, phase, intensity, r0, h, profile=profile_exponential, n_radii=11, n_angle=12, n_depth=13):
+
+    orb = orbit(par)
+    _, y, z = orb.get_pos(phase)
+
+    r = np.linspace(r0, h, n_radii, endpoint=False)
+    theta = np.linspace(0, 2 * np.pi, n_angle, endpoint=False)
+    L = np.sqrt(h**2 - r**2)
+    x = np.array([np.linspace(0, l, n_depth) for l in L])
+    x_dash = np.sqrt(r[:, None]**2 + x**2)
+
+    rho_i = 2 * simps(profile(par, x_dash - r0), x, axis=1)
+    rho_i = np.nan_to_num(rho_i, copy=False)
+
+    mu = orb.get_mu(_, y, z, angles=theta, radii=r)
+    I = interpolate_intensity(mu, intensity)
+
+    # TODO optimize this multiplication?
+    tmp = simps(I * mu[..., None] * rho_i[None, :, None, None]
+                * r[None, :, None, None], r, axis=1)
+    res = simps(tmp, theta, axis=1) / np.pi  # TODO normalize to area of star
+    return res
+
+
+def interpolate_intensity(mu, i):
+    """ Interpolate the stellar intensity for given limb distance mu
+
+    use linear interpolation, because it is much faster
+
+    Parameters:
+    ----------
+    mu : {float, np.ndarray}
+        cos(limb distance), i.e. 1 is the center of the star, 0 is the outer edge
+    i : {pd.DataFrame}
+        specific intensities
+    Returns
+    -------
+    intensity : np.ndarray
+        interpolated intensity
+    """
+    # TODO can I optimize this?
+    values = i.values.swapaxes(0, 1)
+    return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=(0, values[1]))(mu)
 
 
 def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
@@ -384,26 +460,7 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
     return intens
 
 
-def maximum_phase(par):
-    """ The maximum phase for which the planet is still completely inside the stellar disk
-
-    based only on geometry
-    This is the inverse of calc_mu(maximum_phase()) = 0.0, if there is no inclination
-
-    Parameters:
-    ----------
-    par : {dict}
-        stellar and planetary parameters
-    Returns
-    -------
-    phase : float
-        maximum phase (in radians)
-    """
-    orb = orbit(par)
-    return orb.maximum_phase()
-
-
-def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='precise'):
+def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='profile'):
     """Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
     over the different phases of transit
 
@@ -436,18 +493,30 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
     if isinstance(n_angle, (float, int)):
         n_angle = (n_angle, n_angle)
 
+    if mode == 'profile':
+        r0 = par['r_planet'] / par['r_star']
+        h = r0 + par['h_atm'] / par['r_star']
+        planet = atmosphere_profile(
+            par, phase, intensity.flux, 0, h, profile_solid, n_radii[0], n_angle[0])
+        atm = atmosphere_profile(
+            par, phase, intensity.flux, r0, h, profile_exponential, n_radii[1], n_angle[1])
+
+        ds_planet = dataset(intensity.wl, planet)
+        ds_atm = dataset(intensity.wl, atm)
+        return ds_planet, ds_atm
+
     if mode == 'precise':
         # from r=0 to r = r_planet + r_atmosphere
         inner = 0
         outer = par['r_planet'] + par['h_atm']
         i_planet = calc_intensity(
-            par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0])
+            par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0]) * par['A_planet+atm']
 
         # from r=r_planet to r=r_planet+r_atmosphere
         inner = par['r_planet']
         outer = par['r_planet'] + par['h_atm']
         i_atm = calc_intensity(par, phase, intensity.flux,
-                               inner, outer, n_radii[1], n_angle[1])
+                               inner, outer, n_radii[1], n_angle[1]) * par['A_atm']
         ds_planet = dataset(intensity.wl, i_planet)
         ds_atm = dataset(intensity.wl, i_atm)
         return ds_planet, ds_atm
@@ -458,158 +527,4 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pre
         mu = calc_mu(par, phase)
         _flux = interpolate_intensity(mu, intensity.flux)
         ds = dataset(intensity.wl, _flux)
-        return ds, ds
-
-
-def fit_continuum_alt3(wl, spectrum, out='spectrum', size=100, threshhold=4, smoothing=0, plot=False):
-    i, j, k = -size, 0, -1
-    sparse = np.ones(len(wl) // size + 1, dtype=int)
-    while True:
-        i += size
-        j += size
-        k += 1
-
-        sparse[k] = np.argmax(spectrum[i:j]) + i
-
-        if j >= len(wl):
-            break
-
-    # Remove Outliers
-    for i in range(3):
-        diff = np.abs(np.diff(spectrum[sparse]) +
-                      np.diff(spectrum[sparse][::-1]))
-        sparse = np.delete(sparse, np.where(
-            diff > threshhold * np.median(diff))[0])
-
-    fit = np.interp(wl, wl[sparse], spectrum[sparse])
-    #poly = UnivariateSpline(wl[sparse], spectrum[sparse], s=smoothing, ext=3)
-    #fit = poly(wl)
-
-    if plot:
-        plt.plot(wl, spectrum)
-        plt.plot(wl, fit)
-        plt.plot(wl[sparse], spectrum[sparse], 'd')
-        plt.show()
-
-    if out == 'norm':
-        return fit
-    if out == 'spectrum':
-        return spectrum / fit
-
-
-def fit_continuum_alt2(wl, spectrum, out='spectrum'):
-    j = np.argmax(spectrum)
-    mask = np.zeros(len(wl), dtype=bool)
-    mask[j] = True
-    while j < len(wl) - 1:
-        # + (wl[j]/100 - wl[j+1:]/100)**2
-        distance = (spectrum[j] - spectrum[j + 1:])**2
-        shorty = np.argmin(distance)
-        j += shorty + 1
-        mask[j] = True
-
-    j = np.argmax(spectrum)
-    while j > 1:
-        distance = (spectrum[j] - spectrum[:j - 1])**2
-        shorty = np.argmin(distance)
-        j -= shorty + 1
-        mask[j] = True
-
-    norm = interp1d(wl[mask], spectrum[mask],
-                    fill_value='extrapolate', kind='slinear')(wl)
-
-    plt.plot(wl, spectrum, wl, norm)
-    plt.show()
-
-    if out == 'spectrum':
-        return spectrum / norm
-    if out == 'norm':
-        return norm
-
-
-def fit_continuum_alt(wl, spectrum, threshhold=0.001, out='spectrum'):
-    if len(spectrum.shape) > 1:
-        return np.array([fit_continuum_alt(wl, spectrum[i, :], threshhold) for i in range(spectrum.shape[0])])
-    prime = np.gradient(spectrum, wl)
-    second = np.gradient(spectrum, wl)
-
-    mask = (abs(prime) <= threshhold) & (second <= 0)
-    spec_new = interp1d(wl[mask], spectrum[mask],
-                        kind='linear', fill_value='extrapolate')(wl)
-
-    prime = np.gradient(spec_new, wl)
-    second = np.gradient(spec_new, wl)
-
-    mask = (abs(prime) <= threshhold * 0.1) & (second <= 0)
-
-    count = len(np.where(mask)[0])
-    print(count)
-    norm = np.polyfit(wl[mask], spec_new[mask], 7)
-    norm = np.polyval(norm, wl)
-
-    if out == 'spectrum':
-        return spectrum / norm
-    if out == 'norm':
-        return norm
-
-
-def fit_continuum(wl, spectrum, degree=5, percent=10, inplace=True, plot=False, out='spectrum'):
-    """ fit a continuum to the spectrum and continuum normalize it """
-    def fit_polynomial(wl, spectrum, mask, percent):
-        poly = np.polyfit(wl[mask], spectrum[mask], degree)
-        fit = np.polyval(poly, wl)
-        mask = spectrum >= fit
-
-        # Add the x percen smallest difference points back to the fit
-        sort = np.argsort(
-            np.abs(spectrum[~mask] - fit[~mask]))[:len(spectrum[~mask]) // percent]
-        mask[np.where(~mask)[0][sort]] = True
-        percent += 1
-
-        if plot:
-            plt.plot(wl, spectrum, wl, fit)
-            plt.plot(wl[mask], spectrum[mask], ',')
-            plt.show()
-        return mask, fit, percent
-
-    if not inplace:
-        spectrum = np.copy(spectrum)
-
-    mask = np.ones(spectrum.shape, dtype=bool)
-    fit = np.empty(spectrum.shape)
-    while True:
-        if len(spectrum.shape) == 1:
-            mask, fit, percent = fit_polynomial(
-                wl, spectrum, mask, percent)
-            count = len(spectrum[spectrum <= fit])
-        else:
-            if isinstance(spectrum, pd.DataFrame):
-                for i in range(spectrum.shape[1]):
-                    mask[:, i], fit[:, i], percent = fit_polynomial(
-                        wl, spectrum.iloc[:, i], mask[:, i], percent)
-                count = spectrum[spectrum <= fit].count().sum()
-
-            else:
-                for i in range(spectrum.shape[0]):
-                    mask[i], fit[i], percent = fit_polynomial(
-                        wl, spectrum[i], mask[i], percent)
-                count = np.product(spectrum[spectrum <= fit].shape)
-
-        # if 99% are lower than the fit, thats a good continuum ?
-        if count >= 0.99 * np.product(spectrum.shape):
-            break
-
-    if plot:
-        if len(spectrum.shape) > 1:
-            plt.plot(wl, spectrum[0], wl, fit[0])
-        else:
-            plt.plot(wl, spectrum, wl, fit)
-        plt.title('Final')
-        plt.show()
-
-    if out == 'spectrum':
-        return spectrum / fit
-    if out == 'norm':
-        return fit
-
-    raise AttributeError('value of out parameter unknown')
+        return ds * par['A_planet+atm'], ds * par['A_atm']

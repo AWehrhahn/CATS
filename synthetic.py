@@ -86,9 +86,7 @@ class synthetic(data_module):
         i_atm.wl = stellar.wl
 
         # Observed spectrum
-        a = 1 #TODO atmosphere density profile
-        obs = (stellar - i_planet * par['A_planet+atm'] +
-               par['A_atm'] * i_atm * (planet*a - a + 1)) * telluric
+        obs = (stellar - i_planet + i_atm * planet) * telluric
         # Generate noise
         noise = np.random.randn(len(phase), len(stellar.wl)) / conf['snr']
 
