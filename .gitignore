@@ -15,3 +15,4 @@ test.cprof
 *.pkl
 *.pyc
 .vscode/settings.json
+*.swp

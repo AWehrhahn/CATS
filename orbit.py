@@ -13,7 +13,7 @@ import scipy.constants
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
-from scipy.integrate import quad, trapz, simps
+from scipy.integrate import quad, trapz, simps, tplquad
 
 import quadpy
 
@@ -164,10 +164,8 @@ class orbit:
             z = np.array([z])
 
         if radii is not None and angles is not None:
-            y = y[:, None, None] + radii[None, :, None] * \
-                np.cos(angles)[None, None, :]
-            z = z[:, None, None] + radii[None, :, None] * \
-                np.sin(angles)[None, None, :]
+            y = y[:, None, None] + np.outer(radii, np.cos(angles))[None, ...]
+            z = z[:, None, None] + np.outer(radii, np.sin(angles))[None, ...]
 
         mu = np.sqrt(1 - (y**2 + z**2))
         mu[np.isnan(mu)] = -1
@@ -352,7 +350,7 @@ def create_bad_pixel_map(obs, threshold=0):
 
 
 def profile_exponential(par, h):
-    scale_height = par['atm_scale_height'] / par['r_star']
+    scale_height = par['atm_scale_height'] / par['r_star'] * 10000
     return np.exp(-h / scale_height)
 
 
@@ -364,7 +362,6 @@ def profile_solid(par, h):
 
 
 def atmosphere_profile(par, phase, intensity, r0, h, profile=profile_exponential, n_radii=11, n_angle=12, n_depth=13):
-
     orb = orbit(par)
     _, y, z = orb.get_pos(phase)
 
@@ -386,6 +383,20 @@ def atmosphere_profile(par, phase, intensity, r0, h, profile=profile_exponential
     res = simps(tmp, theta, axis=1) / np.pi  # TODO normalize to area of star
     return res
 
+
+def test_profile(par, phase, intensity, r0, *args, **kwargs):
+    orb = orbit(par)
+    _, y, z = orb.get_pos(phase)
+    H = par['atm_scale_height']
+    r0 = r0 * par['r_star']
+
+    mu = lambda r, theta: orb.get_mu(0, y, z, angles=theta, radii=r)
+    I = lambda r, theta: interpolate_intensity(orb.get_mu(0, y, z, angles=theta, radii=r), intensity)
+    rho = lambda r, x: np.exp(-(np.sqrt(r**2-x**2)-r0)/H)
+
+    func = lambda x, theta, r:  mu(r, theta)[0] * I(r, theta)[0, 0] * rho(r, x) * r
+    res = tplquad(func, r0, np.inf, lambda x: 0, lambda x: 2*np.pi, lambda x, theta: -np.inf, lambda x, theta: +np.inf)
+    return res
 
 def interpolate_intensity(mu, i):
     """ Interpolate the stellar intensity for given limb distance mu
@@ -454,13 +465,13 @@ def calc_intensity(par, phase, intensity, min_radius, max_radius, n_radii, n_ang
 
     # Step 3: Average specific intensity, outer points weight more, as the area is larger
     # flux = integrate intensity(mu) * mu dmu = Area * average(Intensity * mu)
-    intens = interpolate_intensity(mu, intensity) * mu[..., None]
+    intens = interpolate_intensity(mu, intensity)
     intens = np.average(intens, axis=2)
     intens = np.average(intens, axis=1, weights=radii)
     return intens
 
 
-def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='profile'):
+def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='fast'):
     """Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
     over the different phases of transit
 
@@ -496,6 +507,7 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pro
     if mode == 'profile':
         r0 = par['r_planet'] / par['r_star']
         h = r0 + par['h_atm'] / par['r_star']
+
         planet = atmosphere_profile(
             par, phase, intensity.flux, 0, h, profile_solid, n_radii[0], n_angle[0])
         atm = atmosphere_profile(
@@ -510,13 +522,13 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pro
         inner = 0
         outer = par['r_planet'] + par['h_atm']
         i_planet = calc_intensity(
-            par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0]) * par['A_planet+atm']
+            par, phase, intensity.flux, inner, outer, n_radii[0], n_angle[0])
 
         # from r=r_planet to r=r_planet+r_atmosphere
         inner = par['r_planet']
         outer = par['r_planet'] + par['h_atm']
         i_atm = calc_intensity(par, phase, intensity.flux,
-                               inner, outer, n_radii[1], n_angle[1]) * par['A_atm']
+                               inner, outer, n_radii[1], n_angle[1])
         ds_planet = dataset(intensity.wl, i_planet)
         ds_atm = dataset(intensity.wl, i_atm)
         return ds_planet, ds_atm
@@ -526,5 +538,6 @@ def specific_intensities(par, phase, intensity, n_radii=11, n_angle=7, mode='pro
         # Faster but less precise (significantly?)
         mu = calc_mu(par, phase)
         _flux = interpolate_intensity(mu, intensity.flux)
-        ds = dataset(intensity.wl, _flux)
-        return ds * par['A_planet+atm'], ds * par['A_atm']
+        ds = dataset(intensity.wl, np.copy(_flux))
+        ds2 = dataset(intensity.wl, np.copy(_flux))
+        return ds, ds2

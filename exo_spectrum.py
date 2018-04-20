@@ -131,7 +131,7 @@ def get_data(conf, star, planet, **kwargs):
         conf, par, tell, stellar, intensities, source='psg')
     phase = obs.phase
 
-    if True:
+    if False:
         plt.plot(phase, 'o')
         mp = np.pi - orb.maximum_phase(par)
         plt.plot(np.full(len(phase), np.pi + mp), '--r')
@@ -189,13 +189,14 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
 
     #def gaussbroad(x, y): return x
     tell.gaussbroad(sigma)
-    #i_atm.scale *= par['A_atm']
+    i_atm.scale *= par['A_atm']
     i_atm.gaussbroad(sigma)
-    #i_planet.scale *= par['A_planet+atm']
+    i_planet.scale *= par['A_planet+atm']
     i_planet.gaussbroad(sigma)
     flux.gaussbroad(sigma)
 
-    # TODO make sure everything is in barycentric or stellar rest frame
+    log(1, 'Shift spectra to planet restframe')
+    # TODO make sure everything is in barycentric rest frame
     # shift everything into the rest frame of the planet, it should be barycentric before that
     vel = -orb.rv_planet(par, obs.phase)
 
@@ -342,10 +343,10 @@ if __name__ == '__main__':
     else:
         star = None
         planet = None
-        lamb = 1.#'auto'
+        lamb = 'auto'
 
     # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
-    atm_factor = 0.1
+    atm_factor = 0.001
     try:
         main(star, planet, lamb=lamb, atm_factor=atm_factor)
     except FileNotFoundError as fnfe:

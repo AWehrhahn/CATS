@@ -3,8 +3,10 @@ Get Data from Stellar DB
 """
 
 import numpy as np
+from scipy import constants as const
 from data_module_interface import data_module
 from DataSources.StellarDB import StellarDB
+
 
 class stellar_db(data_module):
     @classmethod
@@ -42,10 +44,11 @@ class stellar_db(data_module):
         planet = star['planets'][name_planet]
         star['name_planet'] = name_planet
         star['r_planet'] = planet['radius']
+        star['m_planet'] = planet['mass']
         star['inc'] = planet['inclination']
         if 'atm_height' in planet.keys():
             star['h_atm'] = planet['atm_height']
-        
+
         star['sma'] = planet['semi_major_axis']
         star['period'] = planet['period']
         star['transit'] = planet['transit_epoch']
@@ -55,11 +58,14 @@ class stellar_db(data_module):
         # Convert all parameters into km and seconds
         r_sun = 696342      # Radius Sun
         r_jup = 69911       # Radius Jupiter
-        au = 149597871      # Astronomical Unit
+        au = 149597871      # Astronomical Unit287.058
         secs = 24 * 60 * 60  # Seconds in a day
-        m_sol = 1.98855e30 #kg
+        m_sol = 1.98855e30  # kg
+        m_jup = 1.89813e27  # kg
+        m_earth = 5.972e24  # kg
 
         star['m_star'] *= m_sol
+        star['m_planet'] *= m_jup
         star['r_star'] = star['r_star'] * r_sun
         star['r_planet'] = star['r_planet'] * r_jup
         star['sma'] = star['sma'] * au
@@ -70,18 +76,34 @@ class stellar_db(data_module):
         # Convert to radians
         star['inc'] = np.deg2rad(star['inc'])
 
-        # Derived values, the pi factor gets canceled out
-        # TODO get a better estimate/value
-        # if 'h_atm' not in star.keys():
-        #    star['h_atm'] = 0.1 * star['r_planet']
-        # else:
-        star['h_atm'] = atm_factor * star['r_planet']
-        star['atm_scale_height'] = 1/10000 * star['h_atm'] #scale height = RT/Mg if isothermic
-        
+        # TODO: atmosphere model
+        # stellar flux in = thermal flux out
+        star['T_planet'] = ((np.pi * star['r_planet']**2) /
+                            star['sma']**2)**0.25 * star['t_eff']  # K
 
+        if star['m_planet'] > 10 * m_earth:
+            # Hydrogen (e.g. for gas giants)
+            star['atm_molar_mass'] = 2
+        else:
+            # dry air (mostly nitrogen)  (e.g. for terrestial planets)
+            star['atm_molar_mass'] = 29
+
+        # assuming isothermal atmosphere, which is good enough on earth usually
+        star['atm_scale_height'] = const.gas_constant * star['T_planet'] * (star['r_planet'] * 1e3)**2 / (
+            const.gravitational_constant * star['m_planet'] * star['atm_molar_mass'])  # km
+        # effective atmosphere height, if it would have constant density
+        star['h_atm'] = star['atm_scale_height']
+
+        cls.log(2, 'Planet Temperature: %.2f K' % star['T_planet'])
+        cls.log(2, 'Atmsophere Molar Mass: %.2f g/mol' %
+                star['atm_molar_mass'])
+        cls.log(2, 'Atmosphere Height: %.2f km' % star['h_atm'])
+
+        # calculate areas
         star['A_planet'] = np.pi * star['r_planet']**2
         star['A_star'] = np.pi * star['r_star']**2
-        star['A_atm'] = np.pi * (star['r_planet'] + star['h_atm'])**2 - star['A_planet']
+        star['A_atm'] = np.pi * \
+            (star['r_planet'] + star['h_atm'])**2 - star['A_planet']
         star['A_planet'] = star['A_planet'] / star['A_star']
         star['A_atm'] = star['A_atm'] / star['A_star']
         star['A_planet+atm'] = star['A_planet'] + star['A_atm']
