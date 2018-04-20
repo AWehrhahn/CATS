@@ -216,7 +216,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     if lamb == 'auto' or lamb is None:
         log(1, 'Finding optimal regularization parameter lambda')
         lamb = sol.best_lambda(f, g)
-    log(1, 'Lambda: ', lamb)
+    log(1, 'Lambda: %i' % lamb)
     conf['lamb'] = lamb
     log(1, 'Solving inverse problem')
     return sol.Tikhonov(f, g, lamb)
@@ -345,10 +345,8 @@ if __name__ == '__main__':
         planet = None
         lamb = 'auto'
 
-    # TODO size of the atmosphere in units of planetar radii (scales and shifts the solution)
-    atm_factor = 0.001
     try:
-        main(star, planet, lamb=lamb, atm_factor=atm_factor)
+        main(star, planet, lamb=lamb)
     except FileNotFoundError as fnfe:
         log(0, "Some files seem to be missing, can't complete calculation")
         log(0, fnfe)

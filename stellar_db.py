@@ -76,6 +76,9 @@ class stellar_db(data_module):
         # Convert to radians
         star['inc'] = np.deg2rad(star['inc'])
 
+
+        cls.log(2, 'T_eff: %i K, logg: %.2f, [M/H]: %.1f' % (star['t_eff'], star['logg'], star['metallicity']))
+
         # TODO: atmosphere model
         # stellar flux in = thermal flux out
         star['T_planet'] = ((np.pi * star['r_planet']**2) /
@@ -83,7 +86,7 @@ class stellar_db(data_module):
 
         if star['m_planet'] > 10 * m_earth:
             # Hydrogen (e.g. for gas giants)
-            star['atm_molar_mass'] = 2
+            star['atm_molar_mass'] = 2.5
         else:
             # dry air (mostly nitrogen)  (e.g. for terrestial planets)
             star['atm_molar_mass'] = 29
