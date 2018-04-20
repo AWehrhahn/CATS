@@ -49,9 +49,9 @@ class synthetic(data_module):
             synthetic observations
         """
         cls.log(2, 'synthetic')
-        cls.log(3, 'n_exposures:', conf['n_exposures'])
-        cls.log(3, 'snr:', conf['snr'])
-        cls.log(3, 'planet spectrum:', source) 
+        cls.log(3, 'n_exposures: %i' % conf['n_exposures'])
+        cls.log(3, 'snr: %i' % conf['snr'])
+        cls.log(3, 'planet spectrum: %s' % source) 
 
         max_phase = np.pi - orb.maximum_phase(par)
         n_obs = conf['n_exposures']

@@ -110,7 +110,7 @@ class limb_darkening(data_module):
         if vmt == 7:
             vmt = 8
 
-        cls.log(2, 'T_eff: %s, logg: %s, met: %s, micro_turbulence: %s' % (T, logg, met, vmt))
+        cls.log(2, 'T_eff: %s, logg: %s, [M/H]: %s, micro_turbulence: %s' % (T, logg, met, vmt))
 
         # Select correct coefficients
         lddata = lddata[(lddata['Teff'] == T) & (lddata['logg'] == logg) & (

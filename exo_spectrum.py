@@ -187,7 +187,6 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     # Sigma of Instrumental FWHM in pixels
     sigma = 1 / 2.355 * conf['fwhm']
 
-    #def gaussbroad(x, y): return x
     tell.gaussbroad(sigma)
     i_atm.scale *= par['A_atm']
     i_atm.gaussbroad(sigma)
@@ -198,6 +197,7 @@ def calculate(conf, par, obs, tell, flux, star_int, phase, lamb='auto'):
     log(1, 'Shift spectra to planet restframe')
     # TODO make sure everything is in barycentric rest frame
     # shift everything into the rest frame of the planet, it should be barycentric before that
+    # TODO optimization here?
     vel = -orb.rv_planet(par, obs.phase)
 
     tell.doppler_shift(vel)

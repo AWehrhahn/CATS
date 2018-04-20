@@ -1,0 +1,55 @@
+INFO:root:Load data
+INFO:root:Parameters
+INFO:root:Stellar DB
+INFO:root:Cached file found: /DATA/Cache/5bc2c4d03d1f4351ef0338c0a5175e88c84cb05a0ba67577a84cb90d.dat
+INFO:root:T_eff: 5203 K, logg: 4.93, [M/H]: 0.2
+INFO:root:Planet Temperature: 623.67 K
+INFO:root:Atmsophere Molar Mass: 2.50 g/mol
+INFO:root:Atmosphere Height: 209.15 km
+INFO:root:Stellar flux
+INFO:root:REDUCE
+INFO:root:Specific intensities
+INFO:root:Limb darkening formula by Claret 2000
+INFO:root:T_eff: 4500, logg: 5.0, [M/H]: 0.2, micro_turbulence: 2
+INFO:root:Tellurics
+INFO:root:HARPS
+INFO:root:Observations
+INFO:root:synthetic
+INFO:root:n_exposures: 100
+INFO:root:snr: 100
+INFO:root:planet spectrum: psg
+INFO:root:Calculate solution
+INFO:root:Stellar specific intensities covered by planet and atmosphere
+INFO:root:Broaden spectra
+INFO:root:Shift spectra to planet restframe
+INFO:root:Intermediary products f and g
+INFO:root:Finding optimal regularization parameter lambda
+INFO:root:DeltaX/Residual ratio: 50
+INFO:root:Lambda: 3670
+INFO:root:Solving inverse problem
+INFO:root:Plot
+DEBUG:matplotlib.font_manager:findfont: Matching :family=sans-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=sans-serif:style=normal:variant=normal:weight=normal:stretch=normal:size=12.0 to DejaVu Sans ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXGeneral:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXGeneral ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneral.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXGeneral:style=italic:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXGeneral ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralItalic.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXGeneral:style=normal:variant=normal:weight=bold:stretch=normal:size=10.0 to STIXGeneral ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXGeneralBol.ttf') with score of 0.000000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXNonUnicode:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXNonUnicode ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUni.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXNonUnicode:style=italic:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXNonUnicode ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniIta.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXNonUnicode:style=normal:variant=normal:weight=bold:stretch=normal:size=10.0 to STIXNonUnicode ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXNonUniBol.ttf') with score of 0.000000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXSizeOneSym:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXSizeOneSym ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizOneSymReg.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXSizeTwoSym:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXSizeTwoSym ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizTwoSymReg.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXSizeThreeSym:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXSizeThreeSym ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizThreeSymReg.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXSizeFourSym:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXSizeFourSym ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFourSymReg.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=STIXSizeFiveSym:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to STIXSizeFiveSym ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/STIXSizFiveSymReg.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmsy10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmsy10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmsy10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmr10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmr10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmr10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmtt10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmtt10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmtt10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmmi10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmmi10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmmi10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmb10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmb10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmb10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmss10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmss10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmss10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=cmex10:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to cmex10 ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/cmex10.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=DejaVu Sans:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=DejaVu Sans:style=italic:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Oblique.ttf') with score of 0.150000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=DejaVu Sans:style=normal:variant=normal:weight=bold:stretch=normal:size=10.0 to DejaVu Sans ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Bold.ttf') with score of 0.000000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=DejaVu Sans Mono:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans Mono ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf') with score of 0.050000
+DEBUG:matplotlib.font_manager:findfont: Matching :family=DejaVu Sans Display:style=normal:variant=normal:weight=normal:stretch=normal:size=10.0 to DejaVu Sans Display ('/home/ansgar/anaconda3/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansDisplay.ttf') with score of 0.050000
