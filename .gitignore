@@ -19,3 +19,5 @@ test.cprof
 exoSpectro.log
 exoSpectro.log
 uioenvfile.txt
+.git.bfg-report/*
+bfg-1.13.0.jar
