@@ -68,8 +68,8 @@ class reduce(data_module):
         return obs
 
     @classmethod
-    def load(cls, conf, par, fname, colrange=None):
-        ech = echelle.rdech(fname)
+    def load(cls, conf, par, fname, colrange=None, nocont=None):
+        ech = echelle.rdech(fname, nocont=nocont)
         header = fits.open(fname)[0].header
         if colrange is None:
             sav = join(conf['input_dir'], conf['harps_dir'],
@@ -100,4 +100,5 @@ class reduce(data_module):
         ds = dataset(wave, spec, sig)
         # ds.gaussbroad(5) #TODO questionable at least
         ds.phase = phase
+        ds.cont = ech.cont[mask][sort]
         return ds

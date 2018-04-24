@@ -24,6 +24,7 @@ from REDUCE import reduce
 from limb_darkening import limb_darkening
 from synthetic import synthetic
 from idl import idl
+from awlib.sme import sme
 
 
 def write(fname, obs):
@@ -50,6 +51,35 @@ conf['star_intensities'] = imu
 def func(x):
     shift = doppler_shift(ds.wl, x)
     return -np.correlate(obs_flux, ds.__interpolate__(ds.wl, shift, ds.flux))[0]
+
+f = '/home/ansgar/Documents/IDL/SME/k2-3new_test07.out'
+f2 = '/home/ansgar/Documents/IDL/SME/test.out'
+s = sme.read(f)
+s.save(f2)
+exit()
+f = join(conf['input_dir'], 'HARPS.2013-10-01_tmp.ech')
+data = reduce.load(conf, par, f, nocont=True)
+wave = data.wl
+spec = data.flux[0]
+cont = data.cont
+
+fft = np.fft.hfft(spec)
+fft[200:] = 0
+sol = np.fft.ihfft(fft)
+spec2 = spec/sol
+
+obs = reduce.load_stellar_flux(conf, par)
+
+
+plt.plot(obs.wl, obs.flux[0], label='traditional')
+plt.plot(wave, spec2, label='FFT')
+plt.plot(wave, cont, label='trad. profile')
+plt.plot(wave, sol, label='FFT profile')
+plt.legend(loc='best')
+plt.show()
+
+
+
 
 sme = idl.load_stellar_flux(conf, par)
 obs = reduce.load_stellar_flux(conf, par)

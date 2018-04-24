@@ -16,3 +16,6 @@ test.cprof
 *.pyc
 .vscode/settings.json
 *.swp
+exoSpectro.log
+exoSpectro.log
+uioenvfile.txt
