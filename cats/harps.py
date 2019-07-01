@@ -13,14 +13,15 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import minimize
 import joblib
 
-import orbit as orb
 from awlib.astro import air2vac, doppler_shift, planck
 from awlib.util import normalize
 from awlib.reduce.echelle import rdech
-from data_module_interface import data_module
-from dataset import dataset
-from marcs import marcs
-from idl import idl
+
+from . import orbit as orb
+from .data_module_interface import data_module
+from .dataset import dataset
+from .marcs import marcs
+from .idl import idl
 
 
 class harps(data_module):

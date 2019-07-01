@@ -15,9 +15,10 @@ from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
 from scipy.integrate import quad, trapz, simps, tplquad
 
-import quadpy
+# TODO: Use Batman for the orbit calculation?
+# import quadpy
 
-from dataset import dataset
+from .dataset import dataset
 
 warnings.simplefilter('ignore', category=Warning)
 

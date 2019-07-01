@@ -13,8 +13,8 @@ from scipy.integrate import simps, trapz
 from scipy.interpolate import interp1d
 
 from awlib.astro import air2vac, doppler_shift
-from data_module_interface import data_module
-from dataset import dataset
+from .data_module_interface import data_module
+from .dataset import dataset
 from DataSources import Cache
 
 

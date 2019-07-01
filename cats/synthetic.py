@@ -5,12 +5,12 @@ Create synthetic observation spectra, when telluric, stellar flux etc are given
 import numpy as np
 from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
-import orbit as orb
-from data_module_interface import data_module
-from psg import psg
-from harps import harps
-from idl import idl
-from REDUCE import reduce
+from . import orbit as orb
+from .data_module_interface import data_module
+from .psg import psg
+from .harps import harps
+from .idl import idl
+from .REDUCE import reduce
 
 import matplotlib.pyplot as plt
 

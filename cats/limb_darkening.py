@@ -5,8 +5,8 @@ import astropy.io.fits as fits
 import numpy as np
 import pandas as pd
 
-from data_module_interface import data_module
-from dataset import dataset
+from .data_module_interface import data_module
+from .dataset import dataset
 
 
 class limb_darkening(data_module):

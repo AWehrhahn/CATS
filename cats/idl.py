@@ -10,8 +10,8 @@ import astropy.io.fits as fits
 import jdcal
 from awlib.reduce import echelle
 
-from data_module_interface import data_module
-from dataset import dataset
+from .data_module_interface import data_module
+from .dataset import dataset
 
 
 class idl(data_module):

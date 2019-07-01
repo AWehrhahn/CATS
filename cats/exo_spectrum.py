@@ -16,16 +16,16 @@ import orbit as orb
 import solution as sol
 from stellar_db import stellar_db
 from awlib.util import normalize as normalize1d
-from dataset import dataset
-from harps import harps
-from limb_darkening import limb_darkening
-from marcs import marcs
-from psg import psg
-from idl import idl
-from synthetic import synthetic
-from REDUCE import reduce
 
-from log import log
+from .dataset import dataset
+from .harps import harps
+from .limb_darkening import limb_darkening
+from .marcs import marcs
+from .psg import psg
+from .idl import idl
+from .synthetic import synthetic
+from .REDUCE import reduce
+from .log import log
 
 
 def prepare(target, phase):

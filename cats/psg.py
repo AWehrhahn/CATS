@@ -7,9 +7,9 @@ from os.path import basename, exists, join, splitext
 import numpy as np
 import pandas as pd
 
-from data_module_interface import data_module
+from .data_module_interface import data_module
 from DataSources.PSG import PSG
-from dataset import dataset
+from .dataset import dataset
 
 
 class psg(data_module):
