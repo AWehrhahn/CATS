@@ -1,5 +1,3 @@
-# cython: profile=True
-
 """
 Calculate intermediary data products like
 specific intensities or F and G
@@ -15,13 +13,12 @@ from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
 from scipy.integrate import quad, trapz, simps, tplquad
 
+from .data_modules.dataset import dataset
+
+# import batman
 # TODO: Use Batman for the orbit calculation?
 # import quadpy
-
-from .dataset import dataset
-
-warnings.simplefilter('ignore', category=Warning)
-
+# warnings.simplefilter('ignore', category=Warning)
 
 class orbit:
     """Calculates the orbital parameters of the transiting planet
@@ -43,8 +40,9 @@ class orbit:
     plot(x, y, z, mode='2D'): {}
     """
 
-    def __init__(self, par):
-        self.par = par
+    def __init__(self, configuration, parameters):
+        self.configuration = configuration
+        self.par = parameters
 
     def get_phase(self, obs_time):
         """Calculate the orbit phase depending on the obs_time
@@ -60,8 +58,16 @@ class orbit:
         Returns
         -------
         phase: {float, np.ndarray}
-            orbital phase in degrees
+            orbital phase in radians
         """
+
+		# if position == "periastron": TA = 0.
+		# elif position == "primary": TA = pi/2. - params.w*pi/180.
+		# elif position == "secondary": TA = 3.*pi/2. - params.w*pi/180.
+		
+		# E = 2.*np.arctan(np.sqrt((1. - params.ecc)/(1. + params.ecc))*np.tan(TA/2.))
+		# M = E - params.ecc*np.sin(E)
+		# return M/2./pi
 
         transit = self.par['transit'] - jdcal.MJD_0
         period = self.par['period']
@@ -172,7 +178,7 @@ class orbit:
         mu[np.isnan(mu)] = -1
         return mu
 
-    def rv_planet(self, phase):
+    def get_rv(self, time):
         """ Calculate the radial velocity of the planet at a given phase
 
         Uses only simple geometry
@@ -191,6 +197,7 @@ class orbit:
 
         """ calculate radial velocities of the planet along the orbit """
         # radius
+        phase = self.get_phase(time)
         r = self.get_radius(phase) * self.par['r_star']  # km
         a = self.par['sma']  # km
         i = self.par['inc']  # rad
@@ -286,7 +293,7 @@ def rv_planet(par, phases):
         radial velocity of the planet in km/s
     """
     orb = orbit(par)
-    v = orb.rv_planet(phases)
+    v = orb.get_rv(phases)
     return v
 
 

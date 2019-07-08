@@ -129,8 +129,6 @@ class marcs(data_module):
     def read(cls, fname, imu, interpolate='linear'):
         """ read a single specific intensity file and interpolate to given mu values
 
-
-
         Parameters:
         ----------
         fname : {str}

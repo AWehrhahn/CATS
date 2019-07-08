@@ -12,19 +12,19 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 
 from awlib.astro import doppler_shift, planck
 from awlib.util import interpolate_DataFrame
-
-#from test_project.Plot import Plot
-from dataset import dataset
-import orbit as orb
-import config
-from stellar_db import stellar_db
-from marcs import marcs
-from harps import harps
-from REDUCE import reduce
-from limb_darkening import limb_darkening
-from synthetic import synthetic
-from idl import idl
 from awlib.sme import sme
+
+from stellar_db import stellar_db
+
+from cats.dataset import dataset
+import cats.orbit as orbf
+from cats import config
+from cats.marcs import marcs
+from cats.harps import harps
+from cats.REDUCE import reduce
+from cats.limb_darkening import limb_darkening
+from cats.synthetic import synthetic
+from cats.idl import idl
 
 
 def write(fname, obs):

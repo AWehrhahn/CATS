@@ -33,8 +33,9 @@ def init(fname="cats.log"):
     # Log file settings
     if fname is not None:
         path = os.path.abspath(__file__)
+        path = os.path.dirname(path)
         log_file = os.path.join(path, "..", "logs", fname)
-        log_dir = os.path.dirname(path)
+        log_dir = os.path.dirname(log_file)
         if log_dir != "" and not os.path.exists(log_dir):
             os.makedirs(log_dir)
         file = logging.FileHandler(log_file)

@@ -70,8 +70,8 @@ def Tikhonov(f, g, l):
     np.ndarray
         x
     """
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
+    b = f #np.sum(f, axis=0)
+    r = g #np.sum(g, axis=0)
 
     mask = (~np.isnan(b)) & (~np.isnan(r))
     b = b[mask]
@@ -165,7 +165,7 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
         return -x * np.sin(angle) + y * ratio * np.cos(angle)
 
     # reduce data, and filter nans
-    b, r = np.sum(f, axis=0), np.sum(g, axis=0)
+    b, r = f, g
     mask = ~np.isnan(b) & ~np.isnan(r)
     b, r = b[mask], r[mask]
 

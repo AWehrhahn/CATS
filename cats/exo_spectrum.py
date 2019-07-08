@@ -11,7 +11,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
-import config
+from . import config
 import orbit as orb
 import solution as sol
 from stellar_db import stellar_db
@@ -25,7 +25,6 @@ from .psg import psg
 from .idl import idl
 from .synthetic import synthetic
 from .REDUCE import reduce
-from .log import log
 
 
 def prepare(target, phase):
@@ -318,35 +317,3 @@ def main(star, planet, lamb='auto', **kwargs):
     # TODO in a perfect world this offset wouldn't be necessary, so can we get rid of it?
     offset = 1 - max(sol_t)
     plot(conf, par, obs, tell, flux, sol_t + offset)
-
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        parser = argparse.ArgumentParser(
-            description='Extract the planetary transmittance spectrum, from one or more transit observations.')
-        parser.add_argument('star', type=str, help='The observed star')
-        parser.add_argument(
-            'planet', type=str, help='The letter of the planet (default=b)', nargs='?', default='b')
-        parser.add_argument('-l', '--lambda', type=str,
-                            help='Regularization parameter lambda (default=auto)', default='auto', dest='lamb')
-
-        args = parser.parse_args()
-        star = args.star
-        planet = args.planet
-        lamb = args.lamb
-        if lamb != 'auto':
-            try:
-                lamb = float(lamb)
-            except ValueError:
-                log(0, 'Invalid value for -l/-lambda')
-                exit()
-    else:
-        star = None
-        planet = None
-        lamb = 'auto'
-
-    try:
-        main(star, planet, lamb=lamb)
-    except FileNotFoundError as fnfe:
-        log(0, "Some files seem to be missing, can't complete calculation")
-        log(0, fnfe)
