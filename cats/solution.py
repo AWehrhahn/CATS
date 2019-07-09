@@ -2,14 +2,13 @@
 Solve the linearized minimization Problem Phi = sum(G*P - F) + lam * R
 """
 
+import logging
 import numpy as np
 from numpy.linalg import norm
 from scipy.linalg import solve_banded, dft
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve, minimize_scalar
-
-from log import log
 
 def Franklin(wl, f, g, lamb):
     """Solve the minimization problem f * x - g = 0
@@ -71,8 +70,8 @@ def Tikhonov(f, g, l):
     np.ndarray
         x
     """
-    b = np.sum(f, axis=0)
-    r = np.sum(g, axis=0)
+    b = f #np.sum(f, axis=0)
+    r = g #np.sum(g, axis=0)
 
     mask = (~np.isnan(b)) & (~np.isnan(r))
     b = b[mask]
@@ -146,7 +145,7 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
         Best fit regularization parameter lambda
     """
 
-    log(2, 'DeltaX/Residual ratio: %i' % ratio)
+    logging.info('DeltaX/Residual ratio: %i' % ratio)
 
     def get_point(lamb, A, D, r):
         """ calculate points of the L-curve"""
@@ -166,7 +165,7 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
         return -x * np.sin(angle) + y * ratio * np.cos(angle)
 
     # reduce data, and filter nans
-    b, r = np.sum(f, axis=0), np.sum(g, axis=0)
+    b, r = f, g
     mask = ~np.isnan(b) & ~np.isnan(r)
     b, r = b[mask], r[mask]
 

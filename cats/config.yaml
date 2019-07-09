@@ -1,0 +1,70 @@
+# Configuration file for test.py
+
+# Define locations of stellar config files, as well as input and output folders
+# Only use '/' as path seperator, even on Windows systems
+path_input_data: "../DATA/"
+path_output_data: "../DATA/output/"
+
+# Output spectrum file name
+file_spectrum: spectrum.png
+file_data_out: solution.dat
+
+# Modules to use
+parameters: gj1214b   # StellarDB gets values from exoplanet.org
+observations: nirspec  # JWST MIRI instrument (after data reduction)
+tellurics: space         # No tellurics in space
+stellar_flux: nirspec      # Marcs Models, try out of transit observation instead?
+intensities: aronson    # Erik Aaronsons low resolution fitting
+orbit: orbit
+
+broadening: 0
+
+stellar_db:
+  path: /DATA/stellar_db/
+
+#Path to molecfit executable
+molecfit:
+  path:  ~/molecfit/bin/molecfit
+  file: molecfit.par
+
+# File names
+# Those can be overwritten by the parameter file (in fact everything can)
+psg:
+  dir: PSG
+  file_obs: radiance_*.csv
+  file_phase: phases.txt
+  file_star: flux.csv
+  file_atm: planet.csv
+  file_tell: tell.csv
+  file: psg_config.txt
+
+marcs:
+  dir: MARCS
+  file_flux: 4000g4.7z-0.25m0.6t0.flx
+  file_ld: 3896g4.7z-0.25m0.6t0_{}.limb
+  ld_format: [1, 2, 3, 4, 5, 6, 7]
+  ld_interpolation_method: linear
+
+limb_darkening:
+  file: limb_darkening.fit
+  star_intensities: geom
+
+harps:
+  dir: HARPS
+  calibration_dir: Calibration
+  file_obs: '*.fits'
+  file_tell: tell.txt
+  file_sun: moon_2008-08-08_s1d.fits
+  wl_mod: 1
+
+idl:
+  dir: SME
+  file_solar: sol.dat
+  file_sme: wasp29_4nlte.out
+  file_obs: '*.ech'
+
+# For synthetic spectrum generation
+synthetic:
+  snr: 1000                         # S/N (per spectral pixel per exposure) [S/NperResElem / sqrt(3) gives per pixel]"
+  fwhm: 0.5                         # FWHM (instrumental profile approximated with gaussian)
+  n_exposures: 1                    # Number of individual exposures during entire transit

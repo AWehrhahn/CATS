@@ -13,8 +13,8 @@ from scipy.integrate import simps, trapz
 from scipy.interpolate import interp1d
 
 from awlib.astro import air2vac, doppler_shift
-from data_module_interface import data_module
-from dataset import dataset
+from .data_module_interface import data_module
+from .dataset import dataset
 from DataSources import Cache
 
 
@@ -128,8 +128,6 @@ class marcs(data_module):
     @classmethod
     def read(cls, fname, imu, interpolate='linear'):
         """ read a single specific intensity file and interpolate to given mu values
-
-
 
         Parameters:
         ----------

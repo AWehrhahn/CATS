@@ -4,7 +4,7 @@ Get Data from Stellar DB
 
 import numpy as np
 from scipy import constants as const
-from data_module_interface import data_module
+from .data_module_interface import data_module
 from DataSources.StellarDB import StellarDB
 
 

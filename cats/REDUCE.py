@@ -13,8 +13,8 @@ import jdcal
 from awlib.reduce import echelle
 from idl import idl
 
-from data_module_interface import data_module
-from dataset import dataset
+from .data_module_interface import data_module
+from .dataset import dataset
 
 
 class reduce(data_module):
