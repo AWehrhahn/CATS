@@ -36,9 +36,9 @@ class nirspec(data_observations, data_stellarflux):
             f"NS.????????.?????_{order}_flux_tbl.fits.gz",
         )
         fname = os.path.abspath(fname)
-        
+
         obs = [self.load(g) for g in glob.glob(fname)]
-        
+
         # Wavelength calibration is not good enough to align spectra properly
         # Use cross-correlation? Maybe PyReduce will be good enough?
         # For each spectrum (past the first) find the offset that minimizes the difference

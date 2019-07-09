@@ -4,6 +4,8 @@ CATS - Characterization of exoplanet Atmospheres with Transit Spectroscopy
 author: Ansgar Wehrhahn
 """
 import logging
+import importlib
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -11,13 +13,6 @@ from scipy.optimize import least_squares
 
 from . import config, solution
 from .orbit import orbit as orbit_calculator
-
-from .data_modules.space import space
-from .data_modules.gj1214b import gj1214b
-from .data_modules.nirspec import nirspec
-from .data_modules.marcs import marcs
-from .data_modules.aronson import aronson
-from .data_modules.dataset import dataset
 
 
 steps = ["parameters", "observations", "stellar_flux", "intensities", "tellurics"]
@@ -28,22 +23,29 @@ func_mapping = {
     "intensities": "get_intensities",
     "tellurics": "get_tellurics",
 }
-modules_mapping = {"space": space, "gj1214b": gj1214b, "nirspec": nirspec, "marcs": marcs, "aronson":aronson}
 
 
 def load_configuration(star, planet, fname="config.yaml"):
     # Step 1: Load values from yaml/json file
     logging.info("Load configuration")
-    configuration = config.load_config(fname, star=star, planet=planet)
+    configuration = config.load_config(filename=fname, star=star, planet=planet)
     return configuration
 
+def load_module(name, configuration):
+    # Load modules with the given name
+    name = name.lower()
+    mod_name = f".data_modules.{name}"
+    lib = importlib.import_module(mod_name)
+    module = getattr(lib, name)(configuration)
+    return module
 
 def load_data(star, planet, configuration):
     logging.info("Load data from modules")
     # Step 0: Get modules for each step from configuration
     modules = {s: configuration[s] for s in steps}
     for k, m in modules.items():
-        modules[k] = modules_mapping[m](configuration)
+        conf = configuration[m] if m in configuration.keys() else {}
+        modules[k] = load_module(m, conf)
 
     # Step 1: Load data
     data = {}

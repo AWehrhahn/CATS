@@ -16,7 +16,7 @@ except ImportError:
 
 def __load_yaml__(fname):
     """ load yaml data from a file
-    
+
     Parameters:
     ----------
     fname : {str}
@@ -25,7 +25,7 @@ def __load_yaml__(fname):
     ------
     IOError
         file not found, or other io problem
-    
+
     Returns
     -------
     contents: dict
@@ -36,9 +36,9 @@ def __load_yaml__(fname):
     raise IOError
 
 
-def load_config(filename='config.yaml', **kwargs):
+def load_config(star, planet, filename='config.yaml'):
     """ load a configuration file
-    
+
     Parameters:
     ----------
     filename: str
@@ -50,7 +50,7 @@ def load_config(filename='config.yaml', **kwargs):
     ------
     FileNotFoundError
         If any of the defined directories of files in config is not found
-    
+
     Returns
     -------
     conf : dict
@@ -60,7 +60,14 @@ def load_config(filename='config.yaml', **kwargs):
     filename = join(path, filename)
     conf = __load_yaml__(filename)
 
-    conf['input_dir'] = conf['path_input_data'].format(**kwargs)
-    conf['output_dir'] = conf['path_output_data'].format(**kwargs)
+    conf['input_dir'] = conf['path_input_data'].format(star=star, planet=planet)
+    conf['output_dir'] = conf['path_output_data'].format(star=star, planet=planet)
+    conf["_star"] = star
+    conf["_planet"] = planet
+
+    for k, v in conf.items():
+        if isinstance(v, dict):
+            conf[k]["_star"] = star
+            conf[k]["_planet"] = planet
 
     return conf

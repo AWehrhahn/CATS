@@ -32,11 +32,16 @@ class aronson(data_intensities):
         # plt.plot(phase, white)
         # plt.show()
 
+        # Step 1: Fit first guess for limb darkening using the white light curve
+        # Step 2: fit individual limb darkening for each wavelength
+
+
         nsteps = 100
         radii = np.linspace(0, 1, nsteps)
-        # TODO first guess
+
+        # TODO limb darkening law
         mu = np.sqrt(1- radii**2)
-        gamma1 = 1
+        gamma1 = 0.1
         gamma2 = 0.2
         In = 1 - gamma1 * (1 - mu) - gamma2 * (1-mu)**2
 
@@ -64,12 +69,11 @@ class aronson(data_intensities):
 
         # tmp = np.arange(1, n+1)[::-1]
         return 1 - np.sum(tmp * steps, axis=0) 
-        
+
     @staticmethod
     def normalization(steps, radii):
         return 2 * np.sum(aronson.intensity(np.arange(len(steps)), steps) * radii)
 
     @staticmethod
     def normalized_intensity(n, steps, radii):
-        # TODO avoid calculating normalization factor each time
         return aronson.intensity(n, steps) / aronson.normalization(steps, radii)
