@@ -1,5 +1,5 @@
 import numpy as np
-import spectres
+# import spectres
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.constants import speed_of_light
