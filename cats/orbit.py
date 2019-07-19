@@ -4,23 +4,29 @@ specific intensities or F and G
 """
 import warnings
 
-import jdcal
+from astropy import constants as const
+from astropy import units as q
+from astropy.time import Time
+
+# TODO use poliastro ???
+# There must be some existing library for this, right?
+# from poliastro.bodies import Body as PoliBody
+# from poliastro.twobody import Orbit as PoliOrbit
+
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.constants
-from mpl_toolkits.mplot3d import Axes3D
+
 from scipy.interpolate import interp1d
 from scipy.optimize import fsolve
 from scipy.integrate import quad, trapz, simps, tplquad
 
+from mpl_toolkits.mplot3d import Axes3D
+
 from .data_modules.dataset import dataset
 
-# import batman
-# TODO: Use Batman for the orbit calculation?
-# import quadpy
-# warnings.simplefilter('ignore', category=Warning)
+mjd0 = Time(0, format="mjd").jd
 
-class orbit:
+class Orbit:
     """Calculates the orbital parameters of the transiting planet
 
     Functions
@@ -44,6 +50,23 @@ class orbit:
         self.configuration = configuration
         self.par = parameters
 
+        star_name = self.configuration["_star"]
+        self.r_star = self.par["r_star"].to(q.km).value
+        self.m_star = self.par["m_star"].to(q.kg).value
+
+        self.sma = self.par["sma"].to(q.km).value
+        self.ecc = self.par["ecc"].value
+        self.inc = self.par["inc"].to(q.rad).value
+        self.w = self.par["w"].to(q.rad).value
+        
+        raan = 0
+        nu = 0
+
+        self.transit = self.par["transit"].mjd
+        self.periastron = self.par["periastron"].mjd
+        self.period = self.par["period"].to(q.day).value
+
+
     def get_phase(self, obs_time):
         """Calculate the orbit phase depending on the obs_time
 
@@ -61,16 +84,8 @@ class orbit:
             orbital phase in radians
         """
 
-		# if position == "periastron": TA = 0.
-		# elif position == "primary": TA = pi/2. - params.w*pi/180.
-		# elif position == "secondary": TA = 3.*pi/2. - params.w*pi/180.
-		
-		# E = 2.*np.arctan(np.sqrt((1. - params.ecc)/(1. + params.ecc))*np.tan(TA/2.))
-		# M = E - params.ecc*np.sin(E)
-		# return M/2./pi
-
-        transit = self.par['transit'] - jdcal.MJD_0
-        period = self.par['period']
+        transit = self.transit
+        period = self.period
         phase = ((obs_time - (transit - period / 2)) / period) % 1
         phase = 2 * np.pi * phase  # in rad
         return phase
@@ -90,19 +105,19 @@ class orbit:
             radius in units of stellar radii
         """
 
-        phi = phase - self.get_phase(self.par['periastron'])
-        a = self.par['sma']
-        e = self.par['eccentricity']
+        phi = phase - self.get_phase(self.periastron)
+        a = self.sma
+        e = self.ecc
         radius = a * (1 - e**2) / (1 + e * np.cos(phi))
         return radius / self.par['r_star']
 
     def get_pos(self, phase):
         """Calculate the 3D position of the planet
 
-        the coordinate system is centered in the star, x is towards the observer, z is orthagonal to the planet orbit, and y to the "right"
+        the coordinate system is centered in the star, x is towards the observer, z is "north", and y to the "right"
 
           z ^
-            | 
+            |
             | -¤-
             |̣_____>
             /      y
@@ -119,7 +134,7 @@ class orbit:
         """
 
         r = self.get_radius(phase)
-        i = self.par['inc']
+        i = self.inc
         x = -r * np.cos(phase) * np.sin(i)
         y = -r * np.sin(phase)
         z = -r * np.cos(phase) * np.cos(i)
@@ -144,7 +159,7 @@ class orbit:
         # func == y**2 + z**2 - 1 = 0
         max_phase = fsolve(lambda phase: np.sum(
             np.power(self.get_pos(phase)[1:], 2)) - 1, 3.14)
-        return max_phase
+        return max_phase[0]
 
     def get_mu(self, x, y, z, angles=None, radii=None):
         """get mu = cos(distance to stellar center)
@@ -198,12 +213,11 @@ class orbit:
         """ calculate radial velocities of the planet along the orbit """
         # radius
         phase = self.get_phase(time)
-        r = self.get_radius(phase) * self.par['r_star']  # km
-        a = self.par['sma']  # km
-        i = self.par['inc']  # rad
+        r = self.get_radius(phase) * self.r_star  # km
+        a = self.sma  # km
+        i = self.inc  # rad
         # standard gravitational parameter
-        sgp = scipy.constants.gravitational_constant * \
-            self.par['m_star'] * 1e-9  # km**3/s**2
+        sgp = const.G.value * self.m_star * 1e-9  # km**3/s**2
 
         # calculate orbital velocity
         v = np.sqrt(sgp * (2 / r - 1 / a))

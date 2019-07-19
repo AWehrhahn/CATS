@@ -3,7 +3,7 @@ from scipy.interpolate import interp1d
 from scipy.integrate import quad, trapz, simps, tplquad
 
 
-from ..orbit import orbit as orbit_calculator
+from ..orbit import Orbit as orbit_calculator
 from .data_interface import data_intensities as di
 from .dataset import dataset
 

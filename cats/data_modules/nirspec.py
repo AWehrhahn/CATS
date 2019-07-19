@@ -30,9 +30,10 @@ class nirspec(data_observations, data_stellarflux):
 
     def get_observations(self, **_):
         order = "34"
-        fname = os.path.join(
-            self.configuration["input_dir"],
-            "GJ1214_b","NIRSPEC", "extracted", "fitstbl", "flux",
+        star = self.configuration["_star"]
+        planet = self.configuration["_planet"]
+        fname = self.configuration["input_dir"].format(star=star, planet=planet)
+        fname = os.path.join(fname, "extracted", "fitstbl", "flux",
             f"NS.????????.?????_{order}_flux_tbl.fits.gz",
         )
         fname = os.path.abspath(fname)

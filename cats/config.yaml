@@ -22,7 +22,7 @@ workflow:
 
 # Modules to use
 parameters: stellar_db   # StellarDB gets values from exoplanet.org
-observations: nirspec    # JWST MIRI instrument (after data reduction)
+observations: pyreduce   # JWST MIRI instrument (after data reduction)
 tellurics: space         # No tellurics in space
 stellar_flux: nirspec    # Marcs Models, try out of transit observation instead?
 intensities: claret2000  # Erik Aaronsons low resolution fitting
@@ -30,6 +30,10 @@ intensities: claret2000  # Erik Aaronsons low resolution fitting
 # Configurations for individual modules
 stellar_db:
   path: /DATA/stellar_db/
+
+pyreduce:
+  input_dir: "/DATA/Keck/NIRSPEC/{star}_{planet}/reduced"
+  filename: "*.fits.ech"
 
 nirspec:
   input_dir: "/DATA/Keck/NIRSPEC/{star}_{planet}"

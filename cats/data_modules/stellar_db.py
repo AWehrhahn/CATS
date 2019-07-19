@@ -4,12 +4,17 @@ Get Data from Stellar DB
 
 import logging
 import numpy as np
-from scipy import constants as const
+# from scipy import constants as const
+from astropy import constants as const
+from astropy import units as q
+from astropy.time import Time
 
 from .data_interface import data_orbitparameters
 
 from DataSources.StellarDB import StellarDB
 
+
+# TODO return all parameters with astropy units
 
 class stellar_db(data_orbitparameters):
     def get_parameters(self, **_):
@@ -28,73 +33,55 @@ class stellar_db(data_orbitparameters):
         # Convert names
         # Stellar parameters
         star['name_star'] = star['name'][0]
-        star['r_star'] = star['radius']
-        star['m_star'] = star['mass']
-        star['teff'] = star['t_eff']
-        star['logg'] = star['logg']
-        star['monh'] = star['metallicity']
-        star['star_vt'] = star['vel_turb']
+        star['r_star'] = (star['radius'] * q.R_sun).to(q.km)
+        star['m_star'] = (star['mass'] * q.M_sun).to(q.kg)
+        star['teff'] = star['t_eff'] * q.Kelvin
+        star['logg'] = star['logg'] * q.one
+        star['monh'] = star['metallicity'] * q.one
+        star['star_vt'] = star['vel_turb'] * q.km / q.s
         # Planetary parameters
         planet = star['planets'][name_planet]
         star['name_planet'] = name_planet
-        star['r_planet'] = planet['radius']
-        star['m_planet'] = planet['mass']
-        star['inc'] = planet['inclination']
+        star['r_planet'] = (planet['radius'] * q.R_jupiter).to(q.km)
+        star['m_planet'] = (planet['mass'] * q.M_jupiter).to(q.kg)
+        star['inc'] = planet['inclination'] * q.deg
         if 'atm_height' in planet.keys():
-            star['h_atm'] = planet['atm_height']
+            star['h_atm'] = planet['atm_height'] * q.km
 
-        star['sma'] = planet['semi_major_axis']
-        star['period'] = planet['period']
-        star['transit'] = planet['transit_epoch']
-        star['duration'] = planet['transit_duration']
-        star['ecc'] = planet['eccentricity']
+        star['sma'] = (planet['semi_major_axis'] * q.AU).to(q.km)
+        star['period'] = planet['period'] * q.day
+        star['transit'] = Time(planet['transit_epoch'], format="jd")
+        star['duration'] = planet['transit_duration'] * q.day 
+        star['ecc'] = planet['eccentricity'] * q.one
+        # TODO
+        star["w"] = 90 * q.deg
 
-        # Convert all parameters into km and seconds
-        r_sun = 696342      # Radius Sun in km
-        r_jup = 69911       # Radius Jupiter in km
-        au = 149597871      # Astronomical Unit in km
-        secs = 24 * 60 * 60  # Seconds in a day
-        m_sol = 1.98855e30  # kg
-        m_jup = 1.89813e27  # kg
-        m_earth = 5.972e24  # kg
-
-        star['m_star'] *= m_sol
-        star['m_planet'] *= m_jup
-        star['r_star'] = star['r_star'] * r_sun
-        star['r_planet'] = star['r_planet'] * r_jup
-        star['sma'] = star['sma'] * au
-        star['period_s'] = star['period'] * secs
-        star['period_h'] = star['period'] * 24
-        star['duration'] = star['duration'] * secs
-
-        # Convert to radians
-        star['inc'] = np.deg2rad(star['inc'])
-        star["w"] = 90
-
-        logging.info('T_eff: %i K, logg: %.2f, [M/H]: %.1f' % (star['t_eff'], star['logg'], star['metallicity']))
+        logging.info('T_eff: %s, logg: %.2f, [M/H]: %.1f' % (star['teff'], star['logg'], star['metallicity']))
 
         # TODO: atmosphere model
         # stellar flux in = thermal flux out
         star['T_planet'] = ((np.pi * star['r_planet']**2) /
-                            star['sma']**2)**0.25 * star['t_eff']  # K
+                            star['sma']**2)**0.25 * star['teff']  # K
+        star['T_planet'] = star['T_planet'].decompose()
 
-        if star['m_planet'] > 10 * m_earth:
+        if star['m_planet'] > 10 * q.M_earth:
             # Hydrogen (e.g. for gas giants)
-            star['atm_molar_mass'] = 2.5
+            star['atm_molar_mass'] = 2.5 * q.g / q.mol
         else:
             # dry air (mostly nitrogen)  (e.g. for terrestial planets)
-            star['atm_molar_mass'] = 29
+            star['atm_molar_mass'] = 29 * q.g / q.mol
 
         # assuming isothermal atmosphere, which is good enough on earth usually
-        star['atm_scale_height'] = const.gas_constant * star['T_planet'] * (star['r_planet'] * 1e3)**2 / (
-            const.gravitational_constant * star['m_planet'] * star['atm_molar_mass'])  # km
+        star['atm_scale_height'] = const.R * star['T_planet'] * star['r_planet']**2 / (
+            const.G * star['m_planet'] * star['atm_molar_mass'])  # km
+        star['atm_scale_height'] = star['atm_scale_height'].decompose()
         # effective atmosphere height, if it would have constant density
-        star['h_atm'] = star['atm_scale_height']
+        star['h_atm'] = star['atm_scale_height'].to(q.km)
 
-        logging.info('Planet Temperature: %.2f K' % star['T_planet'])
-        logging.info('Atmsophere Molar Mass: %.2f g/mol' %
+        logging.info('Planet Temperature: %s' % star['T_planet'])
+        logging.info('Atmsophere Molar Mass: %s' %
                 star['atm_molar_mass'])
-        logging.info('Atmosphere Height: %.2f km' % star['h_atm'])
+        logging.info('Atmosphere Height: %s' % star['h_atm'])
 
         # calculate areas
         star['A_planet'] = np.pi * star['r_planet']**2
@@ -107,17 +94,7 @@ class stellar_db(data_orbitparameters):
 
         if 'periastron' not in star or star['periastron'] is None:
             star['periastron'] = star['transit']
-
-        # "period": 1.58040482, #days
-        # "periastron": 2454980.748796, # jd
-        # "transit": 2454980.748796, # jd
-        # "t_eff": 3030, # K
-        # "r_star" : 	0.211 * rsun, # r_sun
-        # "m_star": 0.157 * msun, # m_sun
-        # "m_planet": 0.0204 * mjup, # m_jup
-        # "sma": 0.01433 * au, # au
-        # "inc": 90, # degree
-        # "eccentricity": 0, 
-        # "w" : 90
+        else:
+            star["periastron"] = Time(star["periastron"], format="jd")
 
         return star

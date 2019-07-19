@@ -85,12 +85,21 @@ class dataset:
             return dataset(self.wave, data, error)
         raise NotImplementedError
 
-    def shift(self, i, rv):
+    def shift(self, rv, i=None):
         if i is None:
             i = slice(None, None, None)
         new_wave = self._wave_orig * (1 + rv/c)
         new_flux, new_error = self._interpolate(self._data_orig[i], self.wave, new_wave)
 
+        self._wave_orig = new_wave
         self._data_orig[i] = new_flux
         if self._err_orig is not None:
             self._err_orig[i] = new_error
+
+    def new_grid(self, new_wave):
+        new_flux, new_error = self._interpolate(self._data_orig, self.wave, new_wave)
+        self._wave_orig = new_wave
+        self._data_orig = new_flux        
+        if self._err_orig is not None:
+            self._err_orig = new_error
+        

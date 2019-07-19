@@ -2,7 +2,7 @@
 Module for the abstract interfaces for various forms of data access
 """
 
-from ..orbit import orbit as orbit_calculator
+from ..orbit import Orbit as orbit_calculator
 
 class data_interface:
     """ Abstract class for all data interfaces """
@@ -104,7 +104,7 @@ class data_orbitparameters(data_interface):
         # "period" in days
         # "periastron" in jd
         # "transit": in jd
-        # "t_eff"
+        # "teff"
         # "logg" in log(cgs)
         # "monh"
         # "r_star"

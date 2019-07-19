@@ -12,8 +12,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 
 from . import config, solution
-from .orbit import orbit as orbit_calculator
-
+from .orbit import Orbit as orbit_calculator
 
 steps = ["parameters", "observations", "stellar_flux", "intensities", "tellurics"]
 func_mapping = {
@@ -35,7 +34,7 @@ def load_module(name, configuration):
     # Load modules with the given name
     name = name.lower()
     mod_name = f".data_modules.{name}"
-    lib = importlib.import_module(mod_name)
+    lib = importlib.import_module(mod_name, package="cats")
     module = getattr(lib, name)(configuration)
     return module
 

@@ -88,8 +88,8 @@ def Tikhonov(f, g, l):
 
     sol = spsolve(A + l**2 * A.I * D.T * D, r)
 
-    # TODO use nan instead of 0
     s = np.full(len(mask), 0, dtype=float)
+    s = np.ma.masked_array(s, mask=~mask)
     s[mask] = sol
     return s
 
