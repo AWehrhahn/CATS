@@ -11,10 +11,9 @@ from astropy.time import Time
 
 from .data_interface import data_orbitparameters
 
-from DataSources.StellarDB import StellarDB
+# TODO rework stellar_db
+from data_sources.StellarDB import StellarDB
 
-
-# TODO return all parameters with astropy units
 
 class stellar_db(data_orbitparameters):
     def get_parameters(self, **_):
