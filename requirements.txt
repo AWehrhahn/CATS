@@ -4,4 +4,6 @@ astropy==3.2.1
 matplotlib==3.1.0
 pytest==5.0.0
 pyyaml
+spectres
 git+https://github.com/AWehrhahn/datasources
+git+https://github.com/AWehrhahn/ExoOrbits
