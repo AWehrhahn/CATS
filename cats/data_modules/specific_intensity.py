@@ -90,9 +90,12 @@ class data_intensities(di):
         intensity : np.ndarray
             interpolated intensity
         """
-        # TODO can I optimize this?
+
         values = i.values.swapaxes(0, 1)
-        return interp1d(i.keys(), values, kind='zero', axis=0, bounds_error=False, fill_value=(0, values[1]))(mu)
+        keys = np.asarray(i.keys())
+        flux = interp1d(keys, values, kind='linear', axis=0, bounds_error=False, fill_value=(values[0], values[-1]))(mu)
+        flux[mu < 0, :] = 0
+        return flux
 
 
     def calc_intensity(self, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
@@ -147,7 +150,28 @@ class data_intensities(di):
         return intens
 
 
-    def get_specifics(self, phase, intensity, n_radii=11, n_angle=7, mode='fast'):
+    def calc_mu(self, time, angles=None, radii=None):
+        """calculate the distance from the center of the planet to the center of the star as seen from earth
+
+        Parameters:
+        ----------
+        par : {dict}
+            stellar and planetary parameters
+        phase : {float, np.ndarray}
+            orbital phase of the planet
+        angles: {np.ndarray}, optional
+            set of angles to sample around the center of the planet (in radians)
+        radii: {np.ndarray}, optional
+            set of radii to sample around the center of the planet (in km)
+        Returns
+        -------
+        mu : {float, np.ndarray}
+            cos(limb distance), where 0 is the center of the star and 1 is the outer edge
+        """
+
+        return self.orbit.get_mu(time)
+
+    def get_specifics(self, time, intensity, n_radii=11, n_angle=7, mode='fast'):
         """Calculate the specific intensities of the star covered by planet and atmosphere, and only atmosphere respectively,
         over the different phases of transit
 
@@ -184,8 +208,8 @@ class data_intensities(di):
             r0 = self.parameters['r_planet'] / self.parameters['r_star']
             h = r0 + self.parameters['h_atm'] / self.parameters['r_star']
 
-            planet = self.atmosphere_profile(phase, intensity.flux, 0, h, "solid", n_radii[0], n_angle[0])
-            atm = self.atmosphere_profile(phase, intensity.flux, r0, h, "exponential", n_radii[1], n_angle[1])
+            planet = self.atmosphere_profile(time, intensity.flux, 0, h, "solid", n_radii[0], n_angle[0])
+            atm = self.atmosphere_profile(time, intensity.flux, r0, h, "exponential", n_radii[1], n_angle[1])
 
             ds_planet = dataset(intensity.wl, planet)
             ds_atm = dataset(intensity.wl, atm)
@@ -194,12 +218,12 @@ class data_intensities(di):
             # from r=0 to r = r_planet + r_atmosphere
             inner = 0
             outer = self.parameters['r_planet'] + self.parameters['h_atm']
-            i_planet = self.calc_intensity(phase, intensity.flux, inner, outer, n_radii[0], n_angle[0])
+            i_planet = self.calc_intensity(time, intensity.flux, inner, outer, n_radii[0], n_angle[0])
 
             # from r=r_planet to r=r_planet+r_atmosphere
             inner = self.parameters['r_planet']
             outer = self.parameters['r_planet'] + self.parameters['h_atm']
-            i_atm = self.calc_intensity(phase, intensity.flux,
+            i_atm = self.calc_intensity(time, intensity.flux,
                                 inner, outer, n_radii[1], n_angle[1])
             ds_planet = dataset(intensity.wave, i_planet)
             ds_atm = dataset(intensity.wave, i_atm)
@@ -207,8 +231,8 @@ class data_intensities(di):
         elif mode == 'fast':
             # Alternative version that only uses the center of the planet
             # Faster but less precise (significantly?)
-            mu = self.calc_mu(phase)
-            flux = self.__class__.interpolate_intensity(mu, intensity.flux)
+            mu = self.calc_mu(time)
+            flux = self.__class__.interpolate_intensity(mu, intensity.data)
             ds = dataset(intensity.wave, np.copy(flux))
             ds2 = dataset(intensity.wave, np.copy(flux))
             return ds, ds2
@@ -218,8 +242,8 @@ class data_intensities(di):
 
     def get_intensities(self, **data):
         self.init(**data)
-        dates = data["observations"].time
-        phases = self.orbit.get_phase(dates)
+        # phases = data["observations"].phase
+        times = data["observations"].time
         intensity = self.load_intensities(**data)
-        i_core, i_atmo = self.get_specifics(phases, intensity)
+        i_core, i_atmo = self.get_specifics(times, intensity)
         return i_core, i_atmo

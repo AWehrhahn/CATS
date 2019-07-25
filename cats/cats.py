@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 
 from . import config, solution
+from .data_modules.dataset import dataset
 from .orbit import Orbit as orbit_calculator
 
 steps = ["parameters", "observations", "stellar_flux", "intensities", "tellurics"]
@@ -62,23 +63,19 @@ def calculate_solution(data, configuration, lamb="auto"):
     flux = data["stellar_flux"]
     obs = data["observations"]
 
-    area_planet = parameters["A_planet"]
-    area_atmosphere = parameters['A_atm']
+    area_planet = parameters["A_planet"].value
+    area_atmosphere = parameters['A_atm'].value
 
     orbit = orbit_calculator(configuration, parameters)
 
     plot_observation_timeseries(obs, parameters)
-
-
-    plot_observation_timeseries(obs, parameters)
-
 
     # Step 1: Shift data onto the same wavelength grid (rv = 0)
     # rv of observations is given by system velocity + orbit parameters (at the observation time)
     # Everything else is already in barycentric (?)
     logging.info("Shift observations into rest frame")
     for i in range(len(obs.data)):
-        obs.shift(i, orbit.get_rv(obs.time[i]))
+        obs.shift(orbit.get_rv(obs.time[i]), i)
 
     # plot_observation_timeseries(obs)
     # Step 2: Broaden theoretical spectra with instrumental profile
@@ -92,19 +89,19 @@ def calculate_solution(data, configuration, lamb="auto"):
 
     # Step 3: Calculate intermediate values f and g
     logging.info("Calculating factors f and g")
-    f = tell * i_atm * area_atmosphere
+    f = i_atm * tell
     g = obs - (flux - i_planet * area_planet) * tell
-    
+
     # Collapse g
     wave = g.wave
     g = np.sum(g.data, axis=0) / len(g.data)
-    
+
     if isinstance(f, dataset):
-        f._interpolate(wave)
-        f = f.data
+        f.new_grid(wave)
+        f = np.sum(f.data, axis=0) / len(f.data)
     else:
         f = np.full(len(g), f)
-    
+
     # Step 4 (optional): Determine regularization parameter
     if lamb == "auto":
         logging.info("Determining best regulariztion parameter lambda")
@@ -114,6 +111,12 @@ def calculate_solution(data, configuration, lamb="auto"):
     logging.info("Solve inverse problem")
     result = solution.Tikhonov(f, g, lamb)
 
+    # Step 6: Normalize
+    # TODO: Is that ok?
+    a_atm = result.max() - result.min()
+    result -= result.min()
+    result /= result.max()
+
     result = dataset(wave, result)
     return result
 
@@ -122,18 +125,39 @@ def plot_observation_timeseries(obs, parameters):
     nwave = len(obs.wave)
     wave = obs.wave
 
-    #sort by time
-    sort = np.argsort(obs.time)
+    #sort by phase
+    times = obs.phase
+    sort = np.argsort(times)
     datacube = obs.data[sort]
-    dates = obs.time[sort]
+    times = times[sort]
 
-    plt.imshow(datacube, origin="lower", aspect="auto", cmap="gray")
+    white = np.median(datacube, axis=1)
+    datacube /= white[:, None]
+    stellar = np.median(datacube, axis=0)
+    datacube -= stellar
+
+
+    lower, upper = np.nanpercentile(datacube, (5, 95))
+
+    plt.imshow(datacube, origin="lower", aspect="auto", cmap="gray", vmin=lower, vmax=upper)
     plt.xticks(np.arange(nwave)[::100], wave[::100])
-    plt.yticks(np.arange(nobs)[::10], dates[::10])
+    plt.yticks(np.arange(nobs)[::10], times[::10])
+
+    orbit = orbit_calculator(None, parameters)
+    lower, upper = orbit.maximum_phase()
+    mid = (lower + upper) / 2
+
+    lower, mid, upper = np.digitize((lower, mid, upper), times)
+
+    plt.hlines([lower, upper], 0, nwave, color="r", linestyles="dashed")
+    plt.hlines(mid, 0, nwave, color="r")
     plt.show()
 
 def plot(results, data, configuration):
-    plt.plot(results.wave, results.data)
+    flux = data["stellar_flux"]
+    plt.plot(results.wave, results.data, label="planet atmosphere")
+    plt.plot(flux.wave, flux.data, label="stellar_flux")
+    plt.legend(loc="best")
     plt.show()
 
 def main(star, planet, lamb="auto"):

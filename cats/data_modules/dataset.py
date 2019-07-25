@@ -1,5 +1,5 @@
 import numpy as np
-# import spectres
+import spectres
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.constants import speed_of_light
@@ -43,6 +43,9 @@ class dataset:
         return result
 
     def _interpolate(self, data, old_wave, new_wave):
+        # mask = (new_wave > old_wave.min()) & (new_wave < old_wave.max())
+        # flux = np.zeros(len(new_wave))
+        # flux[mask] = spectres.spectres(new_wave[mask], old_wave, data)
         flux = interp1d(old_wave, data, bounds_error=False, fill_value=0)(new_wave)
         return flux, 1
 

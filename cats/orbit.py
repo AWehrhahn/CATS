@@ -136,7 +136,7 @@ class Orbit:
         max_phase = self._backend.phase_angle(t)
         return max_phase
 
-    def get_mu(self, x, y, z, angles=None, radii=None):
+    def get_mu(self, times):
         """get mu = cos(distance to stellar center)
         cos(limb distance), where 1 is the center of the star and 0 is the outer edge
 
@@ -155,19 +155,7 @@ class Orbit:
         mu : float, np.ndarray
             cos(sqrt(y**2 + z**2))
         """
-        if not isinstance(y, np.ndarray):
-            y = np.array([y])
-        if not isinstance(z, np.ndarray):
-            z = np.array([z])
-
-        if radii is not None and angles is not None:
-            y = y[:, None, None] + np.outer(radii, np.cos(angles))[None, ...]
-            z = z[:, None, None] + np.outer(radii, np.sin(angles))[None, ...]
-
-        tmp = y ** 2 + z ** 2
-        mu = np.full_like(y, -1)
-        np.sqrt(1 - tmp, where=tmp <= 1, out=mu)
-        return mu
+        return self._backend.mu(times)
 
     def get_rv(self, times):
         """Calculate the radial velocity of the planet at a given phase

@@ -24,11 +24,3 @@ def test_maxphase(orbit):
     assert np.all(maxphase >= 0)
     assert np.all(maxphase <= 2 * np.pi)
     assert maxphase[0] < maxphase[1]
-
-def test_phases(orbit, times):
-    phases = orbit.get_phase(times)
-
-    assert isinstance(phases, np.ndarray)
-    assert phases.ndim == 1
-    assert phases.size == times.size
-    assert np.all((phases >= 0) & (phases <= 2 * np.pi))

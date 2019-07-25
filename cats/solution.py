@@ -73,7 +73,7 @@ def Tikhonov(f, g, l):
     b = f #np.sum(f, axis=0)
     r = g #np.sum(g, axis=0)
 
-    mask = (~np.isnan(b)) & (~np.isnan(r))
+    mask = (~np.isnan(b)) & (~np.isnan(r)) & (b != 0) & (r != 0)
     b = b[mask]
     r = r[mask]
 

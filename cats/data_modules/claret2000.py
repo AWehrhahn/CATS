@@ -101,13 +101,12 @@ class claret2000(data_intensities):
         lddata = hdulist[1].data
 
         # Get stellar parameters from parameters and round to next best grid value
-        T = cls.round_to(par['teff'], 250, limits=[3500, 4500])
-        logg = cls.round_to(par['logg'], 0.5, limits=[0, 5])
-        vmt = cls.round_to(par['star_vt'], 1, limits=[0, 8])
-        met = cls.round_to(par['monh'], 0.1, limits=[-5, 0.5])
+        T = cls.round_to(par['teff'].to("K").value, 250, limits=[3500, 4500])
+        logg = cls.round_to(par['logg'].value, 0.5, limits=[0, 5])
+        vmt = cls.round_to(par['star_vt'].to("km/s").value, 1, limits=[0, 8])
+        met = cls.round_to(par['monh'].value, 0.1, limits=[-5, 0.5])
         if met == 0.4:
             met = 0.3
-
         if vmt == 3:
             vmt = 2
         if vmt in [5, 6]:
