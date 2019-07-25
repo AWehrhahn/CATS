@@ -21,6 +21,6 @@ def test_maxphase(orbit):
     assert isinstance(maxphase, np.ndarray)
     assert maxphase.ndim == 1
     assert maxphase.size == 2
-    assert np.all(maxphase >= 0)
-    assert np.all(maxphase <= 2 * np.pi)
+    assert np.all(maxphase >= -np.pi)
+    assert np.all(maxphase <= np.pi)
     assert maxphase[0] < maxphase[1]
