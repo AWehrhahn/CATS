@@ -16,23 +16,25 @@ broadening: 0
 workflow:
   - parameters
   - observations
+  - planet
   - tellurics
   - stellar_flux
   - intensities
 
 # Modules to use
 parameters: stellar_db   # StellarDB gets values from exoplanet.org
-observations: pyreduce   # JWST MIRI instrument (after data reduction)
+observations: synthetic   # JWST MIRI instrument (after data reduction)
 tellurics: space         # No tellurics in space
-stellar_flux: nirspec    # Marcs Models, try out of transit observation instead?
+stellar_flux: psg    # Marcs Models, try out of transit observation instead?
 intensities: claret2000  # Erik Aaronsons low resolution fitting
+planet: psg
 
 # Configurations for individual modules
 stellar_db:
   path: /DATA/stellar_db/
 
 pyreduce:
-  input_dir: "/DATA/Keck/NIRSPEC/{star}_{planet}/reduced"
+  input_dir: "/DATA/Keck/NIRSPEC/{star}_{planet}/reduced/2011-03-??"
   filename: "*.fits.ech"
 
 nirspec:
@@ -43,7 +45,7 @@ molecfit:
   file: molecfit.par
 
 psg:
-  dir: /DATA/exoSpectro/{star}{planet}/PSG
+  dir: /DATA/exoSpectro/{star}{planet}/input
   file_obs: radiance_*.csv
   file_phase: phases.txt
   file_star: flux.csv
@@ -52,7 +54,7 @@ psg:
   file_config: psg_config.txt
 
 marcs:
-  dir: MARCS
+  dir: /DATA/MARCS
   file_flux: 4000g4.7z-0.25m0.6t0.flx
   file_ld: 3896g4.7z-0.25m0.6t0_{}.limb
   ld_format: [1, 2, 3, 4, 5, 6, 7]
@@ -81,7 +83,9 @@ idl:
   file_obs: '*.ech'
 
 synthetic:
-  source: psg
-  snr: 1000                         # S/N (per spectral pixel per exposure) [S/NperResElem / sqrt(3) gives per pixel]"
+  snr: 200                         # S/N (per spectral pixel per exposure) [S/NperResElem / sqrt(3) gives per pixel]"
   fwhm: 0.5                         # FWHM (instrumental profile approximated with gaussian)
-  n_exposures: 1                    # Number of individual exposures during entire transit
+  n_exposures: 100                   # Number of individual exposures during entire transit
+  wavelength_minimum: 10000
+  wavelength_maximum: 15000
+  wavelength_points: 100000

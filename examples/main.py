@@ -42,7 +42,7 @@ if len(sys.argv) > 1:
 else:
     star = "GJ1214"
     planet = "b"
-    lamb = 0
+    lamb = 6810
 
 try:
     main(star, planet, lamb=lamb)

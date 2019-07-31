@@ -5,17 +5,63 @@ Create synthetic observation spectra, when telluric, stellar flux etc are given
 import logging
 import numpy as np
 
-from ..orbit import orbit as orbit_calculator
+from ..orbit import Orbit as orbit_calculator
 from .data_interface import data_observations
+from .dataset import dataset as dataset_classic
 
+
+class dataset(dataset_classic):
+    """Special dataset, that only evaluates the flux later"""
+
+    def __init__(self, wave, data_func, err=None):
+        super().__init__(wave, None, err=err)
+        self._data_func = data_func
+
+    @property
+    def data(self):
+        if self._data_orig is None:
+            result = self._data_func()
+            self._data_orig = self._data_func()
+        else:
+            result = self._data_orig
+        result = self._broaden(result)
+        result *= self.scale
+        return result
 
 
 class synthetic(data_observations):
     """ create synthetic observation from given data """
 
-    _requires = ["parameters", "stellar_flux", "intensities", "telluric", "planet"]
+    _obs_requires = ["parameters", "stellar_flux",
+                     "intensities", "telluric", "planet"]
 
     def get_observations(self, **data):
+        self.parameters = data["parameters"]
+        self.orbit = orbit_calculator(self.configuration, self.parameters)
+
+        # Use evenly spaced time points between first and fourth contact
+        n_obs = self.configuration['n_exposures']
+        t1 = self.orbit._backend.first_contact()
+        t4 = self.orbit._backend.fourth_contact()
+        self.time = np.linspace(t1, t4, n_obs)
+        self.phase = self.orbit.get_phase(self.time)
+
+        # Load wavelength grid definition
+        # Use geomspace for even sampling in frequency space
+        wmin = self.configuration["wavelength_minimum"]
+        wmax = self.configuration["wavelength_maximum"]
+        wpoints = self.configuration["wavelength_points"]
+        self.wgrid = np.geomspace(wmin, wmax, wpoints)
+        self.flux = self.synthetize
+
+        ds = dataset(self.wgrid, self.flux)
+        # Sigma of Instrumental FWHM in pixels
+        ds.broadening = 1 / 2.355 * self.configuration['fwhm']
+        ds.phase = self.phase
+        ds.time = self.time
+        return ds
+
+    def synthetize(self):
         """ Generates a synthetic spectrum based on the input spectra
 
         A planetary transmission spectrum is taken from the module defined with source
@@ -32,42 +78,33 @@ class synthetic(data_observations):
         obs : dataset
             synthetic observations
         """
-        logging.info('synthetic')
-        logging.info('n_exposures: %i', self.configuration['n_exposures'])
-        logging.info('snr: %i', self.configuration['snr'])
-        logging.info('planet spectrum: %s', self.configuration["source"])
 
+        data = self._data_from_other_modules
         parameters = data["parameters"]
         stellar = data["stellar_flux"]
-        telluric = data["telluric"]
+        telluric = data["tellurics"]
         i_core, i_atmo = data["intensities"]
-
-        # TODO
         planet = data["planet"]
 
-        orbit = orbit_calculator(self.configuration, parameters)
-        max_phase = np.pi - orbit.maximum_phase()
-        n_obs = self.configuration['n_exposures']
-        phase = np.random.uniform(low=np.pi - max_phase, high=np.pi + max_phase, size=n_obs)
-
-        # Sigma of Instrumental FWHM in pixels
-        sigma = 1 / 2.355 * self.configuration['fwhm']
+        phase = self.phase
+        time = self.time
 
         # TODO interpolate all onto the same wavelength grid
-        telluric.wave = stellar.wave
-        i_core.wave = stellar.wave
-        i_atmo.wave = stellar.wave
+        stellar.new_grid(self.wgrid)
+        telluric.new_grid(self.wgrid)
+        i_core.new_grid(self.wgrid)
+        i_atmo.new_grid(self.wgrid)
 
         # Observed spectrum
-        area_planet = parameters['A_planet+atm']
-        area_atm = parameters['A_atm']
-        obs = (stellar - area_planet * i_core + area_atm * i_atmo * planet) * telluric
+        area_planet = parameters['A_planet+atm'].value
+        area_atm = parameters['A_atm'].value
+        obs = (stellar - i_core * area_planet +
+               i_atmo * planet * area_atm) * telluric
         # Generate noise
-        noise = np.random.randn(len(phase), len(stellar.wl)) / self.configuration['snr']
+        noise = np.random.randn(len(phase), len(
+            self.wgrid)) / self.configuration['snr']
 
         # Apply instrumental broadening and noise
-        obs.gaussbroad(sigma)
-        obs.flux *= (1 + noise)
-        obs.phase = phase
-        # TODO get times instead of phase
-        return obs
+        obs *= (1 + noise)
+
+        return obs.data

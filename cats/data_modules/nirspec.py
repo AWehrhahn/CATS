@@ -9,6 +9,10 @@ from .data_interface import data_observations, data_stellarflux
 from .dataset import dataset
 
 class nirspec(data_observations, data_stellarflux):
+
+    _obs_requires = ["parameters"]
+    _flux_requires = ["parameters", "observations"]
+
     def load(self, fname):
         hdu = fits.open(fname)
         header = hdu[0].header

@@ -15,13 +15,13 @@ from . import config, solution
 from .data_modules.dataset import dataset
 from .orbit import Orbit as orbit_calculator
 
-steps = ["parameters", "observations", "stellar_flux", "intensities", "tellurics"]
 func_mapping = {
     "parameters": "get_parameters",
     "observations": "get_observations",
     "stellar_flux": "get_stellarflux",
     "intensities": "get_intensities",
     "tellurics": "get_tellurics",
+    "planet": "get_planet"
 }
 
 
@@ -42,6 +42,7 @@ def load_module(name, configuration):
 def load_data(star, planet, configuration):
     logging.info("Load data from modules")
     # Step 0: Get modules for each step from configuration
+    steps = configuration["workflow"]
     modules = {s: configuration[s] for s in steps}
     for k, m in modules.items():
         conf = configuration[m] if m in configuration.keys() else {}
@@ -52,6 +53,7 @@ def load_data(star, planet, configuration):
     for s in steps:
         logging.info("Loading %s data from module %s", s, str(modules[s]))
         data[s] = getattr(modules[s], func_mapping[s])(**data)
+        modules[s]._data_from_other_modules = data
     return data
 
 
@@ -115,7 +117,7 @@ def calculate_solution(data, configuration, lamb="auto"):
     # TODO: Is that ok?
     a_atm = result.max() - result.min()
     result -= result.min()
-    result /= result.max()
+    result /= np.percentile(result, 95)
 
     result = dataset(wave, result)
     return result
@@ -131,14 +133,17 @@ def plot_observation_timeseries(obs, parameters):
     datacube = obs.data[sort]
     times = times[sort]
 
+    # if False:
     white = np.median(datacube, axis=1)
-    datacube /= white[:, None]
     stellar = np.median(datacube, axis=0)
-    datacube -= stellar
+    # datacube /= white[:, None]
+    datacube /= stellar
 
+    plt.subplot(211)
+    plt.plot(times, white)
 
+    plt.subplot(212)
     lower, upper = np.nanpercentile(datacube, (5, 95))
-
     plt.imshow(datacube, origin="lower", aspect="auto", cmap="gray", vmin=lower, vmax=upper)
     plt.xticks(np.arange(nwave)[::100], wave[::100])
     plt.yticks(np.arange(nobs)[::10], times[::10])
@@ -155,9 +160,23 @@ def plot_observation_timeseries(obs, parameters):
 
 def plot(results, data, configuration):
     flux = data["stellar_flux"]
-    plt.plot(results.wave, results.data, label="planet atmosphere")
+    tell = data["tellurics"]
+    if "planet" in data.keys():
+        planet = data["planet"]
+    else:
+        planet = None
+
+
+    plt.plot(results.wave, results.data, label="planet recovered")
     plt.plot(flux.wave, flux.data, label="stellar_flux")
+    plt.plot(tell.wave, tell.data, label="tellurics")
+    if planet is not None:
+        plt.plot(planet.wave, planet.data, label="planet input")
     plt.legend(loc="best")
+
+    plt.xlim(results.wave[0], results.wave[-1])
+    plt.ylim(0, 1.05)
+
     plt.show()
 
 def main(star, planet, lamb="auto"):

@@ -3,39 +3,37 @@ import numpy as np
 import pandas as pd
 import spectres
 
-from ..orbit import orbit as orbit_calculator
+from ..orbit import Orbit as orbit_calculator
 from .dataset import dataset
 from .data_interface import data_intensities, data_stellarflux
 
 class marcs(data_intensities, data_stellarflux):
-    def get_intensities(self, **data):
-        obs = data["observations"]
-        stellar = data["stellar_flux"]
-        parameters = data["parameters"]
 
-        orbit = orbit_calculator(self.configuration, parameters)
-
-        mu = np.zeros(len(obs.data))
-        for i in range(len(obs.data)):
-            mu[i] = orbit.get_mu(*orbit.get_pos(orbit.get_phase(obs.time[i])))
-
-        # intensity = stellar * limb_darkening(mu)
-
-        return 1, 1
+    _flux_requires = ["parameters"]
 
     def get_stellarflux(self, **data):
+        # TODO get parameters from data["parameters"]
+        # and round to nearest grid value ?
+        par = data["parameters"]
+        teff = 3000
+        logg = 5
+        monh = 0.5
+        vt = 2
 
-        flux_file = os.path.join(self.configuration['input_dir'],
-                         self.configuration["marcs"]["dir"], "p3300_g+5.0_m0.0_t01_st_z+0.00_a+0.00_c+0.00_n+0.00_o+0.00_r+0.00_s+0.00.flx")
-        wl_file = os.path.join(self.configuration['input_dir'],
-                         self.configuration['marcs']['dir'], 'flx_wavelengths.vac')
+        geom = "p" # or s for spherical
+        mass = 0 # only has a value for spherical
+        # alpha, C, N, O abundance
+        a, c, n, o = 0, 0, 0, 0
+        r, s = 0, 0
 
-        flux = pd.read_table(flux_file, header=None, names=['flx']).values.reshape(-1)
-        wave = pd.read_table(wl_file, header=None, names=['wave']).values.reshape(-1)
+        fname = f"{geom}{teff:04d}_g{logg:+1.1f}_m{mass:1.1f}_t{vt:02d}_st_z{monh:+1.2f}_a{a:+1.2f}_c{c:+1.2f}_n{n:+1.2f}_o{o:+1.2f}_r{r:+1.2f}_s{s:+1.2f}.flx"
+        flux_file = os.path.join(self.configuration["dir"], fname)
+        wl_file = os.path.join(self.configuration['dir'], 'flx_wavelengths.vac')
 
-        # wave = data["observations"][0].wave
-        # flux = spectres.spectres(wave, wl, flux)
-        flux /= 80
+        flux = pd.read_csv(flux_file, header=None, names=['flx'], sep="\t")
+        wave = pd.read_csv(wl_file, header=None, names=['wave'], sep="\t")
+        flux = flux.values.ravel()
+        wave = wave.values.ravel()
 
         ds = dataset(wave, flux)
         return ds
