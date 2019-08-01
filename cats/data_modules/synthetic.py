@@ -52,6 +52,8 @@ class synthetic(data_observations):
         wmax = self.configuration["wavelength_maximum"]
         wpoints = self.configuration["wavelength_points"]
         self.wgrid = np.geomspace(wmin, wmax, wpoints)
+        self.wgrid[0] = wmin
+        self.wgrid[-1] = wmax
         self.flux = self.synthetize
 
         ds = dataset(self.wgrid, self.flux)

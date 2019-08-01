@@ -3,6 +3,7 @@ Load spectra from Planetary Spectrum Generator (PSG)
 """
 import glob
 import shutil
+import os
 from os.path import basename, exists, join, splitext, dirname
 import re
 
@@ -191,6 +192,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         if not exists(self.file_config):
             base_file = dirname(__file__)
             base_file = join(base_file, "psg_config.xml")
+            os.makedirs(os.path.dirname(self.file_config), exist_ok=True)
             shutil.copyfile(base_file, self.file_config)
 
         star = self.configuration["_star"]
@@ -214,7 +216,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
                                   "OBJECT-STAR-TEMPERATURE": star_temp,
                                   "OBJECT-STAR-RADIUS": star_radius})
 
-    def load_psg(self, phase, wl_low=5300, wl_high=6800, steps=140, obs=False, star=False, planet=False, tell=False):
+    def load_psg(self, phase, wl_low=5300, wl_high=6800, obs=False, star=False, planet=False, tell=False):
         """ load synthetic spectra from Planetary Spectrum Generator webservice
 
         PSG doesn't allow large wavelength ranges at high resolution, therefore split it into small parts that will be calculated
@@ -242,21 +244,21 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
             # Get telluric
             tell_file = self.file_tell
             df = psg_source.get_data_in_range(
-                    wl_low, wl_high, steps, wephm='T', type='tel')
+                    wl_low, wl_high, wephm='T', type='tel')
             df.to_csv(tell_file, index=False)
 
         if planet:
             # Get planet
             atm_file = self.file_atm
             df = psg_source.get_data_in_range(
-                    wl_low, wl_high, steps, wephm='T', type='trn')
+                    wl_low, wl_high, wephm='T', type='trn')
             df.to_csv(atm_file, index=False)
 
         if star:
             # Get stellar flux
             flx_file = self.file_flux
             df = psg_source.get_data_in_range(
-                    wl_low, wl_high, steps, wephm='T')
+                    wl_low, wl_high, wephm='T')
             df.to_csv(flx_file, index=False)
 
         if obs:
@@ -265,5 +267,5 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
                 obs_file = self.file_obs.replace('*', str(i))
                 psg_source.change_config({'OBJECT-SEASON': p})
                 df = psg_source.get_data_in_range(
-                        wl_low, wl_high, steps, wephm='T')
+                        wl_low, wl_high, wephm='T')
                 df.to_csv(obs_file, index=False)
