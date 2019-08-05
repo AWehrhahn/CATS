@@ -68,7 +68,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         """
         wave_grid = data["observations"].wave
         wmin, wmax = wave_grid[0], wave_grid[-1]
-        if not exists(self.file_atm) or self.check_wavelength_range(self.file_flux, (wmin, wmax)):
+        if not exists(self.file_atm) or not self.check_wavelength_range(self.file_atm, (wmin, wmax)):
             self.prepare_config_file(data["parameters"])
             self.load_psg(None, wmin, wmax, planet=True)
 
@@ -146,7 +146,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         wave_grid = data["observations"].wave
         wmin, wmax = wave_grid[0], wave_grid[-1]
 
-        if not exists(self.file_flux) or self.check_wavelength_range(self.file_flux, (wmin, wmax)):
+        if not exists(self.file_flux) or not self.check_wavelength_range(self.file_flux, (wmin, wmax)):
             self.prepare_config_file(data["parameters"])
             self.load_psg(None, wmin, wmax, star=True)
 
@@ -247,10 +247,9 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
 
         if planet:
             # Get planet
-            atm_file = self.file_atm
             df = psg_source.get_data_in_range(
                     wl_low, wl_high, steps, wephm='T', type='trn')
-            df.to_csv(atm_file, index=False)
+            df.to_csv(self.file_atm, index=False)
 
         if star:
             # Get stellar flux
