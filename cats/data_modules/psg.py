@@ -186,7 +186,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         wmin, wmax = wave
         ds = pd.read_csv(file_flux)
         wave = ds["Wave/freq"].values
-        return wave[0] > wmin or wave[-1] < wmax
+        return not(wave[0] > wmin or wave[-1] < wmax)
 
     def prepare_config_file(self, parameters):
         if not exists(self.file_config):
@@ -198,6 +198,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         star = self.configuration["_star"]
         planet = self.configuration["_planet"]
 
+        # TODO figure out all the parameters we need to change to make it fit accurately
         object_name = f"{star}{planet}"
         object_diameter = parameters["r_planet"].to("km").value
         object_gravity = (parameters["m_planet"] * G).to("m**3/s**2").value
@@ -208,13 +209,15 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         star_radius = parameters["r_star"].to("R_sun").value
 
         psg_source = PSG(config_file=self.file_config)
-        psg_source.change_config({'OBJECT-NAME': object_name,
-                                  "OBJECT-DIAMETER": object_diameter,
-                                  "OBJECT-GRAVITY": object_gravity,
-                                  "OBJECT-STAR-DISTANCE": object_distance,
-                                  "OBJECT-STAR-VELOCITY": object_velocity,
-                                  "OBJECT-STAR-TEMPERATURE": star_temp,
-                                  "OBJECT-STAR-RADIUS": star_radius})
+        psg_config = psg_source.psg_config
+        psg_config["OBJECT-NAME"] = object_name
+        psg_config["OBJECT-DIAMETER"] = object_diameter
+        psg_config["OBJECT-GRAVITY"] = object_gravity
+        psg_config["OBJECT-STAR-DISTANCE"] = object_distance
+        psg_config["OBJECT-STAR-VELOCITY"] = object_velocity
+        psg_config["OBJECT-STAR-TEMPERATURE"] = star_temp
+        psg_config["OBJECT-STAR-RADIUS"] = star_radius
+        psg_config.save()
 
     def load_psg(self, phase, wl_low=5300, wl_high=6800, obs=False, star=False, planet=False, tell=False):
         """ load synthetic spectra from Planetary Spectrum Generator webservice

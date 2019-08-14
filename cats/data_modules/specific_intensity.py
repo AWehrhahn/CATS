@@ -218,12 +218,12 @@ class data_intensities(di):
             # from r=0 to r = r_planet + r_atmosphere
             inner = 0
             outer = self.parameters['r_planet'] + self.parameters['h_atm']
-            i_planet = self.calc_intensity(time, intensity.flux, inner, outer, n_radii[0], n_angle[0])
+            i_planet = self.calc_intensity(time, intensity.data, inner, outer, n_radii[0], n_angle[0])
 
             # from r=r_planet to r=r_planet+r_atmosphere
             inner = self.parameters['r_planet']
             outer = self.parameters['r_planet'] + self.parameters['h_atm']
-            i_atm = self.calc_intensity(time, intensity.flux,
+            i_atm = self.calc_intensity(time, intensity.data,
                                 inner, outer, n_radii[1], n_angle[1])
             ds_planet = dataset(intensity.wave, i_planet)
             ds_atm = dataset(intensity.wave, i_atm)
@@ -232,7 +232,12 @@ class data_intensities(di):
             # Alternative version that only uses the center of the planet
             # Faster but less precise (significantly?)
             mu = self.calc_mu(time)
+            mu[mu == -1] = 0
+            k2 = self.parameters["A_planet"].value
+            depth = self.orbit.get_transit_depth(time) 
+            depth /= k2
             flux = self.__class__.interpolate_intensity(mu, intensity.data)
+            flux *= depth[:, None] 
             ds = dataset(intensity.wave, np.copy(flux))
             ds2 = dataset(intensity.wave, np.copy(flux))
             return ds, ds2

@@ -7,6 +7,7 @@ from scipy.optimize import least_squares
 
 from .data_interface import data_observations, data_stellarflux
 from .dataset import dataset
+from ..orbit import Orbit
 
 class nirspec(data_observations, data_stellarflux):
 
@@ -14,7 +15,7 @@ class nirspec(data_observations, data_stellarflux):
     _flux_requires = ["parameters", "observations"]
 
     def load(self, fname):
-        hdu = fits.open(fname)
+        hdu = fits.open(fname, ignore_blank=True)
         header = hdu[0].header
         data = hdu[1].data
 
@@ -32,7 +33,9 @@ class nirspec(data_observations, data_stellarflux):
         return ds
 
 
-    def get_observations(self, **_):
+    def get_observations(self, **data):
+        self.orbit = Orbit(self.configuration, data["parameters"])
+
         order = "34"
         star = self.configuration["_star"]
         planet = self.configuration["_planet"]
@@ -56,7 +59,7 @@ class nirspec(data_observations, data_stellarflux):
 
             res = least_squares(func, 0)        
             rv = res.x[0]
-            obs[i].shift(None, rv)
+            obs[i].shift(rv)
         
         nobs = len(obs)
         nwave = len(obs[0])
@@ -70,6 +73,7 @@ class nirspec(data_observations, data_stellarflux):
 
         obs = dataset(wave, datacube)
         obs.time = dates
+        obs.phase = self.orbit.get_phase(dates)
         return obs
 
     def get_stellarflux(self, **data):

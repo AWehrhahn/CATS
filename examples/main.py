@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from cats.cats import main
+from cats import cats
+from cats.data_modules.aronson import aronson
 
 if len(sys.argv) > 1:
     parser = argparse.ArgumentParser(
@@ -45,7 +47,20 @@ else:
     lamb = 6810
 
 try:
-    main(star, planet, lamb=lamb)
+    # main(star, planet, lamb=lamb)
+    
+    # Generate synthetic data
+    configuration = cats.load_configuration(star, planet)
+    data = cats.load_data(star, planet, configuration)
+
+    # Assume that the first guess for the planet size is off by 5%
+    print(data["parameters"]["r_planet"])
+    data["parameters"]["r_planet"] *= 1.05
+
+    # Try to use Aronson method on it
+    module = aronson(configuration)
+    intensity = module.get_intensities(**data)
+
 except FileNotFoundError as fnfe:
     logging.error("Some files seem to be missing, can't complete calculation")
     logging.error(fnfe)

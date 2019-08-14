@@ -35,14 +35,29 @@ class synthetic(data_observations):
     _obs_requires = ["parameters", "stellar_flux",
                      "intensities", "telluric", "planet"]
 
+    @staticmethod
+    def get_number_of_wavelengths_points_from_resolution(R, wmin, wmax):
+        def gen(R, wmin, wmax):
+            delta_wave = lambda w: w/R
+            wave_local = wmin
+            yield wave_local
+            while wave_local < wmax:
+                wave_local += delta_wave(wave_local)
+                yield wave_local
+            return
+
+        generator = gen(R, wmin, wmax)
+        ls = list(generator)
+        return len(ls)
+
     def get_observations(self, **data):
         self.parameters = data["parameters"]
         self.orbit = orbit_calculator(self.configuration, self.parameters)
 
         # Use evenly spaced time points between first and fourth contact
         n_obs = self.configuration['n_exposures']
-        t1 = self.orbit._backend.first_contact()
-        t4 = self.orbit._backend.fourth_contact()
+        t1 = self.orbit._backend.first_contact()  - self.parameters["period"].to("day").value / 100
+        t4 = self.orbit._backend.fourth_contact() + self.parameters["period"].to("day").value / 100
         self.time = np.linspace(t1, t4, n_obs)
         self.phase = self.orbit.get_phase(self.time)
 
@@ -50,7 +65,10 @@ class synthetic(data_observations):
         # Use geomspace for even sampling in frequency space
         wmin = self.configuration["wavelength_minimum"]
         wmax = self.configuration["wavelength_maximum"]
-        wpoints = self.configuration["wavelength_points"]
+        
+        R = self.configuration["resolution"]
+        wpoints = synthetic.get_number_of_wavelengths_points_from_resolution(R, wmin, wmax)
+
         self.wgrid = np.geomspace(wmin, wmax, wpoints)
         self.wgrid[0] = wmin
         self.wgrid[-1] = wmax

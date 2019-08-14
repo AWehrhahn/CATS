@@ -21,7 +21,9 @@ func_mapping = {
     "stellar_flux": "get_stellarflux",
     "intensities": "get_intensities",
     "tellurics": "get_tellurics",
-    "planet": "get_planet"
+    "planet": "get_planet",
+    "raw": "get_raw",
+    "reduction": "get_reduced",
 }
 
 
@@ -139,8 +141,14 @@ def plot_observation_timeseries(obs, parameters):
     # datacube /= white[:, None]
     datacube /= stellar
 
+    orbit = orbit_calculator(None, parameters)
+    p1, p2 = orbit.maximum_phase()
+    p0 = (p1 + p2) / 2
+
     plt.subplot(211)
     plt.plot(times, white)
+    plt.vlines([p1, p2], 0, np.max(white), color="r", linestyles="dashed")
+
 
     plt.subplot(212)
     lower, upper = np.nanpercentile(datacube, (5, 95))
@@ -148,12 +156,7 @@ def plot_observation_timeseries(obs, parameters):
     plt.xticks(np.arange(nwave)[::100], wave[::100])
     plt.yticks(np.arange(nobs)[::10], times[::10])
 
-    orbit = orbit_calculator(None, parameters)
-    lower, upper = orbit.maximum_phase()
-    mid = (lower + upper) / 2
-
-    lower, mid, upper = np.digitize((lower, mid, upper), times)
-
+    lower, mid, upper = np.digitize((p1, p0, p2), times)
     plt.hlines([lower, upper], 0, nwave, color="r", linestyles="dashed")
     plt.hlines(mid, 0, nwave, color="r")
     plt.show()

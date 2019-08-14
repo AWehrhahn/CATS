@@ -1,5 +1,4 @@
 import numpy as np
-import spectres
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.constants import speed_of_light
@@ -15,6 +14,7 @@ class dataset:
         self._wave_orig = wave
         self._data_orig = data
         self._err_orig = err
+        self.time = 0
 
         self.broadening = 0
         self.scale = 1

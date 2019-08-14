@@ -2,6 +2,7 @@
 Load data generated in IDL
 """
 import glob
+import os.path
 from os.path import join
 import logging
 
@@ -17,20 +18,24 @@ from astropy import units as q
 
 try:
     from pyreduce import echelle
+    from pyreduce.configuration import get_configuration_for_instrument
+    from pyreduce.reduce import main
+
 
     _has_pyreduce = True
 except ImportError:
     logging.error("Need to install pyreduce, to use pyreduce module")
     _has_pyreduce = False
 
-from .data_interface import data_observations
+from .data_interface import data_observations, data_reduction
 from .dataset import dataset
 
 from ..orbit import Orbit
 
 c = speed_of_light * 1e-3
 
-class pyreduce(data_observations):
+
+class pyreduce(data_observations, data_reduction):
     """ Class to load data in IDL """
 
     _requires = ["parameters"]
@@ -72,9 +77,7 @@ class pyreduce(data_observations):
     @staticmethod
     def _shift(rv, wgrid, wave, flux, reference):
         w = wgrid * (1 - rv / c)
-        f = interp1d(
-            wave, flux, bounds_error=False, fill_value=(flux[0], flux[-1])
-        )(w)
+        f = interp1d(wave, flux, bounds_error=False, fill_value=(flux[0], flux[-1]))(w)
         return f - reference
 
     def get_observations(self, **data):
@@ -102,7 +105,9 @@ class pyreduce(data_observations):
             points = np.arange(len(obs))[mask]
             i = points[0]
             reference = obs[i].data / np.median(obs[i].data)
-            reference = interp1d(obs[i].wave, reference, fill_value = 0, bounds_error=False)(wgrid)
+            reference = interp1d(
+                obs[i].wave, reference, fill_value=0, bounds_error=False
+            )(wgrid)
             for i in points:
                 # Cross-correlate spectra, so lines align
                 wave = obs[i].wave
@@ -112,13 +117,16 @@ class pyreduce(data_observations):
                 offset = np.argmax(corr)
                 rv = (wave[len(wave) // 2] / wave[offset] - 1) * c
 
-                res = least_squares(pyreduce._shift, rv, args=(wgrid, wave, flux, reference), loss="soft_l1")
+                res = least_squares(
+                    pyreduce._shift,
+                    rv,
+                    args=(wgrid, wave, flux, reference),
+                    loss="soft_l1",
+                )
                 rv = res.x
 
                 obs[i]._wave_orig = wave * (1 + rv / c)
                 obs[i].new_grid(wgrid)
-
-        
 
         # Organize everything into a single dataset
         flux = np.empty((len(obs), len(obs[0].data)))
@@ -150,3 +158,24 @@ class pyreduce(data_observations):
         obs.time = times
         obs.phase = phase
         return obs
+
+    def get_reduced(self, **data):
+        instrument, mode, target, folder = data["raw"]
+        night = "????-??-??"
+        base_dir = os.path.join(folder, "..")
+        input_dir = os.path.basename(folder)
+        config = get_configuration_for_instrument(instrument, plot=False)
+
+        output = main(
+            instrument,
+            target,
+            night,
+            mode,
+            steps=["bias", "flat", "norm_flat", "science", "continuum", "finalize"],
+            base_dir=base_dir,
+            input_dir=input_dir,
+            output_dir="reduced",
+            configuration=config,
+        )
+        return output[0]["finalize"]
+

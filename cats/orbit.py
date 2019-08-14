@@ -56,8 +56,9 @@ class Orbit:
         w = self.par["w"]
         transit = self.par["transit"]
         # periastron = self.par["periastron"]
+        teff = self.par["teff"]
 
-        star = ExoOrbit.Star(m_star, r_star, name=star_name)
+        star = ExoOrbit.Star(m_star, r_star, teff, name=star_name)
         planet = ExoOrbit.Planet(
             m_planet, r_planet, sma, period, ecc, inc, w, transit, name=planet_name
         )
@@ -172,6 +173,10 @@ class Orbit:
         v = self._backend.radial_velocity_planet(times)
         v *= 1e-3  # convert to km/s
         return v
+
+    def get_transit_depth(self, time):
+        td = self._backend.transit_depth(time)
+        return td
 
     def plot(self, x, y, z, mode="2D"):
         """Plot the star together with planet at position x, y, z

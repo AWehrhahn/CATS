@@ -52,8 +52,10 @@ def Franklin(wl, f, g, lamb):
     #reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
     return solve_banded((1, 1), ab, r)
 
+def _Tikhonov(A, D, l, g):
+    return spsolve(A**2 + l**2 * D.T * D, A * g)
 
-def Tikhonov(f, g, l):
+def Tikhonov(f, g, l, spacing=None):
     """Solve f * x = g, with Tikhonov regularization parameter l
 
     Solve the equation diag(f) + l**2 * diag(f).I * D.T * D = g
@@ -70,29 +72,33 @@ def Tikhonov(f, g, l):
     np.ndarray
         x
     """
-    b = f #np.sum(f, axis=0)
-    r = g #np.sum(g, axis=0)
 
-    mask = (~np.isnan(b)) & (~np.isnan(r)) & (b != 0) & (r != 0)
-    b = b[mask]
-    r = r[mask]
+    f = np.asarray(f)
+    g = np.asarray(g)
+    if f.ndim == 2:
+        f = np.sum(f, axis=0)
+        g = np.sum(g, axis=0)
 
-    n = len(b)
-    # Difference Operator D
-    D = __difference_matrix__(n)
-    #D = __fourier_matrix__(n)
+    # Remove any nan or zero values
+    mask = (~np.isnan(f)) & (~np.isnan(g)) & (f != 0) & (g != 0)
+    f, g = f[mask], g[mask]
 
-    A = diags(b, 0)
-    # Inverse
-    A.I = diags(1 / b, 0)
+    # Create the matrix A (and its inverse)
+    if spacing is None:
+        n = len(f)
+        D = __difference_matrix__(n)
+    else:
+        D = __difference_matrix_2__(spacing)
+    A = diags(f, 0)
 
-    sol = spsolve(A + l**2 * A.I * D.T * D, r)
+    # Solve the equation
+    sol = _Tikhonov(A, D, l, g)
 
+    # Resize the results on the same size as the input
     s = np.full(len(mask), 0, dtype=float)
     s = np.ma.masked_array(s, mask=~mask)
     s[mask] = sol
     return s
-
 
 def __difference_matrix__(size):
     """Get the difference operator matrix
@@ -113,18 +119,40 @@ def __difference_matrix__(size):
     b[0] = b[-1] = 1
     return diags([a, b, c], offsets=[-1, 0, 1])
 
+def __difference_matrix_2__(spacing):
+    """Get the difference operator matrix
+
+    The difference operator is a matrix with the diagonal = 2, and both first offsets = -1
+
+    Parameters:
+    ----------
+    size : int
+        the size of the returned matrix
+    Returns
+    -------
+    dense matrix
+        the difference matrix of size size
+    """
+    size = spacing.size
+    h = np.diff(spacing)
+    a = c = -1 / h
+    b = np.zeros(size)
+    b[1:-1] = (h[1:] + h[:-1]) / (h[1:] * h[:-1])
+    b[0] = 1/h[0]
+    b[-1] = 1/h[-1]
+    return diags([a, b, c], offsets=[-1, 0, 1])
 
 def __fourier_matrix__(size):
     return dft(size, 'sqrtn')
 
-def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
+def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False, spacing=None):
     """Use the L-curve algorithm to find the best regularization parameter lambda
 
     http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
-    
+
     x = Residual
     y = First Derivative
-    
+
     this will create a L shaped curve, with the optimal lambda in the corner
     to find that value rotate the curve by pi/4 (45 degrees) and search for the minimum
 
@@ -150,7 +178,7 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
     def get_point(lamb, A, D, r):
         """ calculate points of the L-curve"""
         if method == 'Tikhonov':
-            sol = spsolve(A + lamb**2 * A.I * D.T * D, r)
+            sol = _Tikhonov(A, D, lamb, r)
         if method == 'Franklin':
             sol = spsolve(A + lamb * D, r)
 
@@ -170,7 +198,10 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False):
     b, r = b[mask], r[mask]
 
     # prepare matrices
-    D = __difference_matrix__(len(b))
+    if spacing is not None:
+        D = __difference_matrix_2__(spacing)
+    else:
+        D = __difference_matrix__(len(b))
     #D = __fourier_matrix__(len(b))
     A = diags(b, offsets=0)
     A.I = diags(1 / b, 0)
