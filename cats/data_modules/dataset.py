@@ -15,6 +15,7 @@ class dataset:
         self._data_orig = data
         self._err_orig = err
         self.time = 0
+        self.phase = 0
 
         self.broadening = 0
         self.scale = 1

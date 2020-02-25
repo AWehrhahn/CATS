@@ -35,5 +35,7 @@ class marcs(data_intensities, data_stellarflux):
         flux = flux.values.ravel()
         wave = wave.values.ravel()
 
+        flux /= flux.max()
+
         ds = dataset(wave, flux)
         return ds

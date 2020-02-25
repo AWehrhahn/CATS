@@ -41,21 +41,29 @@ def load_module(name, configuration):
     module = getattr(lib, name)(configuration)
     return module
 
+def get_module_name(step, configuration):
+    s = step.split(".")
+    if len(s) == 1:
+        return configuration[s[0]]
+    else:
+        return s[1]
+
 def load_data(star, planet, configuration):
     logging.info("Load data from modules")
     # Step 0: Get modules for each step from configuration
     steps = configuration["workflow"]
-    modules = {s: configuration[s] for s in steps}
-    for k, m in modules.items():
-        conf = configuration[m] if m in configuration.keys() else {}
-        modules[k] = load_module(m, conf)
+    modules = [get_module_name(s, configuration) for s in steps]
+    steps = [s.split(".")[0] for s in steps]
+    for i, (k, m) in enumerate(zip(steps, modules)):
+        conf = configuration[m] if m in configuration.keys() else None
+        modules[i] = load_module(m, conf)
 
     # Step 1: Load data
     data = {}
-    for s in steps:
-        logging.info("Loading %s data from module %s", s, str(modules[s]))
-        data[s] = getattr(modules[s], func_mapping[s])(**data)
-        modules[s]._data_from_other_modules = data
+    for s, m in zip(steps, modules):
+        logging.info("Loading %s data from module %s", s, str(m))
+        data[s] = getattr(m, func_mapping[s])(**data)
+        m._data_from_other_modules = data
     return data
 
 

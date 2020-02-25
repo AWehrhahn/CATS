@@ -11,6 +11,7 @@ Assumptions:
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from tqdm import tqdm
 from scipy.optimize import least_squares, curve_fit
@@ -20,7 +21,8 @@ from scipy.linalg import svd
 
 from spectres import spectres
 
-from .data_interface import data_intensities
+from .specific_intensity import data_intensities
+from .dataset import dataset
 from ..orbit import Orbit as orbit_calculator
 from ..solution import Tikhonov, best_lambda
 
@@ -88,10 +90,10 @@ class Intensity:
 
         # On an equispaced radius grid
         pillars = np.linspace(0, 1, nsteps)[::-1]
-        pillars = np.sqrt(1 - pillars**2)
+        pillars = np.sqrt(1 - pillars ** 2)
         if x0 is None:
-            x0 = np.full(nsteps, 1 / nsteps**2)
-            x0 += (np.random.rand(nsteps) - 0.5) * 1 / nsteps**2 * 1e-1
+            x0 = np.full(nsteps, 1 / nsteps ** 2)
+            x0 += (np.random.rand(nsteps) - 0.5) * 1 / nsteps ** 2 * 1e-1
 
         obj = Intensity(pillars, x0)
 
@@ -106,38 +108,40 @@ class Intensity:
     @classmethod
     def empty(cls, nsteps=101):
         pillars = np.linspace(0, 1, nsteps)[::-1]
-        pillars = np.sqrt(1 - pillars**2)
+        pillars = np.sqrt(1 - pillars ** 2)
         x0 = np.zeros(nsteps)
         obj = cls(pillars, x0)
         return obj
 
+
 class aronson(data_intensities):
-    def get_intensities(self, **data):
+    def load_intensities(self, **data):
         # TODO get lightcurves from observations
         obs = data["observations"]
         self.parameters = parameters = data["parameters"]
-
-        white = np.mean(obs.data, axis=1)
-        In = 1 - (white-white.min()) / (white - white.min()).max()
-        white /= np.percentile(white, 95)
-        dates = obs.time
-
         self.orbit = orbit = orbit_calculator(self.configuration, parameters)
+
+        dates = obs.time
+        sort = np.argsort(dates)
+        dates = dates[sort]
+        odata = obs.data[sort]
+
+        white = np.mean(odata, axis=1)
+        white /= np.percentile(white, 95)
+
         phase = orbit.get_phase(dates)
         depths = orbit.get_transit_depth(dates)
         mu = orbit.get_mu(dates)
         radii = orbit.get_radius(dates)
         mu[mu == -1] = 0
 
-
         # Step 1: Fit first guess for limb darkening using the white light curve
         # Step 2: fit individual limb darkening for each wavelength
-
 
         # assert aronson.intensity(0, [0.1, 0.2, 0.1]) == 1
         # assert aronson.intensity(1, [0.1, 0.2, 0.1]) == 0.9
 
-        # obj = self.fit2(dates, white)
+        # obj = Intensity.empty()
         # datacube = np.copy(obs.data)
         # datacube /= np.percentile(datacube, 95, axis=0)
         # s = np.zeros((datacube.shape[1], len(obj.steps)))
@@ -147,44 +151,56 @@ class aronson(data_intensities):
         # for i in tqdm(range(datacube.shape[1])):
         #     tmp = self.fit2(dates, datacube[:, i])
         #     s[i] = tmp.steps
-        #     v[i] = 1 - depths * tmp(mu)
+        #     v[i] = tmp(mu)
         #     r[i] = tmp.r_planet
         #     e[i] = tmp.e_r_planet
         # np.save("steps.npy", s)
         # np.savez("radii.npy", radius=r, wave=obs.wave, error=e)
         # np.savez("phase_curve.npy", curve=v, phase=phase)
+        # wave = obs.wave
 
         s = np.load("steps.npy")
         tmp = np.load("radii.npy.npz")
-        r = tmp["radius"][:, 0]
-        e = tmp["error"][:, 0]
+        r = tmp["radius"]
+        e = tmp["error"]
         wave = tmp["wave"]
         tmp = np.load("phase_curve.npy.npz")
         v = tmp["curve"]
         phase = tmp["phase"]
 
-        f = 1 / e**2
-        g = r / e**2
+        f = np.ones_like(r)
+        g = r
         # Normalize f and g
         a = f.mean()
         f /= a
         g /= a
-        lamb = best_lambda(f, g, ratio=50, spacing=wave)
+        lamb = best_lambda(f, g, ratio=100, spacing=wave)
         sol = Tikhonov(f, g, lamb, spacing=wave)
         np.save("radius_smooth.npy", np.ma.filled(sol))
 
         planet = data["planet"]
         p_wave = planet.wave
-        p_data = planet.data * 200 + 17400
-        p_data = spectres(wave[10:-10], p_wave, p_data)
-        p_wave = wave[10:-10]
+        p_data = planet.data * (sol.max() - sol.min()) + sol.min()
+        n = 1
+        for n in range(1, len(wave) // 2):
+            try:
+                p_data = spectres(wave[n:-n], p_wave, p_data)
+                p_wave = wave[n:-n]
+                break
+            except:
+                pass
 
         plt.plot(p_wave, p_data, label="Input")
         plt.plot(wave, r, label="Radius")
         plt.plot(wave, sol, label="Smoothed")
         plt.legend()
         plt.show()
-        pass
+        
+        star_int = {m: v2 for m, v2 in zip(mu, v)}
+        df = pd.DataFrame(star_int)
+
+        star_int = dataset(wave, star_int)
+        return star_int
 
     def fit(self, dates, white, x0=None):
         mu = self.orbit.get_mu(dates)
@@ -218,22 +234,22 @@ class aronson(data_intensities):
             depths = self.orbit.get_transit_depth(dates)
             obj = self.fit(dates, flux, x0=x0)
             lc = 1 - depths * obj(mu)
-            weight = np.sqrt(depths * (r_star / r[0])**2)
+            weight = np.sqrt(depths * (r_star / r[0]) ** 2)
             return (flux - lc) * weight
 
-        res = least_squares(func, x0=(r0,), xtol=1e-12, gtol=None, ftol=None, diff_step=1e-4)
+        res = least_squares(
+            func, x0=(r0,), xtol=1e-12, gtol=None, ftol=None, diff_step=1e-4
+        )
         self.orbit._backend.planet.radius = res.x[0]
 
         obj = self.fit(dates, flux)
         obj.r_planet = res.x[0]
 
         _, s, VT = svd(res.jac, full_matrices=False)
-        pcov = np.dot(VT.T / s**2, VT)
+        pcov = np.dot(VT.T / s ** 2, VT)
         obj.e_r_planet = np.sqrt(pcov[0, 0])
 
         return obj
-
-
 
     @staticmethod
     def intensity(n, steps):
@@ -244,7 +260,7 @@ class aronson(data_intensities):
         steps = np.abs(steps)
 
         for i in range(nn):
-            tmp[i, :n[i]] = np.arange(1, n[i] + 1)[::-1]
+            tmp[i, : n[i]] = np.arange(1, n[i] + 1)[::-1]
 
         # tmp = np.arange(1, n+1)[::-1]
         return 1 - np.sum(tmp * steps, axis=1)

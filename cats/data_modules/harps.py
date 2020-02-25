@@ -15,18 +15,14 @@ from scipy.ndimage.filters import gaussian_filter1d as gaussbroad
 from scipy.optimize import minimize
 
 from awlib.astro import air2vac, doppler_shift, planck
-from awlib.reduce.echelle import rdech
+from awlib.reduce.echelle import read
 from awlib.util import normalize
 
-from . import orbit as orb
-from .data_interface import data_observation, data_tellurics
-from .data_module_interface import data_module
+from .data_interface import data_observations, data_tellurics
 from .dataset import dataset
-from .idl import idl
-from .marcs import marcs
 
 
-class harps(data_observation, data_tellurics):
+class harps(data_observations, data_tellurics):
     """ access HARPS data
     """
 

@@ -44,22 +44,10 @@ if len(sys.argv) > 1:
 else:
     star = "GJ1214"
     planet = "b"
-    lamb = 6810
+    lamb = "auto"
 
 try:
-    # main(star, planet, lamb=lamb)
-    
-    # Generate synthetic data
-    configuration = cats.load_configuration(star, planet)
-    data = cats.load_data(star, planet, configuration)
-
-    # Assume that the first guess for the planet size is off by 5%
-    print(data["parameters"]["r_planet"])
-    data["parameters"]["r_planet"] *= 1.05
-
-    # Try to use Aronson method on it
-    module = aronson(configuration)
-    intensity = module.get_intensities(**data)
+    main(star, planet, lamb=lamb)
 
 except FileNotFoundError as fnfe:
     logging.error("Some files seem to be missing, can't complete calculation")

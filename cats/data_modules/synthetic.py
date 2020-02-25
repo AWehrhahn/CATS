@@ -8,6 +8,7 @@ import numpy as np
 from ..orbit import Orbit as orbit_calculator
 from .data_interface import data_observations
 from .dataset import dataset as dataset_classic
+from .wavelengths import wavelengths
 
 
 class dataset(dataset_classic):
@@ -29,53 +30,32 @@ class dataset(dataset_classic):
         return result
 
 
-class synthetic(data_observations):
+class synthetic(wavelengths):
     """ create synthetic observation from given data """
 
     _obs_requires = ["parameters", "stellar_flux",
                      "intensities", "telluric", "planet"]
 
-    @staticmethod
-    def get_number_of_wavelengths_points_from_resolution(R, wmin, wmax):
-        def gen(R, wmin, wmax):
-            delta_wave = lambda w: w/R
-            wave_local = wmin
-            yield wave_local
-            while wave_local < wmax:
-                wave_local += delta_wave(wave_local)
-                yield wave_local
-            return
-
-        generator = gen(R, wmin, wmax)
-        ls = list(generator)
-        return len(ls)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wgrid = None
+        self.flux = None
+        self.parameters = None
+        self.orbit = None
+        self.phase = None
+        self.time = None
 
     def get_observations(self, **data):
+        obs = super().get_observations(**data)
+        self.wgrid = obs.wave
+        self.time = obs.time
+        self.phase = obs.phase
+        
+        self.flux = self.synthetize
         self.parameters = data["parameters"]
         self.orbit = orbit_calculator(self.configuration, self.parameters)
 
-        # Use evenly spaced time points between first and fourth contact
-        n_obs = self.configuration['n_exposures']
-        t1 = self.orbit._backend.first_contact()  - self.parameters["period"].to("day").value / 100
-        t4 = self.orbit._backend.fourth_contact() + self.parameters["period"].to("day").value / 100
-        self.time = np.linspace(t1, t4, n_obs)
-        self.phase = self.orbit.get_phase(self.time)
-
-        # Load wavelength grid definition
-        # Use geomspace for even sampling in frequency space
-        wmin = self.configuration["wavelength_minimum"]
-        wmax = self.configuration["wavelength_maximum"]
-        
-        R = self.configuration["resolution"]
-        wpoints = synthetic.get_number_of_wavelengths_points_from_resolution(R, wmin, wmax)
-
-        self.wgrid = np.geomspace(wmin, wmax, wpoints)
-        self.wgrid[0] = wmin
-        self.wgrid[-1] = wmax
-        self.flux = self.synthetize
-
         ds = dataset(self.wgrid, self.flux)
-        # Sigma of Instrumental FWHM in pixels
         ds.broadening = 1 / 2.355 * self.configuration['fwhm']
         ds.phase = self.phase
         ds.time = self.time

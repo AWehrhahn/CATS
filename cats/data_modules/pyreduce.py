@@ -21,7 +21,6 @@ try:
     from pyreduce.configuration import get_configuration_for_instrument
     from pyreduce.reduce import main
 
-
     _has_pyreduce = True
 except ImportError:
     logging.error("Need to install pyreduce, to use pyreduce module")
@@ -53,19 +52,18 @@ class pyreduce(data_observations, data_reduction):
         spec = spec.flat[sort].compressed()
         sig = sig.flat[sort].compressed()
 
-        mask = (spec > 0) & (spec < np.nanpercentile(spec, 99)) & (~np.isnan(spec))
+        mask = (spec > 0) & (spec < np.nanpercentile(spec, 99)) & (~np.isnan(spec)) & (wave != 0)
         wave = wave[mask]
         spec = spec[mask]
         sig = sig[mask]
 
-        spec /= header["ITIME"] * header["COADD"]
+        spec /= header["EXPTIME"]
         # spec /= np.median(spec)
 
         # calc phases
-        tmid = header["MJD-OBS"]  # in mjd
-        tmid += (
-            header["E_EXPTIM"] * 0.5 * q.second.to(q.day)
-        )  # go to the middle of the exposure
+        # go to the middle of the exposure
+        tmid = float(header["MJD-OBS"])  # in mjd
+        tmid = tmid + header["EXPTIME"] * 0.5 * q.second.to(q.day)
         phase = self.orbit.get_phase(tmid)
 
         ds = dataset(wave, spec, sig)
@@ -86,47 +84,56 @@ class pyreduce(data_observations, data_reduction):
 
         star = self.configuration["_star"]
         planet = self.configuration["_planet"]
-        input_dir = self.configuration["input_dir"].format(star=star, planet=planet)
+        telescope = self.configuration["telescope"]
+        instrument = self.configuration["instrument"]
+        input_dir = (
+            os.path.join(self.configuration["base_dir"], self.configuration["output_dir"])
+        ).format(star=star, planet=planet, instrument=instrument, telescope=telescope)
 
-        fname = join(input_dir, self.configuration["filename"])
-        files = glob.glob(fname)
+        if "reduction" in data.keys():
+            files = data["reduction"]
+        else:
+            fname = join(input_dir, self.configuration["filename"])
+            files = glob.glob(fname)
         obs = [self.load(g, parameters) for g in files]
 
         # Split observations into different days
         times = np.empty(len(obs))
         for i in range(len(obs)):
             times[i] = obs[i].time
-        days = np.round(times + 0.5)
-        unique = np.unique(days)
+        # days = np.round(times + 0.5)
+        # unique = np.unique(days)
 
         wgrid = obs[0].wave
-        for day in unique:
-            mask = days == day
-            points = np.arange(len(obs))[mask]
-            i = points[0]
-            reference = obs[i].data / np.median(obs[i].data)
-            reference = interp1d(
-                obs[i].wave, reference, fill_value=0, bounds_error=False
-            )(wgrid)
-            for i in points:
-                # Cross-correlate spectra, so lines align
-                wave = obs[i].wave
-                flux = obs[i].data / np.median(obs[i].data)
+        for i in range(1, len(obs)):
+            obs[i].new_grid(wgrid)
+        # for day in unique:
+        #     mask = days == day
+        #     points = np.arange(len(obs))[mask]
+        #     i = points[0]
+        #     reference = obs[i].data / np.median(obs[i].data)
+        #     reference = interp1d(
+        #         obs[i].wave, reference, fill_value=0, bounds_error=False
+        #     )(wgrid)
+        #     for i in points:
+        #         # Cross-correlate spectra, so lines align
+        #         wave = obs[i].wave
+        #         flux = obs[i].data / np.median(obs[i].data)
 
-                corr = correlate(flux, reference[reference != 0], mode="same")
-                offset = np.argmax(corr)
-                rv = (wave[len(wave) // 2] / wave[offset] - 1) * c
+        #         corr = correlate(flux, reference[reference != 0], mode="same")
+        #         offset = np.argmax(corr)
+        #         rv = (wave[len(wave) // 2] / wave[offset] - 1) * c
 
-                res = least_squares(
-                    pyreduce._shift,
-                    rv,
-                    args=(wgrid, wave, flux, reference),
-                    loss="soft_l1",
-                )
-                rv = res.x
+        #         res = least_squares(
+        #             pyreduce._shift,
+        #             rv,
+        #             args=(wgrid, wave, flux, reference),
+        #             loss="soft_l1",
+        #         )
+        #         rv = res.x
 
-                obs[i]._wave_orig = wave * (1 + rv / c)
-                obs[i].new_grid(wgrid)
+        #         obs[i]._wave_orig = wave * (1 + rv / c)
+        #         obs[i].new_grid(wgrid)
 
         # Organize everything into a single dataset
         flux = np.empty((len(obs), len(obs[0].data)))
@@ -141,8 +148,8 @@ class pyreduce(data_observations, data_reduction):
         # Identify observation runs (days)
         # Normalize each day
         # TODO: Normalize to lightcurve according to the phase?
-        for day in unique:
-            flux[days == day] /= np.median(flux[days == day])
+        # for day in unique:
+        #     flux[days == day] /= np.median(flux[days == day])
 
         # DEBUG Remove specific days
         # mask = (days != unique[0]) & (days != unique[-1]) & (days != unique[1]) & (days != unique[-2])
@@ -160,21 +167,32 @@ class pyreduce(data_observations, data_reduction):
         return obs
 
     def get_reduced(self, **data):
-        instrument, mode, target, folder = data["raw"]
+        if "raw" in data.keys():
+            instrument, mode, target, folder = data["raw"]
+            base_dir = os.path.join(folder, "..")
+            input_dir = os.path.basename(folder)
+            output_dir = "reduced"
+        else:
+            instrument = self.configuration["instrument"]
+            mode = self.configuration["mode"]
+            target = self.configuration["_star"] + self.configuration["_planet"]
+            base_dir = self.configuration["base_dir"].format(**self.configuration)
+            input_dir = self.configuration["input_dir"].format(**self.configuration)
+            output_dir = self.configuration["output_dir"].format(**self.configuration)
+
         night = "????-??-??"
-        base_dir = os.path.join(folder, "..")
-        input_dir = os.path.basename(folder)
         config = get_configuration_for_instrument(instrument, plot=False)
+        steps = self.configuration["steps"]
 
         output = main(
             instrument,
             target,
             night,
             mode,
-            steps=["bias", "flat", "norm_flat", "science", "continuum", "finalize"],
+            steps=steps,
             base_dir=base_dir,
             input_dir=input_dir,
-            output_dir="reduced",
+            output_dir=output_dir,
             configuration=config,
         )
         return output[0]["finalize"]
