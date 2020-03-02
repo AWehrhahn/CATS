@@ -14,45 +14,43 @@ from astropy.constants import G
 
 from data_sources.PSG import PSG
 
-from .data_interface import (data_observations, data_planet, data_stellarflux,
-                             data_tellurics)
-from .dataset import dataset
+from .datasource import DataSource
+from ..spectrum import Spectrum1D
 
 
-class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
+class Psg(DataSource):
+    def __init__(self):
+        super().__init__()
 
-    def __init__(self, configuration):
-        super().__init__(configuration)
-        star = self.configuration["_star"]
-        planet = self.configuration["_planet"]
-        self.configuration["dir"] = self.configuration["dir"].format(
-            star=star, planet=planet)
+        star = self.config["_star"]
+        planet = self.config["_planet"]
+        self.config["dir"] = self.config["dir"].format(star=star, planet=planet)
 
         # TODO change psg config, to reflect orbital parameters
 
     @property
     def file_atm(self):
-        return join(self.configuration['dir'], self.configuration['file_atm'])
+        return join(self.configuration["dir"], self.configuration["file_atm"])
 
     @property
     def file_obs(self):
-        return join(self.configuration['dir'], self.configuration['file_obs'])
+        return join(self.configuration["dir"], self.configuration["file_obs"])
 
     @property
     def file_phase(self):
-        return join(self.configuration['dir'], self.configuration['file_phase'])
+        return join(self.configuration["dir"], self.configuration["file_phase"])
 
     @property
     def file_flux(self):
-        return join(self.configuration['dir'], self.configuration['file_star'])
+        return join(self.configuration["dir"], self.configuration["file_star"])
 
     @property
     def file_tell(self):
-        return join(self.configuration["dir"], self.configuration['file_tell'])
+        return join(self.configuration["dir"], self.configuration["file_tell"])
 
     @property
     def file_config(self):
-        return join(self.configuration['dir'], self.configuration['file_config'])
+        return join(self.configuration["dir"], self.configuration["file_config"])
 
     def get_planet(self, **data):
         """ load planetary transmission spectrum
@@ -69,15 +67,17 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         """
         wave_grid = data["observations"].wave
         wmin, wmax = wave_grid[0], wave_grid[-1]
-        if not exists(self.file_atm) or not self.check_wavelength_range(self.file_atm, (wmin, wmax)):
+        if not exists(self.file_atm) or not self.check_wavelength_range(
+            self.file_atm, (wmin, wmax)
+        ):
             self.prepare_config_file(data["parameters"])
             self.load_psg(None, wmin, wmax, planet=True)
 
         unit = u.angstrom
 
         planet = pd.read_csv(self.file_atm)
-        wl = planet['Wave/freq'].values * unit.to(u.angstrom)
-        planet = planet['Total'].values
+        wl = planet["Wave/freq"].values * unit.to(u.angstrom)
+        planet = planet["Total"].values
 
         ds = dataset(wl, planet)
         return ds
@@ -96,8 +96,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         """ load observations """
         obs_file = self.file_obs
         phase_file = self.file_phase
-        phase = pd.read_table(
-            phase_file, delim_whitespace=True, index_col='filename')
+        phase = pd.read_table(phase_file, delim_whitespace=True, index_col="filename")
 
         # Find all suitable files
         files = glob.glob(obs_file)
@@ -109,8 +108,8 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         for f in files:
             obs = pd.read_csv(f)
 
-            wl = obs['Wave/freq'].values
-            obs = obs['Total'].values
+            wl = obs["Wave/freq"].values
+            obs = obs["Total"].values
 
             wl_all.append(wl)
             obs_all.append(obs)
@@ -118,7 +117,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
             bn = basename(f)
             bn = splitext(bn)[0]
 
-            phase_all.append(phase.loc[bn]['phase'])
+            phase_all.append(phase.loc[bn]["phase"])
 
         wl_all = np.array(wl_all)
         obs_all = np.array(obs_all)
@@ -147,15 +146,17 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         wave_grid = data["observations"].wave
         wmin, wmax = wave_grid[0], wave_grid[-1]
 
-        if not exists(self.file_flux) or not self.check_wavelength_range(self.file_flux, (wmin, wmax)):
+        if not exists(self.file_flux) or not self.check_wavelength_range(
+            self.file_flux, (wmin, wmax)
+        ):
             self.prepare_config_file(data["parameters"])
             self.load_psg(None, wmin, wmax, star=True)
 
         file_flux = self.file_flux
         flux = pd.read_csv(file_flux)
 
-        wl = flux['Wave/freq'].values
-        flux = flux['Stellar'].values
+        wl = flux["Wave/freq"].values
+        flux = flux["Stellar"].values
 
         ds = dataset(wl, flux)
         return ds
@@ -177,8 +178,8 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         tell_file = self.file_tell
         tell = pd.read_csv(tell_file)
 
-        wl = tell['Wave/freq'].values
-        tell = tell['Telluric'].values
+        wl = tell["Wave/freq"].values
+        tell = tell["Telluric"].values
 
         return wl, tell
 
@@ -186,7 +187,7 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         wmin, wmax = wave
         ds = pd.read_csv(file_flux)
         wave = ds["Wave/freq"].values
-        return not(wave[0] > wmin or wave[-1] < wmax)
+        return not (wave[0] > wmin or wave[-1] < wmax)
 
     def prepare_config_file(self, parameters):
         if not exists(self.file_config):
@@ -219,7 +220,16 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         psg_config["OBJECT-STAR-RADIUS"] = star_radius
         psg_config.save()
 
-    def load_psg(self, phase, wl_low=5300, wl_high=6800, obs=False, star=False, planet=False, tell=False):
+    def load_psg(
+        self,
+        phase,
+        wl_low=5300,
+        wl_high=6800,
+        obs=False,
+        star=False,
+        planet=False,
+        tell=False,
+    ):
         """ load synthetic spectra from Planetary Spectrum Generator webservice
 
         PSG doesn't allow large wavelength ranges at high resolution, therefore split it into small parts that will be calculated
@@ -246,28 +256,24 @@ class psg(data_planet, data_observations, data_stellarflux, data_tellurics):
         if tell:
             # Get telluric
             tell_file = self.file_tell
-            df = psg_source.get_data_in_range(
-                    wl_low, wl_high, wephm='T', type='tel')
+            df = psg_source.get_data_in_range(wl_low, wl_high, wephm="T", type="tel")
             df.to_csv(tell_file, index=False)
 
         if planet:
             # Get planet
-            df = psg_source.get_data_in_range(
-                    wl_low, wl_high, wephm='T', type='trn')
+            df = psg_source.get_data_in_range(wl_low, wl_high, wephm="T", type="trn")
             df.to_csv(self.file_atm, index=False)
 
         if star:
             # Get stellar flux
             flx_file = self.file_flux
-            df = psg_source.get_data_in_range(
-                    wl_low, wl_high, wephm='T')
+            df = psg_source.get_data_in_range(wl_low, wl_high, wephm="T")
             df.to_csv(flx_file, index=False)
 
         if obs:
             for i, p in enumerate(phase):
                 # Get radiance
-                obs_file = self.file_obs.replace('*', str(i))
-                psg_source.change_config({'OBJECT-SEASON': p})
-                df = psg_source.get_data_in_range(
-                        wl_low, wl_high, wephm='T')
+                obs_file = self.file_obs.replace("*", str(i))
+                psg_source.change_config({"OBJECT-SEASON": p})
+                df = psg_source.get_data_in_range(wl_low, wl_high, wephm="T")
                 df.to_csv(obs_file, index=False)
