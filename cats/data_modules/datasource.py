@@ -18,3 +18,17 @@ class DataSource:
             config = {}
 
         self.config = config
+
+    def get(self, wave):
+        # Do the setup in __init__
+        # do the calculations once its called
+        raise NotImplementedError
+
+class StellarIntensities(DataSource):
+    def __init__(self, star, planet):
+        super().__init__()
+        self.star = star
+        self.planet = planet
+    
+    def get(self, wave, mu, mode="core"):
+        raise NotImplementedError

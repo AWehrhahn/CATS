@@ -2,3 +2,4 @@
 *.log
 cats.egg-info/
 .vscode/
+.pytest_cache/

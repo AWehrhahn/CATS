@@ -8,15 +8,52 @@ import os.path
 from astropy.io import fits
 import numpy as np
 import pandas as pd
+from scipy.interpolate import interp1d
+
 
 from ..spectrum import Spectrum1D
-from .datasource import DataSource
+from .datasource import StellarIntensities
 
 logger = logging.getLogger(__name__)
 
 
-class Claret2000(DataSource):
+class Claret2000(StellarIntensities):
     """ access limb darkening formulas from Claret 2000 """
+
+    def __init__(self, star, planet, stellar):
+        super().__init__(star, planet)
+        self.load_data()
+
+    @staticmethod
+    def interpolate_intensity(mu, i):
+        """ Interpolate the stellar intensity for given limb distance mu
+
+        use linear interpolation, because it is much faster
+
+        Parameters:
+        ----------
+        mu : {float, np.ndarray}
+            cos(limb distance), i.e. 1 is the center of the star, 0 is the outer edge
+        i : {pd.DataFrame}
+            specific intensities
+        Returns
+        -------
+        intensity : np.ndarray
+            interpolated intensity
+        """
+
+        values = i.values.swapaxes(0, 1)
+        keys = np.asarray(i.keys())
+        flux = interp1d(
+            keys,
+            values,
+            kind="linear",
+            axis=0,
+            bounds_error=False,
+            fill_value=(values[0], values[-1]),
+        )(mu)
+        flux[mu < 0, :] = 0
+        return flux
 
     @staticmethod
     def round_to(n, precision, limits=None):
@@ -75,7 +112,33 @@ class Claret2000(DataSource):
             - a[3] * (1 - mu ** 2)
         )
 
-    def load_intensities(self, parameters, stellar):
+    def get(self, wave, mu, mode="core"):
+        """ Interpolate on the grid """
+        star_int = self.load_intensities(self.stellar)
+
+        spec = Claret2000.interpolate_intensity(mu, star_int)
+
+        # TODO: citation
+        ds = Spectrum1D(
+            flux=spec,
+            spectral_axis=wave,
+            planet=self.planet,
+            star=self.star,
+            source="claret2000",
+            description="Stellar intensities from limb darkening formula",
+            citation="http://vizier.cfa.harvard.edu/viz-bin/VizieR?-source=J/A+A/363/1081",
+        )
+        return ds
+
+    def load_data(self):
+        filename = self.config["file"]
+        folder = os.path.dirname(__file__)
+        filename = os.path.join(folder, filename)
+
+        hdulist = fits.open(filename)
+        lddata = hdulist[1].data
+
+    def load_intensities(self, stellar):
         """ Use limb darkening formula to estimate specific intensities
 
         The limb distances to evaluate are set in config
@@ -97,20 +160,12 @@ class Claret2000(DataSource):
             specific intensities for several limb distances mu
         """
         cls = Claret2000
-        par = parameters
-
-        filename = self.config["file"]
-        folder = os.path.dirname(__file__)
-        filename = os.path.join(folder, filename)
-
-        hdulist = fits.open(filename)
-        lddata = hdulist[1].data
 
         # Get stellar parameters from parameters and round to next best grid value
-        T = cls.round_to(par["teff"].to("K").value, 250, limits=[3500, 4500])
-        logg = cls.round_to(par["logg"].value, 0.5, limits=[0, 5])
-        vmt = cls.round_to(par["star_vt"].to("km/s").value, 1, limits=[0, 8])
-        met = cls.round_to(par["monh"].value, 0.1, limits=[-5, 0.5])
+        T = cls.round_to(self.star.teff.to("K").value, 250, limits=[3500, 4500])
+        logg = cls.round_to(self.star.logg.value, 0.5, limits=[0, 5])
+        vmt = cls.round_to(self.star.vturb.to("km/s").value, 1, limits=[0, 8])
+        met = cls.round_to(self.star.monh.value, 0.1, limits=[-5, 0.5])
         if met == 0.4:
             met = 0.3
         if vmt == 3:
@@ -125,7 +180,7 @@ class Claret2000(DataSource):
         )
 
         # Select correct coefficients
-        lddata = lddata[
+        lddata = self.lddata[
             (lddata["Teff"] == T)
             & (lddata["logg"] == logg)
             & (lddata["VT"] == vmt)
@@ -139,10 +194,11 @@ class Claret2000(DataSource):
 
         # Interpolate to the wavelength grid of the observation
         # this is quite rough as there are not many wavelengths to choose from
-        a1 = np.interp(stellar.wave, wl, values.loc["a1 "])
-        a2 = np.interp(stellar.wave, wl, values.loc["a2 "])
-        a3 = np.interp(stellar.wave, wl, values.loc["a3 "])
-        a4 = np.interp(stellar.wave, wl, values.loc["a4 "])
+        wave = stellar.wavelength
+        a1 = np.interp(wave, wl, values.loc["a1 "])
+        a2 = np.interp(wave, wl, values.loc["a2 "])
+        a3 = np.interp(wave, wl, values.loc["a3 "])
+        a4 = np.interp(wave, wl, values.loc["a4 "])
         # Apply limb darkening to each point and set values of mu, and store the results
 
         a = [a1, a2, a3, a4]
@@ -151,13 +207,7 @@ class Claret2000(DataSource):
             mus = np.geomspace(1, 0.0001, num=20)
             mus[-1] = 0
 
-        star_int = {i: stellar.data * cls.limb_darkening_formula(i, a) for i in mus}
+        star_int = {i: stellar.flux * cls.limb_darkening_formula(i, a) for i in mus}
         star_int = pd.DataFrame(star_int)
 
-        ds = Spectrum1D(
-            flux=star_int,
-            spectral_axis=stellar.wave,
-            source="claret2000",
-            description="Stellar intensities from limb darkening formula",
-        )
-        return ds
+        return star_int

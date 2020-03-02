@@ -1,0 +1,48 @@
+"""
+Put different noise statistics in here
+"""
+
+import numpy as np
+
+class NoiseBase:
+    pass
+
+class WhiteNoise(NoiseBase):
+    def __init__(self, sigma):
+        self.sigma = sigma
+
+    def __call__(self, size):
+        return np.random.normal(scale=sigma, size=size)
+
+class BadPixelNoise(NoiseBase):
+    """
+    Additional noise due to bad pixels in the detector
+    This adds additional noise to the spectrum, in random places
+    
+    Parameters
+    ----------
+    size : int
+        length of the spectrum
+    bad_pixels_per_element : float
+        expected bad pixels per resolution element
+    sigma : float
+        width of the additional noise introduces by 1 bad pixel
+    
+    Returns
+    -------
+    noise : array
+        bad pixel noise
+    """
+
+    def __init__(self, bad_pixels_per_element, sigma):
+        self.bad_pixels_per_element = bad_pixels_per_element
+        self.sigma = sigma
+
+    def __call__(self, size):
+        number_bad_pixels = self.bad_pixels_per_element * size
+        bad_pixels = np.random.choice(size, size=number_bad_pixels)
+
+        noise = np.zeros(size)
+        noise[bad_pixels] += np.random.normal(scale=self.sigma, size=size)
+
+        return noise
