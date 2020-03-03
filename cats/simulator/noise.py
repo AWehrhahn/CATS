@@ -12,7 +12,7 @@ class WhiteNoise(NoiseBase):
         self.sigma = sigma
 
     def __call__(self, size):
-        return np.random.normal(scale=sigma, size=size)
+        return np.random.normal(scale=self.sigma, size=size)
 
 class BadPixelNoise(NoiseBase):
     """
@@ -39,10 +39,10 @@ class BadPixelNoise(NoiseBase):
         self.sigma = sigma
 
     def __call__(self, size):
-        number_bad_pixels = self.bad_pixels_per_element * size
+        number_bad_pixels = int(self.bad_pixels_per_element * size)
         bad_pixels = np.random.choice(size, size=number_bad_pixels)
 
         noise = np.zeros(size)
-        noise[bad_pixels] += np.random.normal(scale=self.sigma, size=size)
+        noise[bad_pixels] += np.random.normal(scale=self.sigma, size=number_bad_pixels)
 
         return noise

@@ -10,6 +10,7 @@ from .data_interface import data_observations
 from .dataset import dataset as dataset_classic
 from .wavelengths import wavelengths
 
+logger = logging.getLogger(__name__)
 
 class dataset(dataset_classic):
     """Special dataset, that only evaluates the flux later"""

@@ -50,8 +50,8 @@ class TelescopeFrame(ReferenceFrame):
     def __init__(self, datetime, observatory_location, sky_location):
         super().__init__()
         self.datetime = Time(datetime)
-        self.observatory_location = observatory_location
-        self.sky_location = sky_location
+        self.observatory = observatory_location
+        self.sky = sky_location
 
     @property
     def observatory(self):
@@ -76,14 +76,14 @@ class TelescopeFrame(ReferenceFrame):
         if isinstance(value, tuple):
             ra, dec = value
             value = coords.SkyCoord(
-                ra, dec, obstime=self.datetime, location=self.observatory
+                ra, dec, obstime=self.datetime, location=self.observatory, unit=u.hourangle
             )
 
         self._sky = value
 
     def to_barycentric(self):
-        self.datetime.location = self.observatory_location
-        self.sky.location = self.observatory_location
+        self.datetime.location = self.observatory
+        self.sky.location = self.observatory
         self.sky.obstime = self.datetime
 
         correction = self.sky.radial_velocity_correction()
@@ -108,6 +108,5 @@ class PlanetFrame(ReferenceFrame):
         self.orbit = exoorbit.Orbit(star, planet)
 
     def to_barycentric(self):
-        mjd = self.datetime.to_value("mjd", "long").value
-        rv = self.orbit.radial_velocity_planet(mjd)
+        rv = self.orbit.radial_velocity_planet(self.datetime)
         return rv

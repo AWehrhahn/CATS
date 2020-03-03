@@ -15,6 +15,7 @@ from data_sources.StellarDB import StellarDB as SDB
 
 from .datasource import DataSource
 
+logger = logging.getLogger(__name__)
 
 class StellarDb(DataSource):
     def __init__(self):
@@ -50,6 +51,8 @@ class StellarDb(DataSource):
             logg=data["logg"] * u.one,
             monh=data["metallicity"] * u.dex,
             vturb=data["vel_turb"] * (u.km / u.s),
+            ra=data["coordinates"]["ra"],
+            dec=data["coordinates"]["dec"]
         )
 
         planets = {}

@@ -10,6 +10,9 @@ from cats.cats import main
 from cats import cats
 from cats.data_modules.aronson import aronson
 
+logger = logging.getLogger(__name__)
+
+
 if len(sys.argv) > 1:
     parser = argparse.ArgumentParser(
         description="Extract the planetary transmittance spectrum, from one or more transit observations."
@@ -39,7 +42,7 @@ if len(sys.argv) > 1:
         try:
             lamb = float(lamb)
         except ValueError:
-            logging.error("Invalid value for -l/-lambda")
+            logger.error("Invalid value for -l/-lambda")
             exit()
 else:
     star = "GJ1214"
@@ -50,5 +53,5 @@ try:
     main(star, planet, lamb=lamb)
 
 except FileNotFoundError as fnfe:
-    logging.error("Some files seem to be missing, can't complete calculation")
-    logging.error(fnfe)
+    logger.error("Some files seem to be missing, can't complete calculation")
+    logger.error(fnfe)

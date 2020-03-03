@@ -17,7 +17,7 @@ from astropy.time import Time
 from exoorbit import Orbit
 
 from ..reference_frame import TelescopeFrame
-from . import noise
+from . import noise as NoiseModel
 
 
 class Simulator:
@@ -25,12 +25,13 @@ class Simulator:
         self,
         star,
         planet,
-        wrange,
         stellar,
         intensities,
         telluric,
         planet_spectrum,
+        mu=np.geomspace(0.01, 1, 7),
         R=100_000,
+        noise=None,
     ):
         # Orbit information
         self.planet = planet
@@ -42,10 +43,12 @@ class Simulator:
         self.intensities = intensities
         self.planet_spectrum = planet_spectrum
         # Noise parameters
-        self.noise = [noise.WhiteNoise(0.01), noise.BadPixelNoise(0.02, 0.1)]
+        if noise is None:
+            self.noise = [NoiseModel.WhiteNoise(0.01), NoiseModel.BadPixelNoise(0.02, 0.1)]
+        else:
+            self.noise = noise
 
-        # SpectralRegion
-        self.wrange = wrange
+        # Spectral resolution
         self.R = R
 
     @staticmethod
@@ -83,21 +86,24 @@ class Simulator:
 
         # Generate intensities for the current mu
         mu = self.orbit.mu(time)
-        i_core = self.intensities(mu, self.planet, "core")
-        i_atm = self.intensities(mu, self.planet, "atmosphere")
+        i_core = self.intensities.get(wave, time, "core")
+        i_atmo = self.intensities.get(wave, time, "atmosphere")
+        planet_spectrum = self.planet_spectrum.get(wave, time)
+        stellar = self.stellar.get(wave, time)
+        telluric = self.telluric.get(wave, time)
 
         # Shift to telescope restframe
-        observatory_location = "VLT/Paranal"
+        observatory_location = "Cerro Paranal"
         sky_location = (self.star.ra, self.star.dec)
         frame = TelescopeFrame(Time(time, format="mjd"), observatory_location, sky_location)
-        planet_spectrum = self.planet_spectrum.shift(frame)
-        stellar = self.stellar.shift(frame)
-        telluric = self.telluric.shift(frame)
+        planet_spectrum = planet_spectrum.shift(frame)
+        stellar = stellar.shift(frame)
+        telluric = telluric.shift(frame)
         i_core = i_core.shift(frame)
-        i_atm = i_atm.shift(frame)
+        i_atmo = i_atmo.shift(frame)
 
         # interpolate all onto the same wavelength grid
-        method = "flux_conserved"
+        method = "flux_conserving"
         planet_spectrum = planet_spectrum.resample(wave, method=method)
         stellar = stellar.resample(wave, method=method)
         telluric = telluric.resample(wave, method=method)
@@ -105,10 +111,11 @@ class Simulator:
         i_atmo = i_atmo.resample(wave, method=method)
 
         # Observed spectrum
-        area_planet = self.planet.area
-        area_atm = np.pi * (self.planet.radius + self.planet.atm_height) ** 2
+        area_planet = self.planet.area / self.star.area
+        area_atm = np.pi * (self.planet.radius + self.planet.atm_scale_height) ** 2
+        area_atm /= self.star.area
 
-        obs = (stellar - i_core * area_planet + i_atmo * planet * area_atm) * telluric
+        obs = (stellar - i_core * area_planet + i_atmo * planet_spectrum * area_atm) * telluric
 
         # Generate noise
         size = len(wave)
@@ -119,9 +126,9 @@ class Simulator:
         # Apply instrumental broadening and noise
         obs *= 1 + noise
 
-        return obs.data
+        return obs
 
-    def simulate_series(self, nobs):
+    def simulate_series(self, wave, nobs):
         """
         Simulate a series of observations
         
@@ -136,25 +143,27 @@ class Simulator:
             a list of observations
         """
         # Calculate phase
-        period = self.parameters["period"].to("day").value
+        period = self.planet.period.to_value("day")
         t1 = self.orbit.first_contact() - period / 100
         t4 = self.orbit.fourth_contact() + period / 100
-        time = np.linspace(t1, t4, self.n_obs)
+        time = Time(np.linspace(t1.mjd, t4.mjd, nobs), format="mjd")
         phase = self.orbit.phase_angle(time)
 
+        # TODO: shift the wavelength grid a bit for each observation (as in real observations)
+        s = self.simulate_single(wave, time[5])
+        return s
+
+    def create_wavelength(self, wrange):
         # Create new wavelength grid
-        wmin, wmax = self.wrange.bounds
+        wmin, wmax = wrange.bounds
         wmin, wmax = wmin.to(u.AA).value, wmax.to(u.AA).value
 
         wpoints = Simulator.get_number_of_wavelengths_points_from_resolution(
             self.R, wmin, wmax
         )
-        wgrid = np.geomspace(self.wmin, self.wmax, wpoints)
+        wgrid = np.geomspace(wmin, wmax, wpoints)
         wgrid[0] = wmin
         wgrid[-1] = wmax
 
         wgrid = wgrid << u.AA
-
-        # TODO: shift the wavelength grid a bit for each observation (as in real observations)
-
-        s = self.simulate_singe(wgrid, time[0])
+        return wgrid

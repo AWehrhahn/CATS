@@ -28,25 +28,30 @@ class Spectrum1D(specutils.Spectrum1D):
         # Set default options (if not given)
         kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
 
+        meta = {}
+        # Which data source was this obtained from
+        meta["source"] = kwargs.pop("source", "")
+        # What does this data represent (e.g. stellar spectrum)
+        meta["description"] = kwargs.pop("description", "")
+        # Citation data (in bibtex format) if any
+        meta["citation"] = kwargs.pop("citation", "")
+        # Additional data for reference frame changes
+        meta["star"] = kwargs.pop("star", None)
+        meta["planet"] = kwargs.pop("planet", None)
+        meta["observatory_location"] = kwargs.pop("observatory_location", None)
+        meta["sky_location"] = kwargs.pop("sky_location", None)
+        # Datetime of the observation
+        meta["datetime"] = kwargs.pop("datetime", Time(0, format="mjd"))
+        # One of "barycentric", "telescope", "planet", "star"
+        reference_frame = kwargs.pop("reference_frame", "barycentric")
+
+        kwmeta = kwargs.get("meta", {}) if kwargs.get("meta") is not None else {}
+        kwmeta.update(meta)
+        kwargs["meta"] = kwmeta
+
         super().__init__(*args, **kwargs)
 
-        # Which data source was this obtained from
-        self.meta["source"] = ""
-        # What does this data represent (e.g. stellar spectrum)
-        self.meta["description"] = ""
-        # Citation data (in bibtex format) if any
-        self.meta["citation"] = ""
-        # Additional data for reference frame changes
-        self.meta["star"] = kwargs.get("star")
-        self.meta["planet"] = kwargs.get("planet")
-        self.meta["observatory_location"] = kwargs.get("observatory_location")
-        self.meta["sky_location"] = kwargs.get("sky_location")
-        # Datetime of the observation
-        self.datetime = kwargs.get("datetime", Time(0, format="mjd"))
-        # One of "barycentric", "telescope", "planet", "star"
-        self.reference_frame = self.reference_frame_from_name(
-            kwargs.get("reference_frame", "barycentric")
-        )
+        self.reference_frame = reference_frame
 
     @property
     def datetime(self):
@@ -64,12 +69,16 @@ class Spectrum1D(specutils.Spectrum1D):
 
     @reference_frame.setter
     def reference_frame(self, value):
-        if value not in self.reference_frame_values:
+        if (
+            not isinstance(value, rf.ReferenceFrame)
+            and value not in self.reference_frame_values
+        ):
             raise ValueError(
                 f"Reference frame not understood."
                 f"Expected one of {self.reference_frame_values} but got {value}"
             )
-        # TODO: conversion to ReferenceFrame object
+        if value in self.reference_frame_values:
+            value = self.reference_frame_from_name(value)
         self.meta["reference_frame"] = value
 
     def reference_frame_from_name(self, frame):
@@ -79,7 +88,7 @@ class Spectrum1D(specutils.Spectrum1D):
             frame = rf.TelescopeFrame(
                 self.datetime,
                 self.meta["observatory_location"],
-                self.meta["sky_location"],
+                sky_location=(self.meta["star"].ra, self.meta["star"].dec),
             )
         elif frame == "star":
             frame = rf.StarFrame(self.meta["star"])
@@ -160,12 +169,15 @@ class Spectrum1D(specutils.Spectrum1D):
         spec : Spectrum1D
             The resampled spectrum
         """
+        options = ["flux_conserving", "linear", "spline"]
         if method == "flux_conserving":
             resampler = specman.FluxConservingResampler(**kwargs)
         elif method == "linear":
             resampler = specman.LinearInterpolatedResampler(**kwargs)
         elif method == "spline":
             resampler = specman.SplineInterpolatedResampler(**kwargs)
+        else:
+            raise ValueError(f"Interpolation method not understood. Expected one of {options}, but got {method}")
 
         spec = resampler(self, grid)
 
