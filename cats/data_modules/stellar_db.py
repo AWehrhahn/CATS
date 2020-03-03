@@ -4,96 +4,90 @@ Get Data from Stellar DB
 
 import logging
 import numpy as np
+
 # from scipy import constants as const
 from astropy import constants as const
-from astropy import units as q
+from astropy import units as u
 from astropy.time import Time
 
-from .data_interface import data_orbitparameters
+from exoorbit.bodies import Body, Star, Planet
+from data_sources.StellarDB import StellarDB as SDB
 
-# TODO rework stellar_db
-from data_sources.StellarDB import StellarDB
+from .datasource import DataSource
 
 
-class stellar_db(data_orbitparameters):
-    def get_parameters(self, **_):
-        """ loads the stellar parameters from the StellarDB database
+class StellarDb(DataSource):
+    def __init__(self):
+        super().__init__()
 
-        Converts measurements into km, s, and radians and calculates some simple fixed parameters like the projected area of the planet on the star
-        See StellarDB project for more details
+    def get(self, name):
+        """Load the data on the star from the local database, or online
+        if not available locally.
+        
+        Parameters
+        ----------
+        name : str
+            Name of the star / planet
+        
+        Returns
+        -------
+        star : exoorbit.bodies.Star
+            recovered Star
         """
-        # name of the star, if not found in local StellarDB it will automatically be resolved with SIMBAD
-        name_star = self.configuration["_star"]
-        # name of the planet, just the letter, e.g. 'b'
-        name_planet = self.configuration["_planet"]
 
-        sdb = StellarDB()
-        star = sdb.load(name_star)
+        # TODO check that the name is of a star
+
+        sdb = SDB()
+        data = sdb.load(name)
         # Convert names
         # Stellar parameters
-        star['name_star'] = star['name'][0]
-        star['r_star'] = (star['radius'] * q.R_sun).to(q.km)
-        star['m_star'] = (star['mass'] * q.M_sun).to(q.kg)
-        star['teff'] = star['t_eff'] * q.Kelvin
-        star['logg'] = star['logg'] * q.one
-        star['monh'] = star['metallicity'] * q.one
-        star['star_vt'] = star['vel_turb'] * q.km / q.s
-        # Planetary parameters
-        planet = star['planets'][name_planet]
-        star['name_planet'] = name_planet
-        star['r_planet'] = (planet['radius'] * q.R_jupiter).to(q.km)
-        star['m_planet'] = (planet['mass'] * q.M_jupiter).to(q.kg)
-        star['inc'] = planet['inclination'] * q.deg
-        if 'atm_height' in planet.keys():
-            star['h_atm'] = planet['atm_height'] * q.km
 
-        star['sma'] = (planet['semi_major_axis'] * q.AU).to(q.km)
-        star['period'] = planet['period'] * q.day
-        star['transit'] = Time(planet['transit_epoch'], format="jd")
-        star['duration'] = planet['transit_duration'] * q.day 
-        star['ecc'] = planet['eccentricity'] * q.one
-        # TODO
-        star["w"] = 90 * q.deg
+        star = Star(
+            name=name,
+            mass=data["mass"] * u.M_sun,
+            radius=data["radius"] * u.R_sun,
+            effective_temperature=data["t_eff"] * u.K,
+            logg=data["logg"] * u.one,
+            monh=data["metallicity"] * u.dex,
+            vturb=data["vel_turb"] * (u.km / u.s),
+        )
 
-        logging.info('T_eff: %s, logg: %.2f, [M/H]: %.1f' % (star['teff'], star['logg'], star['metallicity']))
+        planets = {}
+        for pname, p in data["planets"].items():
+            planet = Planet(
+                name=pname,
+                radius=p["radius"] * u.R_jupiter,
+                mass=p["mass"] * u.M_jupiter,
+                inclination=p["inclination"] * u.deg,
+                semi_major_axis=p["semi_major_axis"] * u.AU,
+                period=p["period"] * u.day,
+                eccentricity=p["eccentricity"] * u.one,
+                # argument_of_periastron=Time(p["periastron"],format="jd"),
+                time_of_transit=Time(p["transit_epoch"], format="jd"),
+                transit_duration=p["transit_duration"] * u.day,
+            )
 
-        # TODO: atmosphere model
-        # stellar flux in = thermal flux out
-        star['T_planet'] = ((np.pi * star['r_planet']**2) /
-                            star['sma']**2)**0.25 * star['teff']  # K
-        star['T_planet'] = star['T_planet'].decompose()
+            planet.teff = (
+                (np.pi * planet.radius ** 2) / planet.a ** 2
+            ) ** 0.25 * star.teff
 
-        if star['m_planet'] > 10 * q.M_earth:
-            # Hydrogen (e.g. for gas giants)
-            star['atm_molar_mass'] = 2.5 * q.g / q.mol
-        else:
-            # dry air (mostly nitrogen)  (e.g. for terrestial planets)
-            star['atm_molar_mass'] = 29 * q.g / q.mol
+            if planet.mass > 10 * u.M_earth:
+                # Hydrogen (e.g. for gas giants)
+                planet.atm_molar_mass = 2.5 * (u.g / u.mol)
+            else:
+                # dry air (mostly nitrogen)  (e.g. for terrestial planets)
+                planet.atm_molar_mass = 29 * (u.g / u.mol)
 
-        # assuming isothermal atmosphere, which is good enough on earth usually
-        star['atm_scale_height'] = const.R * star['T_planet'] * star['r_planet']**2 / (
-            const.G * star['m_planet'] * star['atm_molar_mass'])  # km
-        star['atm_scale_height'] = star['atm_scale_height'].decompose()
-        # effective atmosphere height, if it would have constant density
-        star['h_atm'] = star['atm_scale_height'].to(q.km)
+            # assuming isothermal atmosphere, which is good enough on earth usually
+            planet.atm_scale_height = (
+                const.R
+                * planet.teff
+                * planet.radius ** 2
+                / (const.G * planet.mass * planet.atm_molar_mass)
+            )
 
-        logging.info('Planet Temperature: %s' % star['T_planet'])
-        logging.info('Atmsophere Molar Mass: %s' %
-                star['atm_molar_mass'])
-        logging.info('Atmosphere Height: %s' % star['h_atm'])
+            planets[pname] = planet
 
-        # calculate areas
-        star['A_planet'] = np.pi * star['r_planet']**2
-        star['A_star'] = np.pi * star['r_star']**2
-        star['A_atm'] = np.pi * \
-            (star['r_planet'] + star['h_atm'])**2 - star['A_planet']
-        star['A_planet'] = star['A_planet'] / star['A_star']
-        star['A_atm'] = star['A_atm'] / star['A_star']
-        star['A_planet+atm'] = star['A_planet'] + star['A_atm']
-
-        if 'periastron' not in star or star['periastron'] is None:
-            star['periastron'] = star['transit']
-        else:
-            star["periastron"] = Time(star["periastron"], format="jd")
+        star.planets = planets
 
         return star

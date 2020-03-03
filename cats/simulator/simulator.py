@@ -11,14 +11,27 @@ Input:
 
 """
 import numpy as np
+import astropy.units as u
+from astropy.time import Time
 
-from ExoOrbit import Orbit
+from exoorbit import Orbit
 
+from ..reference_frame import TelescopeFrame
 from . import noise
 
 
 class Simulator:
-    def __init__(self, star, planet, stellar, intensities, telluric, planet_spectrum):
+    def __init__(
+        self,
+        star,
+        planet,
+        wrange,
+        stellar,
+        intensities,
+        telluric,
+        planet_spectrum,
+        R=100_000,
+    ):
         # Orbit information
         self.planet = planet
         self.star = star
@@ -30,6 +43,10 @@ class Simulator:
         self.planet_spectrum = planet_spectrum
         # Noise parameters
         self.noise = [noise.WhiteNoise(0.01), noise.BadPixelNoise(0.02, 0.1)]
+
+        # SpectralRegion
+        self.wrange = wrange
+        self.R = R
 
     @staticmethod
     def get_number_of_wavelengths_points_from_resolution(R, wmin, wmax):
@@ -70,7 +87,9 @@ class Simulator:
         i_atm = self.intensities(mu, self.planet, "atmosphere")
 
         # Shift to telescope restframe
-        frame = "telescope"
+        observatory_location = "VLT/Paranal"
+        sky_location = (self.star.ra, self.star.dec)
+        frame = TelescopeFrame(Time(time, format="mjd"), observatory_location, sky_location)
         planet_spectrum = self.planet_spectrum.shift(frame)
         stellar = self.stellar.shift(frame)
         telluric = self.telluric.shift(frame)
@@ -124,12 +143,17 @@ class Simulator:
         phase = self.orbit.phase_angle(time)
 
         # Create new wavelength grid
+        wmin, wmax = self.wrange.bounds
+        wmin, wmax = wmin.to(u.AA).value, wmax.to(u.AA).value
+
         wpoints = Simulator.get_number_of_wavelengths_points_from_resolution(
-            self.R, self.wmin, self.wmax
+            self.R, wmin, wmax
         )
         wgrid = np.geomspace(self.wmin, self.wmax, wpoints)
-        wgrid[0] = self.wmin
-        wgrid[-1] = self.wmax
+        wgrid[0] = wmin
+        wgrid[-1] = wmax
+
+        wgrid = wgrid << u.AA
 
         # TODO: shift the wavelength grid a bit for each observation (as in real observations)
 

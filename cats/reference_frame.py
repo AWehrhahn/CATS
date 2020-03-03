@@ -3,7 +3,7 @@ from astropy.time import Time
 from astropy import units as u
 from astropy import coordinates as coords
 
-import ExoOrbit
+import exoorbit
 
 rv_units = u.km / u.s
 
@@ -105,7 +105,7 @@ class PlanetFrame(ReferenceFrame):
         self.datetime = Time(datetime)
         self.star = star
         self.planet = planet
-        self.orbit = ExoOrbit.Orbit(star, planet)
+        self.orbit = exoorbit.Orbit(star, planet)
 
     def to_barycentric(self):
         mjd = self.datetime.to_value("mjd", "long").value
