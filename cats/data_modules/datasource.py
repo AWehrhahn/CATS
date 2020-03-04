@@ -22,7 +22,7 @@ class DataSource:
 
         self.config = config
 
-    def get(self, wave, time):
+    def get(self, wrange, time):
         # Do the setup in __init__
         # do the calculations once its called
         raise NotImplementedError
@@ -34,6 +34,6 @@ class StellarIntensities(DataSource):
         self.planet = planet
         self.orbit = Orbit(star, planet)
     
-    def get(self, wave, time, mode="core"):
+    def get(self, wrange, time, mode="core"):
         mu = self.orbit.phase_angle(time)
         raise NotImplementedError

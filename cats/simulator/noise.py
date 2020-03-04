@@ -39,10 +39,11 @@ class BadPixelNoise(NoiseBase):
         self.sigma = sigma
 
     def __call__(self, size):
-        number_bad_pixels = int(self.bad_pixels_per_element * size)
-        bad_pixels = np.random.choice(size, size=number_bad_pixels)
+        nsize = np.product(size)
+        number_bad_pixels = int(self.bad_pixels_per_element * nsize)
+        bad_pixels = np.random.choice(nsize, size=number_bad_pixels)
 
         noise = np.zeros(size)
-        noise[bad_pixels] += np.random.normal(scale=self.sigma, size=number_bad_pixels)
+        noise.ravel()[bad_pixels] += np.random.normal(scale=self.sigma, size=number_bad_pixels)
 
         return noise

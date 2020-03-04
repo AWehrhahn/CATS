@@ -188,3 +188,172 @@ class Spectrum1D(specutils.Spectrum1D):
         spec.__class__ = Spectrum1D
 
         return spec
+
+class SpectrumList:   
+    """ 
+    Stores a list of Spectrum1D objects, with shared metadata
+    This usually represents the different orders of the spectrum,
+    which may have various sizes of spectral axis, especially when
+    using model data
+
+    Really this is only a thin shell with convenience functions,
+    to act on all spectra at once
+
+    NOTE
+    ----
+    No checks whatsoever are performed on the input data. Please
+    only use CATS Spectra1D objects as input
+
+    """
+    def __init__(self, flux, spectral_axis, **kwargs):
+        super().__init__()
+
+        # We actually just pass everything to each individual spectrum
+        # instead of trying to organize the metadata into one place
+        # This means we don't have to worry about setting the values later
+        # But this also means that they could change if we are not careful
+        self._data = []
+        for f, sa in zip(flux, spectral_axis):
+            spec = Spectrum1D(flux=f, spectral_axis=sa, **kwargs)
+            self._data += [spec]
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        # TODO: check that its a Spectrum1D ?
+        self._data[key] = value
+
+    def __len__(self):
+        return len(self._data)
+
+    # Add has to work with: SpectrumList
+    def __add__(self, other):
+        if isinstance(other, self.__class__):
+            # other is SpectrumList
+            assert len(other) == len(self), "Length is different"
+            data = []
+            for this, oth in zip(self._data, other._data):
+                data += [this + oth]
+            sl = self.__class__.from_spectra(data)
+            return sl
+        else:
+            return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, self.__class__):
+            # other is SpectrumList
+            assert len(other) == len(self), "Length is different"
+            data = []
+            for this, oth in zip(self._data, other._data):
+                data += [this - oth]
+            sl = self.__class__.from_spectra(data)
+            return sl
+        else:
+            return NotImplemented
+
+    # Multiply has to work with: Scalar, SpectrumList, NumpyArray2D
+    def __mul__(self, other):
+        if isinstance(other, u.Quantity):
+            # Other is a scalar (e.g. float)
+            data = []
+            for this in self._data:
+                data += [this * other]
+            sl = self.__class__.from_spectra(data)
+            return sl
+        elif isinstance(other, self.__class__):
+            # other is SpectrumList
+            assert len(other) == len(self), "Length is different"
+            data = []
+            for this, oth in zip(self._data, other._data):
+                data += [this * oth]
+            sl = self.__class__.from_spectra(data)
+            return sl
+        elif isinstance(other, np.ndarray) and other.ndim == 2:
+            # Other is 2D array
+            assert len(other) == len(self), "Length is different"
+            data = []
+            for this, oth in zip(self._data, other):
+                data += [this * oth]
+            sl = self.__class__.from_spectra(data)
+            return sl
+        else:
+            return NotImplemented
+
+
+
+    @classmethod
+    def from_spectra(cls, spectra):
+        """
+        Create a new SpectrumList object from a list of Spectrum1D
+        
+        Note
+        ----
+        The input spectra are NOT copied, therefore any changes
+        made will be present in the existing variables
+
+        Parameters
+        ----------
+        spectra : list
+            list of Spectrum1D
+        
+        Returns
+        -------
+        spectrum_list : SpectrumList
+            SpectrumList with containing the spectra
+        """
+        spectrum_list = cls([], [])
+        spectrum_list._data = spectra
+        return spectrum_list
+
+    def resample(self, grid, **kwargs):        
+        """
+        Resample the different spectra onto the given grid
+        
+        Parameters
+        ----------
+        grid : list
+            list of wavelengths arrays to resample to
+        ** kwargs
+            keyword arguments passed to Spectrum1D resample
+
+        Returns
+        -------
+        SpectrumList
+            New resampled SpectrumList object
+        """
+
+        if len(grid) != len(self):
+            raise ValueError(f"Wavelength grid has {len(grid)} arrays, but SpectrumList has {len(self)} spectra.")
+
+        data = []
+        for i, (g, spec) in enumerate(zip(grid, self._data)):
+            s = spec.resample(g, **kwargs)
+            data += [s]
+
+        sl = SpectrumList.from_spectra(data)
+        return sl
+
+    def shift(self, target_frame, **kwargs):
+        """
+        Shift all spectra to the target frame
+        
+        Parameters
+        ----------
+        target_frame : ReferenceFrame
+            target reference frame to convert the Spectra to
+        ** kwargs
+            keyword arguments passed to Spectrum1D shift
+        Returns
+        -------
+        SpectrumList
+            New shifted SpectrumList object
+        """
+
+        data = []
+        for i, spec in enumerate(self._data):
+            s = spec.shift(target_frame, **kwargs)
+            data += [s]
+
+        sl = SpectrumList.from_spectra(data)
+        return sl

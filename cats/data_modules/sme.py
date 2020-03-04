@@ -2,7 +2,7 @@ import numpy as np
 import astropy.units as u
 
 from .datasource import DataSource, StellarIntensities
-from ..spectrum import Spectrum1D
+from ..spectrum import Spectrum1D, SpectrumList
 
 from pysme.util import start_logging
 from pysme.sme import SME_Structure
@@ -43,7 +43,7 @@ class SmeStellar(DataSource):
             vturb = round_to_nearest(vturb, [0, 1, 2, 3, 4, 5])
             self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
 
-    def get(self, wave, time):
+    def get(self, wrange, time):
         sme = SME_Structure()
         # TODO other stellar parameters
         sme.teff = self.star.teff.to_value(u.K)
@@ -61,9 +61,10 @@ class SmeStellar(DataSource):
             for elem, grid in self.nlte.items():
                 sme.nlte.set_nlte(elem, grid)
 
-        w = wave.to_value(u.AA)
-        wmin, wmax = w.min(), w.max()
-        sme.wran = [wmin, wmax]
+        sme.wran = [
+            [wmin.to_value(u.AA), wmax.to_value(u.AA)]
+            for wmin, wmax in wrange.subregions
+        ]
 
         sme.cscale_flag = "none"
         sme.normalize_by_continuum = False
@@ -72,10 +73,10 @@ class SmeStellar(DataSource):
         synthesizer = Synthesizer()
         sme = synthesizer.synthesize_spectrum(sme)
 
-        wave = sme.wave[0] << u.AA
-        spec = sme.synth[0] << flux_units
+        wave = [w.ravel() << u.AA for w in sme.wave]
+        spec = [s.ravel() << flux_units for s in sme.synth]
 
-        synth = Spectrum1D(
+        synth = SpectrumList(
             flux=spec,
             spectral_axis=wave,
             reference_frame="barycentric",
@@ -111,11 +112,9 @@ class SmeIntensities(StellarIntensities):
             vturb = round_to_nearest(vturb, [0, 1, 2, 3, 4, 5])
             self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
 
-    def get(self, wave, time, mode="core"):
+    def get(self, wrange, time, mode="core"):
         mu = self.orbit.phase_angle(time)
         mu = np.atleast_1d(mu)
-
-        mask = mu > 0
 
         sme = SME_Structure()
         sme.teff = self.star.teff.to_value(u.K)
@@ -123,7 +122,27 @@ class SmeIntensities(StellarIntensities):
         sme.monh = self.star.monh.to_value(u.dex)
         sme.vturb = self.star.vturb.to_value(u.km / u.s)
 
-        sme.mu = mu[mask]
+        # TODO: only one valid mu value is allowed at the moment
+        if mu < 0 and mu > 1:
+            regions = [
+                [wmin.to_value(u.AA), wmax.to_value(u.AA)]
+                for wmin, wmax in wrange.subregions
+            ]
+            wave = [np.linspace(wmin, wmax, 100) for wmin, wmax in regions]
+            spec = [np.zeros(100) for _ in wrange.subregions]
+            synth = SpectrumList(
+                flux=spec,
+                spectral_axis=wave,
+                reference_frame="barycentric",
+                source="sme",
+                datetime=time,
+                description="stellar specific intensities. All zero since the time is out of transit",
+                star=self.star,
+                planet=self.planet,
+            )
+            return synth
+
+        sme.mu = mu
 
         sme.abund = self.abund
         sme.linelist = ValdFile(self.linelist)
@@ -135,7 +154,10 @@ class SmeIntensities(StellarIntensities):
             for elem, grid in self.nlte.items():
                 sme.nlte.set_nlte(elem, grid)
 
-        sme.wave = wave.to_value(u.AA)
+        sme.wran = [
+            [wmin.to_value(u.AA), wmax.to_value(u.AA)]
+            for wmin, wmax in wrange.subregions
+        ]
 
         sme.cscale_flag = "none"
         sme.normalize_by_continuum = False
@@ -146,15 +168,12 @@ class SmeIntensities(StellarIntensities):
         synthesizer = Synthesizer()
         wave, spec, cont = synthesizer.synthesize_spectrum(sme)
 
-        wave = wave << u.AA
-        spec = spec << flux_units
+        wave = [w.ravel() << u.AA for w in wave]
+        spec = [s.ravel() << flux_units for s in spec]
 
-        spec_full = np.zeros((mu.size, spec.shape[-1])) << flux_units
-        spec_full[mask] = spec[0]
-
-        synth = Spectrum1D(
-            flux=spec_full,
-            spectral_axis=wave[0],
+        synth = SpectrumList(
+            flux=spec,
+            spectral_axis=wave,
             reference_frame="barycentric",
             star=self.star,
             planet=self.planet,

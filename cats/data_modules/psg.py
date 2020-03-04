@@ -15,7 +15,7 @@ from astropy.constants import G
 from data_sources.PSG import PSG
 
 from .datasource import DataSource
-from ..spectrum import Spectrum1D
+from ..spectrum import Spectrum1D, SpectrumList
 
 
 class Psg(DataSource):
@@ -52,7 +52,7 @@ class Psg(DataSource):
     def file_config(self):
         return join(self.dir, self.config["file_config"])
 
-    def get_planet(self, wave, time):
+    def get_planet(self, wrange, time):
         """ load planetary transmission spectrum
 
         Parameters:
@@ -65,22 +65,23 @@ class Psg(DataSource):
         planet : dataset
             planetary transmission spectrum
         """
-        wmin, wmax = wave.min(), wave.max()
-        wmin, wmax = wmin.to_value(u.AA), wmax.to_value(u.AA)
+        wave, planet = [], []
+        for wmin, wmax in wrange.subregions:
+            wmin, wmax = wmin.to_value(u.AA), wmax.to_value(u.AA)
 
-        if not exists(self.file_atm) or not self.check_wavelength_range(
-            self.file_atm, (wmin, wmax)
-        ):
-            self.prepare_config_file(self.star, self.planet)
-            self.load_psg(None, wmin, wmax, planet=True)
+            if not exists(self.file_atm) or not self.check_wavelength_range(
+                self.file_atm, (wmin, wmax)
+            ):
+                self.prepare_config_file(self.star, self.planet)
+                self.load_psg(None, wmin, wmax, planet=True)
 
-        planet = pd.read_csv(self.file_atm)
-        wl = planet["Wave/freq"].values << u.AA
-        planet = planet["Total"].values << u.one
+            data = pd.read_csv(self.file_atm)
+            wave += [data["Wave/freq"].values << u.AA]
+            planet += [data["Total"].values << u.one]
 
-        spec = Spectrum1D(
+        spectra = SpectrumList(
             flux=planet,
-            spectral_axis=wl,
+            spectral_axis=wave,
             source="Planet Spectrum Generator",
             description="Model Planet Transmission spectrum",
             reference_frame="planet",
@@ -89,7 +90,7 @@ class Psg(DataSource):
             planet=self.planet,
         )
 
-        return spec
+        return spectra
 
     def get_observations(self, **data):
         """ load observations created by PSG
@@ -291,6 +292,6 @@ class Psg(DataSource):
 class PsgPlanetSpectrum(Psg):
     def __init__(self, star, planet):
         super().__init__(star, planet)
-    
+
     def get(self, wave, time):
         return self.get_planet(wave, time)

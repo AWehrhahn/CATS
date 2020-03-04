@@ -23,6 +23,7 @@ from . import noise as NoiseModel
 class Simulator:
     def __init__(
         self,
+        detector,
         star,
         planet,
         stellar,
@@ -33,6 +34,7 @@ class Simulator:
         R=100_000,
         noise=None,
     ):
+        self.detector = detector
         # Orbit information
         self.planet = planet
         self.star = star
@@ -66,7 +68,7 @@ class Simulator:
         ls = list(generator)
         return len(ls)
 
-    def simulate_single(self, wave, time):
+    def simulate_single(self, wrange, time):
         """
         Simulate an observation using the current settings
         at the given datetime
@@ -86,11 +88,14 @@ class Simulator:
 
         # Generate intensities for the current mu
         mu = self.orbit.mu(time)
-        i_core = self.intensities.get(wave, time, "core")
-        i_atmo = self.intensities.get(wave, time, "atmosphere")
-        planet_spectrum = self.planet_spectrum.get(wave, time)
-        stellar = self.stellar.get(wave, time)
-        telluric = self.telluric.get(wave, time)
+        telluric = self.telluric.get(wrange, time)
+        i_core = self.intensities.get(wrange, time, "core")
+        i_atmo = self.intensities.get(wrange, time, "atmosphere")
+        planet_spectrum = self.planet_spectrum.get(wrange, time)
+        stellar = self.stellar.get(wrange, time)
+
+        wave = self.create_wavelength(wrange)
+        blaze = self.detector.blaze
 
         # Shift to telescope restframe
         observatory_location = "Cerro Paranal"
@@ -103,32 +108,35 @@ class Simulator:
         i_atmo = i_atmo.shift(frame)
 
         # interpolate all onto the same wavelength grid
-        method = "flux_conserving"
+        method = "spline"
         planet_spectrum = planet_spectrum.resample(wave, method=method)
         stellar = stellar.resample(wave, method=method)
         telluric = telluric.resample(wave, method=method)
         i_core = i_core.resample(wave, method=method)
         i_atmo = i_atmo.resample(wave, method=method)
 
+
         # Observed spectrum
         area_planet = self.planet.area / self.star.area
         area_atm = np.pi * (self.planet.radius + self.planet.atm_scale_height) ** 2
         area_atm /= self.star.area
 
-        obs = (stellar - i_core * area_planet + i_atmo * planet_spectrum * area_atm) * telluric
+        obs = (stellar - i_core * area_planet + (i_atmo * planet_spectrum) * area_atm) * telluric
+
+        obs *= blaze
 
         # Generate noise
-        size = len(wave)
+        size = wave.shape
         noise = np.zeros(size)
-        for n in self.noise:
-            noise += n(size)
+        for source in self.noise:
+            noise += source(size)
 
         # Apply instrumental broadening and noise
         obs *= 1 + noise
 
         return obs
 
-    def simulate_series(self, wave, nobs):
+    def simulate_series(self, wrange, nobs):
         """
         Simulate a series of observations
         
@@ -149,21 +157,23 @@ class Simulator:
         time = Time(np.linspace(t1.mjd, t4.mjd, nobs), format="mjd")
         phase = self.orbit.phase_angle(time)
 
-        # TODO: shift the wavelength grid a bit for each observation (as in real observations)
-        s = self.simulate_single(wave, time[5])
+        # TODO: shift the wavelength grid a bit for each observation (as in real observations) ??
+        s = self.simulate_single(wrange, time[5])
         return s
 
     def create_wavelength(self, wrange):
         # Create new wavelength grid
-        wmin, wmax = wrange.bounds
-        wmin, wmax = wmin.to(u.AA).value, wmax.to(u.AA).value
+        norders = len(wrange.subregions)
+        npixels = self.detector.pixels
+        wave = np.zeros((norders, npixels)) << u.AA
 
-        wpoints = Simulator.get_number_of_wavelengths_points_from_resolution(
-            self.R, wmin, wmax
-        )
-        wgrid = np.geomspace(wmin, wmax, wpoints)
-        wgrid[0] = wmin
-        wgrid[-1] = wmax
+        for i, (wmin, wmax) in enumerate(wrange.subregions):
+            wmin = wmin.to_value(u.AA)
+            wmax = wmax.to_value(u.AA)
 
-        wgrid = wgrid << u.AA
-        return wgrid
+            wgrid = np.geomspace(wmin, wmax, npixels)
+            wgrid[[0, -1]] = wmin, wmax
+
+            wave[i] = wgrid << u.AA
+
+        return wave
