@@ -24,7 +24,7 @@ class Psg(DataSource):
 
         self.star = star
         self.planet = planet
-        self.dir = self.config["dir"].format(star=star, planet=planet)
+        self.dir = self.config["dir"].format(star=star.name, planet=planet.name)
 
         # TODO change psg config, to reflect orbital parameters
 

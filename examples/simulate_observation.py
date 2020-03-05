@@ -14,7 +14,7 @@ quantity_support()
 logger = logging.getLogger(__name__)
 
 data_directory = "/DATA/exoSpectro"
-detector = Crires("H/1/4", 1)
+detector = Crires("H/1/4", [1, 2, 3])
 
 # Define wavelength range
 wrange = detector.regions
@@ -22,7 +22,7 @@ blaze = detector.blaze
 
 # Load orbital and stellar parameters from Database
 sdb = stellar_db.StellarDb()
-star = sdb.get("GJ1214")
+star = sdb.get("HD209458")
 planet = star.planets["b"]
 
 # Prepare stellar spectrum
@@ -44,10 +44,11 @@ spec = sim.simulate_series(wrange, 10)
 
 # Compare to pure stellar spectrum
 # Note: probably with different rest frame
-star_spec = stellar.get(wave, 0)
+star_spec = stellar.get(wrange, 0)
 
-plt.plot(spec.wavelength, spec.flux[0])
-plt.plot(star_spec.wavelength, star_spec.flux)
+for i in range(len(spec)):
+    plt.plot(spec[i].wavelength, spec[i].flux.decompose())
+    # plt.plot(star_spec[i].wavelength, star_spec[i].flux)
 plt.show()
 
 pass

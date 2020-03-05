@@ -13,6 +13,7 @@ Input:
 import numpy as np
 import astropy.units as u
 from astropy.time import Time
+import astropy.constants as const
 
 from exoorbit import Orbit
 
@@ -123,7 +124,16 @@ class Simulator:
 
         obs = (stellar - i_core * area_planet + (i_atmo * planet_spectrum) * area_atm) * telluric
 
+        # Convert units
+        wave_bin = [np.gradient(w.wavelength) for w in obs]
+        obs *= wave_bin
+        obs *= self.detector.collection_area * self.detector.integration_time
+
+        photon_energy = [w.wavelength/ (const.h * const.c) for w in obs]
+        obs *= photon_energy
+
         obs *= blaze
+        obs *= self.detector.efficiency / self.detector.gain
 
         # Generate noise
         size = wave.shape

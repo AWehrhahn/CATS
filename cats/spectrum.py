@@ -1,5 +1,8 @@
 import logging
 from copy import copy
+from collections import Sequence
+
+import operator as op
 
 import astropy.constants as const
 import astropy.units as u
@@ -52,6 +55,9 @@ class Spectrum1D(specutils.Spectrum1D):
         super().__init__(*args, **kwargs)
 
         self.reference_frame = reference_frame
+
+    def __len__(self):
+        return len(self.spectral_axis)
 
     @property
     def datetime(self):
@@ -189,8 +195,8 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
-class SpectrumList:   
-    """ 
+class SpectrumList(Sequence):
+    """
     Stores a list of Spectrum1D objects, with shared metadata
     This usually represents the different orders of the spectrum,
     which may have various sizes of spectral axis, especially when
@@ -227,60 +233,35 @@ class SpectrumList:
     def __len__(self):
         return len(self._data)
 
-    # Add has to work with: SpectrumList
+    def __operator__(self, other, operator):
+        if isinstance(other, (float, int)) or (hasattr(other, "size") and other.size == 1):
+            # If its scalar, make it an array of the same length
+            other = [other for _ in self]
+        elif len(other) != len(self):
+            raise ValueError(f"Incompatible sizes of {len(self)} and {len(other)}")
+        data = [operator(t, o) for t, o in zip(self, other)]
+        sl = self.__class__.from_spectra(data)
+        return sl
+
     def __add__(self, other):
-        if isinstance(other, self.__class__):
-            # other is SpectrumList
-            assert len(other) == len(self), "Length is different"
-            data = []
-            for this, oth in zip(self._data, other._data):
-                data += [this + oth]
-            sl = self.__class__.from_spectra(data)
-            return sl
-        else:
-            return NotImplemented
+        return self.__operator__(other, op.add)
 
     def __sub__(self, other):
-        if isinstance(other, self.__class__):
-            # other is SpectrumList
-            assert len(other) == len(self), "Length is different"
-            data = []
-            for this, oth in zip(self._data, other._data):
-                data += [this - oth]
-            sl = self.__class__.from_spectra(data)
-            return sl
-        else:
-            return NotImplemented
+        return self.__operator__(other, op.sub)
 
-    # Multiply has to work with: Scalar, SpectrumList, NumpyArray2D
     def __mul__(self, other):
-        if isinstance(other, u.Quantity):
-            # Other is a scalar (e.g. float)
-            data = []
-            for this in self._data:
-                data += [this * other]
-            sl = self.__class__.from_spectra(data)
-            return sl
-        elif isinstance(other, self.__class__):
-            # other is SpectrumList
-            assert len(other) == len(self), "Length is different"
-            data = []
-            for this, oth in zip(self._data, other._data):
-                data += [this * oth]
-            sl = self.__class__.from_spectra(data)
-            return sl
-        elif isinstance(other, np.ndarray) and other.ndim == 2:
-            # Other is 2D array
-            assert len(other) == len(self), "Length is different"
-            data = []
-            for this, oth in zip(self._data, other):
-                data += [this * oth]
-            sl = self.__class__.from_spectra(data)
-            return sl
-        else:
-            return NotImplemented
+        return self.__operator__(other, op.mul)
 
+    def __truediv__(self, other):
+        return self.__operator__(other, op.truediv)
 
+    @property
+    def shape(self):
+        return (len(self), [len(d) for d in self])
+
+    @property
+    def size(self):
+        return sum(self.shape[1])
 
     @classmethod
     def from_spectra(cls, spectra):
@@ -305,6 +286,7 @@ class SpectrumList:
         spectrum_list = cls([], [])
         spectrum_list._data = spectra
         return spectrum_list
+
 
     def resample(self, grid, **kwargs):        
         """
