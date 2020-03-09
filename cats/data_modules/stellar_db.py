@@ -45,29 +45,30 @@ class StellarDb(DataSource):
 
         star = Star(
             name=name,
-            mass=data["mass"] * u.M_sun,
-            radius=data["radius"] * u.R_sun,
-            effective_temperature=data["t_eff"] * u.K,
-            logg=data["logg"] * u.one,
-            monh=data["metallicity"] * u.dex,
-            vturb=data["vel_turb"] * (u.km / u.s),
+            mass=data["mass"],
+            radius=data["radius"],
+            effective_temperature=data["t_eff"],
+            logg=data["logg"],
+            monh=data["metallicity"],
+            vturb=data["velocity_turbulence"],
             ra=data["coordinates"]["ra"],
-            dec=data["coordinates"]["dec"]
+            dec=data["coordinates"]["dec"],
+            distance=data["distance"],
         )
 
         planets = {}
         for pname, p in data["planets"].items():
             planet = Planet(
                 name=pname,
-                radius=p["radius"] * u.R_jupiter,
-                mass=p["mass"] * u.M_jupiter,
-                inclination=p["inclination"] * u.deg,
-                semi_major_axis=p["semi_major_axis"] * u.AU,
-                period=p["period"] * u.day,
-                eccentricity=p["eccentricity"] * u.one,
+                radius=p["radius"],
+                mass=p["mass"],
+                inclination=p["inclination"],
+                semi_major_axis=p["semi_major_axis"],
+                period=p["period"],
+                eccentricity=p["eccentricity"],
                 # argument_of_periastron=Time(p["periastron"],format="jd"),
                 time_of_transit=Time(p["transit_epoch"], format="jd"),
-                transit_duration=p["transit_duration"] * u.day,
+                transit_duration=p["transit_duration"],
             )
 
             planet.teff = (

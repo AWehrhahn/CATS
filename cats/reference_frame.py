@@ -45,6 +45,9 @@ class BarycentricFrame(ReferenceFrame):
     def to_barycentric(self):
         return 0 << rv_units
 
+    def __str__(self):
+        return "barycentric"
+
 
 class TelescopeFrame(ReferenceFrame):
     def __init__(self, datetime, observatory_location, sky_location):
@@ -52,6 +55,9 @@ class TelescopeFrame(ReferenceFrame):
         self.datetime = Time(datetime)
         self.observatory = observatory_location
         self.sky = sky_location
+
+    def __str__(self):
+        return "telescope"
 
     @property
     def observatory(self):
@@ -76,7 +82,7 @@ class TelescopeFrame(ReferenceFrame):
         if isinstance(value, tuple):
             ra, dec = value
             value = coords.SkyCoord(
-                ra, dec, obstime=self.datetime, location=self.observatory, unit=u.hourangle
+                ra, dec, obstime=self.datetime, location=self.observatory
             )
 
         self._sky = value
@@ -95,6 +101,9 @@ class StarFrame(ReferenceFrame):
         super().__init__()
         self.star = star
 
+    def __str__(self):
+        return "star"
+
     def to_barycentric(self):
         return self.star["radial_velocity"]
 
@@ -106,6 +115,9 @@ class PlanetFrame(ReferenceFrame):
         self.star = star
         self.planet = planet
         self.orbit = exoorbit.Orbit(star, planet)
+
+    def __str__(self):
+        return "planet"
 
     def to_barycentric(self):
         rv = self.orbit.radial_velocity_planet(self.datetime)

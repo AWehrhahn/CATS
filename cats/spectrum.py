@@ -4,12 +4,15 @@ from collections import Sequence
 
 import operator as op
 
+from datetime import datetime
+
 import astropy.constants as const
 import astropy.units as u
 import numpy as np
 import specutils
 import specutils.manipulation as specman
 from astropy.time import Time
+from astropy.io import fits
 
 from . import reference_frame as rf
 
@@ -58,6 +61,11 @@ class Spectrum1D(specutils.Spectrum1D):
 
     def __len__(self):
         return len(self.spectral_axis)
+
+    def __copy__(self):
+        other = super().__copy__()
+        other.__class__ = self.__class__
+        return other
 
     @property
     def datetime(self):
@@ -108,6 +116,54 @@ class Spectrum1D(specutils.Spectrum1D):
                 f"Expected one of {self.reference_frame_values} but got {frame} instead."
             )
         return frame
+
+    def _get_fits_hdu(self):
+        wave = self.wavelength.to(u.AA)
+        flux = self.flux.decompose()
+        wave_unit = str(wave.unit)
+        flux_unit = str(flux.unit)
+        wave = fits.Column(
+            name="wavelength", array=wave.value, format="D", coord_unit=wave_unit
+        )
+        flux = fits.Column(
+            name="flux", array=flux.value, format="D", coord_unit=flux_unit
+        )
+
+        header = {
+            "SOURCE": self.meta["source"],
+            "DESCR": self.meta["description"],
+            "CITATION": self.meta["citation"],
+            "DATE-OBS": self.datetime.fits,
+            "DATE": datetime.now().isoformat(),
+            "REFFRAME": str(self.reference_frame),
+        }
+
+        # This only saves the name
+        # Values have to be recovered using various sources
+        # StellarDB for star and planet
+        # EarthCoordinates for observatory
+        if self.meta["star"] is not None:
+            header["STAR"] = str(self.meta["star"])
+        if self.meta["planet"] is not None:
+            header["PLANET"] = str(self.meta["planet"])
+        if self.meta["observatory_location"] is not None:
+            if isinstance(self.meta["observatory_location"], str):
+                header["OBSNAME"] = self.meta["observatory_location"]
+            elif isinstance(self.meta["observatory_location"], (tuple, list)):
+                header["OBSLAT"] = (self.meta["observatory_location"][0],)
+                header["OBSLON"] = (self.meta["observatory_location"][1],)
+                header["OBSALT"] = (self.meta["observatory_location"][2],)
+        if self.meta["sky_location"] is not None:
+            header["RA"] = self.meta["sky_location"][0]
+            header["DEC"] = self.meta["sky_location"][1]
+
+        header = fits.Header(header)
+        hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
+        return hdu
+
+    def write(self, fname):
+        hdu = self._get_fits_hdu()
+        hdu.writeto(fname, overwrite=True)
 
     def shift(self, target_frame, inplace=False):
         """
@@ -183,7 +239,9 @@ class Spectrum1D(specutils.Spectrum1D):
         elif method == "spline":
             resampler = specman.SplineInterpolatedResampler(**kwargs)
         else:
-            raise ValueError(f"Interpolation method not understood. Expected one of {options}, but got {method}")
+            raise ValueError(
+                f"Interpolation method not understood. Expected one of {options}, but got {method}"
+            )
 
         spec = resampler(self, grid)
 
@@ -194,6 +252,7 @@ class Spectrum1D(specutils.Spectrum1D):
         spec.__class__ = Spectrum1D
 
         return spec
+
 
 class SpectrumList(Sequence):
     """
@@ -211,6 +270,7 @@ class SpectrumList(Sequence):
     only use CATS Spectra1D objects as input
 
     """
+
     def __init__(self, flux, spectral_axis, **kwargs):
         super().__init__()
 
@@ -234,7 +294,9 @@ class SpectrumList(Sequence):
         return len(self._data)
 
     def __operator__(self, other, operator):
-        if isinstance(other, (float, int)) or (hasattr(other, "size") and other.size == 1):
+        if isinstance(other, (float, int)) or (
+            hasattr(other, "size") and other.size == 1
+        ):
             # If its scalar, make it an array of the same length
             other = [other for _ in self]
         elif len(other) != len(self):
@@ -287,8 +349,25 @@ class SpectrumList(Sequence):
         spectrum_list._data = spectra
         return spectrum_list
 
+    def write(self, fname, detector=None):
+        # Save all in one fits file
+        # with metatdata in the header and the wavelength and flux in the data
 
-    def resample(self, grid, **kwargs):        
+        header = {}
+        if detector is not None:
+            header["INSTRUME"] = str(detector)
+            header["INS SET"] = detector.setting
+
+        header = fits.Header(header)
+        primary = fits.PrimaryHDU(header=header)
+        secondary = []
+        for spec in self:
+            secondary += [spec._get_fits_hdu()]
+
+        hdulist = fits.HDUList(hdus=[primary, *secondary])
+        hdulist.writeto(fname, overwrite=True)
+
+    def resample(self, grid, **kwargs):
         """
         Resample the different spectra onto the given grid
         
@@ -306,7 +385,9 @@ class SpectrumList(Sequence):
         """
 
         if len(grid) != len(self):
-            raise ValueError(f"Wavelength grid has {len(grid)} arrays, but SpectrumList has {len(self)} spectra.")
+            raise ValueError(
+                f"Wavelength grid has {len(grid)} arrays, but SpectrumList has {len(self)} spectra."
+            )
 
         data = []
         for i, (g, spec) in enumerate(zip(grid, self._data)):

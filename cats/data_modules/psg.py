@@ -7,10 +7,13 @@ import os
 from os.path import basename, exists, join, splitext, dirname
 import re
 
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 from astropy import units as u
 from astropy.constants import G
+from astropy.time import Time
 
 from data_sources.PSG import PSG
 
@@ -292,6 +295,18 @@ class Psg(DataSource):
 class PsgPlanetSpectrum(Psg):
     def __init__(self, star, planet):
         super().__init__(star, planet)
+        self.spectrum = None
+        self.is_prepared = False
+
+    def prepare(self, wave):
+        self.spectrum = self.get_planet(wave, Time.now())
+        self.is_prepared = True
 
     def get(self, wave, time):
-        return self.get_planet(wave, time)
+        if not self.is_prepared:
+            self.prepare(wave)
+
+        synth = deepcopy(self.spectrum)
+        synth.time = time
+
+        return synth

@@ -124,7 +124,10 @@ class Simulator:
 
         obs = (stellar - i_core * area_planet + (i_atmo * planet_spectrum) * area_atm) * telluric
 
-        # Convert units
+        # Distance modulus
+        obs *= (self.star.radius / self.star.distance).decompose()**2
+
+        # Convert units to number of photons
         wave_bin = [np.gradient(w.wavelength) for w in obs]
         obs *= wave_bin
         obs *= self.detector.collection_area * self.detector.integration_time
@@ -132,21 +135,32 @@ class Simulator:
         photon_energy = [w.wavelength/ (const.h * const.c) for w in obs]
         obs *= photon_energy
 
-        obs *= blaze
+        # Detector efficiency and gain to determine ADUs
         obs *= self.detector.efficiency / self.detector.gain
 
-        # Generate noise
+        # TODO: Why this factor?
+        # The height of the order? No, the total is the sum of all values
+        # but then the expected value of the spectrum is larger than i thought
+        # obs *= 1 / self.detector.order_height
+        
+        # Apply blaze function
+        # TODO: blaze is given as the flat field measurement, so what does that mean?
+        obs *= blaze
+
+        # Instrumental broadening
+        obs = self.detector.apply_instrumental_broadening(obs)
+
+        # Various Noise sources
         size = wave.shape
+        data = [o.flux for o in obs]
         noise = np.zeros(size)
         for source in self.noise:
-            noise += source(size)
-
-        # Apply instrumental broadening and noise
-        obs *= 1 + noise
+            noise += source(size, data)
+        obs += noise
 
         return obs
 
-    def simulate_series(self, wrange, nobs):
+    def simulate_series(self, wrange, time, nobs):
         """
         Simulate a series of observations
         
@@ -160,16 +174,26 @@ class Simulator:
         series : SpectrumList
             a list of observations
         """
+
+
         # Calculate phase
-        period = self.planet.period.to_value("day")
-        t1 = self.orbit.first_contact() - period / 100
-        t4 = self.orbit.fourth_contact() + period / 100
-        time = Time(np.linspace(t1.mjd, t4.mjd, nobs), format="mjd")
+        duration = self.planet.transit_duration.to_value("day")
+        t1 = self.orbit.first_contact().mjd
+        t4 = self.orbit.fourth_contact().mjd
+        timedelta = Time(np.linspace(t1, t4, nobs), format="mjd")
+        timedelta -= self.planet.time_of_transit
+        time += timedelta
         phase = self.orbit.phase_angle(time)
 
+        # do the calculations only once
+        self.intensities.prepare(wrange, time)
+
         # TODO: shift the wavelength grid a bit for each observation (as in real observations) ??
-        s = self.simulate_single(wrange, time[5])
-        return s
+        # TODO: optimize sme calculations (i.e. do all mu values at the same time)
+        spectra = []
+        for t in time:
+            spectra += [self.simulate_single(wrange, t)]
+        return spectra
 
     def create_wavelength(self, wrange):
         # Create new wavelength grid
