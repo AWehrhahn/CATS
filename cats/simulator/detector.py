@@ -4,12 +4,10 @@ import astropy.units as u
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.ndimage import gaussian_filter1d
 from specutils.spectra import SpectralRegion
 
-from scipy.ndimage import gaussian_filter1d
-
-from ..spectrum import Spectrum1D
-from .noise import WhiteNoise, PoisonNoise
+from .noise import PoisonNoise, WhiteNoise
 
 
 class Detector:
@@ -39,6 +37,7 @@ class Crires(Detector):
         self.integration_time = 5 * u.min
         self.bad_pixel_ratio = 4e5 / (2048 ** 2)
         self.spectral_broadening = 1
+        self.observatory = "Cerro Paranal"
 
         # TODO: gain / readnoise for each detector / wavelength range
         self.gain = [2.15, 2.19, 2.00]
@@ -59,7 +58,7 @@ class Crires(Detector):
         self.readnoise = np.repeat(self.readnoise, self.norders)
 
     def __str__(self):
-        return "CRIRES+"
+        return "CRIRES"
 
     @staticmethod
     def load_spectral_regions(setting, detector):

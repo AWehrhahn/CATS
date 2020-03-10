@@ -2,7 +2,7 @@ import numpy as np
 
 import astropy.units as u
 
-from ..spectrum import Spectrum1D
+from ..spectrum import Spectrum1D, SpectrumList
 from .datasource import DataSource
 
 
@@ -13,8 +13,20 @@ class Space(DataSource):
     will just return 1
     """
 
-    def get_tellurics(self, spec):
-        wave = spec.wavelength
-        flux = np.ones(wave.size) << u.Unit(1)
-        ds = Spectrum1D(flux=flux, spectral_axis=wave)
-        return ds
+    def get(self, wrange, time=None):
+
+        wave = []
+        flux = []
+        for wmin, wmax in wrange.subregions:
+            wave += [np.geomspace(wmin, wmax, 100) << wrange.unit]
+            flux += [np.ones(100) << u.one]
+
+        spec = SpectrumList(
+            flux=flux,
+            spectral_axis=wave,
+            description="tellurics in space, i.e. no tellurics",
+            source="space",
+            reference_frame="barycentric",
+        )
+
+        return spec

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class StellarDb(DataSource):
     def __init__(self):
         super().__init__()
+        self.backend = SDB()
 
     def get(self, name):
         """Load the data on the star from the local database, or online
@@ -36,13 +37,10 @@ class StellarDb(DataSource):
             recovered Star
         """
 
-        # TODO check that the name is of a star
+        data = self.backend.load(name)
 
-        sdb = SDB()
-        data = sdb.load(name)
         # Convert names
         # Stellar parameters
-
         star = Star(
             name=name,
             mass=data["mass"],

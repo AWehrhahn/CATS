@@ -19,6 +19,34 @@ quantity_support()
 # TODO: figure out logging (again)
 logger = logging.getLogger(__name__)
 
+def find_transit(observatory, star):
+    observer = ap.Observer.at_site(observatory)
+    coords = SkyCoord(star.ra, star.dec)
+    target = ap.FixedTarget(name=star.name, coord=coords)
+    system = ap.EclipsingSystem(
+        primary_eclipse_time=planet.time_of_transit,
+        orbital_period=planet.period,
+        duration=planet.transit_duration,
+        name=planet.name,
+    )
+
+    constraints = [
+        ap.PrimaryEclipseConstraint(system),
+        ap.AtNightConstraint.twilight_civil(),
+        ap.AirmassConstraint(min=1, max=2)
+    ]
+
+    # TODO: Pick a good transit time automatically
+    transit_time = system.next_primary_eclipse_time(Time.now(), 100)
+    mask = ap.is_event_observable(constraints, observer, target, transit_time)
+    transit_time = transit_time[mask[0]][1]
+
+    plot_airmass(target, observer, transit_time)
+    plt.vlines(transit_time.plot_date, 0, 3)
+    plt.show()
+
+    return transit_time
+
 
 # TODO: get transit times with astroplan
 # and compare to my internal calculations in ExoOrbit
@@ -34,35 +62,11 @@ blaze = detector.blaze
 sdb = stellar_db.StellarDb()
 star = sdb.get("HD209458")
 planet = star.planets["b"]
-observatory = "Cerro Paranal"
+observatory = detector.observatory
 
 # Find next transit
-
-observer = ap.Observer.at_site(observatory)
-coords = SkyCoord(star.ra, star.dec)
-target = ap.FixedTarget(name=star.name, coord=coords)
-system = ap.EclipsingSystem(
-    primary_eclipse_time=planet.time_of_transit,
-    orbital_period=planet.period,
-    duration=planet.transit_duration,
-    name=planet.name,
-)
-
-constraints = [
-    ap.PrimaryEclipseConstraint(system),
-    ap.AtNightConstraint.twilight_civil(),
-    ap.AirmassConstraint(min=1, max=2)
-]
-
-
-# TODO: Pick a good transit time
-transit_time = system.next_primary_eclipse_time(Time.now(), 100)
-mask = ap.is_event_observable(constraints, observer, target, transit_time)
-transit_time = transit_time[mask[0]][1]
-
-plot_airmass(target, observer, transit_time)
-plt.vlines(transit_time.plot_date, 0, 3)
-plt.show()
+transit_time = "2020-05-25T10:31:25.418"
+transit_time = Time(transit_time, format="fits")
 
 # Prepare stellar spectrum
 stellar = sme.SmeStellar(star, linelist=f"{data_directory}/crires_h_1_4.lin")

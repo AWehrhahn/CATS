@@ -5,15 +5,16 @@ Adding various sources of noise
 Input:
   - Stellar spectrum (with SME)
   - Stellar intensities (with SME)
-  - Tellurics (with Molecfit?)
-  - Planet spectrum (from PSG?)
-  - 
+  - Tellurics
+  - Planet spectrum (from PSG)
+  - Noise sources
 
 """
-import numpy as np
-import astropy.units as u
-from astropy.time import Time
 import astropy.constants as const
+import astropy.units as u
+import numpy as np
+from astropy.time import Time
+from tqdm import tqdm
 
 from exoorbit import Orbit
 
@@ -175,7 +176,6 @@ class Simulator:
             a list of observations
         """
 
-
         # Calculate phase
         duration = self.planet.transit_duration.to_value("day")
         t1 = self.orbit.first_contact().mjd
@@ -191,7 +191,7 @@ class Simulator:
         # TODO: shift the wavelength grid a bit for each observation (as in real observations) ??
         # TODO: optimize sme calculations (i.e. do all mu values at the same time)
         spectra = []
-        for t in time:
+        for t in tqdm(time, descr="Observation"):
             spectra += [self.simulate_single(wrange, t)]
         return spectra
 

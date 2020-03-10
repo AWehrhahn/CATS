@@ -15,6 +15,8 @@ from astropy.time import Time
 from astropy.io import fits
 
 from . import reference_frame as rf
+from .simulator import detector
+from .data_modules.stellar_db import StellarDb
 
 logger = logging.getLogger(__name__)
 
@@ -161,9 +163,58 @@ class Spectrum1D(specutils.Spectrum1D):
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
         return hdu
 
+    @classmethod
+    def _read_fits_hdu(cls, hdu):
+        header = hdu.header
+        data = hdu.data
+        meta = {}
+
+        wunit = data.columns["wavelength"].coord_unit
+        wunit = u.Unit(wunit) if wunit is not None else u.one
+        funit = data.columns["flux"].coord_unit
+        funit = u.Unit(funit) if funit is not None else u.one
+        wave = data["wavelength"] << wunit
+        flux = data["flux"] << funit
+
+        meta["source"] = header["SOURCE"]
+        meta["description"] = header["DESCR"]
+        meta["citation"] = header["CITATION"]
+        meta["datetime"] = Time(header["DATE-OBS"], format="fits")
+        meta["reference_frame"] = header["REFFRAME"]
+
+        sdb = StellarDb()
+        if "STAR" in header:
+            star = header["STAR"]
+            star = sdb.get(star)
+            meta["star"] = star
+        if "PLANET" in header:
+            planet = header["PLANET"]
+            planet = star.planets[planet]
+            meta["planet"] = planet
+        if "OBSNAME" in header:
+            meta["observatory_location"] = header["OBSNAME"]
+        elif "OBSLON" in header:
+            meta["observatory_location"] = (
+                header["OBSLON"],
+                header["OBSLAT"],
+                header["OBSALT"],
+            )
+        if "RA" in header:
+            meta["sky_location"] = header["RA"], header["DEC"]
+
+        spec = cls(flux=flux, spectral_axis=wave, **meta)
+
+        return spec
+
     def write(self, fname):
         hdu = self._get_fits_hdu()
         hdu.writeto(fname, overwrite=True)
+
+    @staticmethod
+    def read(fname):
+        hdulist = fits.open(fname)
+        spec = Spectrum1D._read_fits_hdu(hdulist[0])
+        return spec
 
     def shift(self, target_frame, inplace=False):
         """
@@ -301,8 +352,11 @@ class SpectrumList(Sequence):
             other = [other for _ in self]
         elif len(other) != len(self):
             raise ValueError(f"Incompatible sizes of {len(self)} and {len(other)}")
+        # TODO: check that reference frame is the same
         data = [operator(t, o) for t, o in zip(self, other)]
         sl = self.__class__.from_spectra(data)
+        for out, inp in zip(sl, self):
+            out.meta = inp.meta
         return sl
 
     def __add__(self, other):
@@ -350,6 +404,16 @@ class SpectrumList(Sequence):
         return spectrum_list
 
     def write(self, fname, detector=None):
+        """Save all spectra in SpectrumList to a single fits file
+        Each Spectrum1D has its own extension with a complete header
+        
+        Parameters
+        ----------
+        fname : str
+            output filename
+        detector : Detector, optional
+            Detector used, will add some data to the primary header. By default None
+        """
         # Save all in one fits file
         # with metatdata in the header and the wavelength and flux in the data
 
@@ -366,6 +430,26 @@ class SpectrumList(Sequence):
 
         hdulist = fits.HDUList(hdus=[primary, *secondary])
         hdulist.writeto(fname, overwrite=True)
+
+    @classmethod
+    def read(cls, fname):
+        hdulist = fits.open(fname)
+        header = hdulist[0].header
+
+        if "INSTRUME" in header:
+            det = header["INSTRUME"]
+            setting = header["INS SET"]
+            det = det.capitalize().replace("+", "")
+
+            module = getattr(detector, det)
+            det = module(setting)
+
+        spectra = []
+        for i in range(1, len(hdulist)):
+            spectra += [Spectrum1D._read_fits_hdu(hdulist[i])]
+
+        speclist = cls.from_spectra(spectra)
+        return speclist
 
     def resample(self, grid, **kwargs):
         """
