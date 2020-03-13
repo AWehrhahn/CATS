@@ -83,6 +83,11 @@ class Spectrum1D(specutils.Spectrum1D):
     def reference_frame(self):
         return self.meta["reference_frame"]
 
+    @property
+    def regions(self):
+        wmin, wmax = self.wavelength[[0, -1]]
+        return specutils.SpectralRegion(wmin ,wmax)
+
     @reference_frame.setter
     def reference_frame(self, value):
         if (
@@ -104,7 +109,7 @@ class Spectrum1D(specutils.Spectrum1D):
             frame = rf.TelescopeFrame(
                 self.datetime,
                 self.meta["observatory_location"],
-                sky_location=(self.meta["star"].ra, self.meta["star"].dec),
+                sky_location=self.meta["star"].coordinates,
             )
         elif frame == "star":
             frame = rf.StarFrame(self.meta["star"])
@@ -134,7 +139,7 @@ class Spectrum1D(specutils.Spectrum1D):
         header = {
             "SOURCE": self.meta["source"],
             "DESCR": self.meta["description"],
-            "CITATION": self.meta["citation"],
+            "CITATION": self.meta["citation"].replace("\n", "").strip(),
             "DATE-OBS": self.datetime.fits,
             "DATE": datetime.now().isoformat(),
             "REFFRAME": str(self.reference_frame),
@@ -246,8 +251,8 @@ class Spectrum1D(specutils.Spectrum1D):
         try:
             target_frame = self.reference_frame_from_name(target_frame)
         except ValueError:
-            # Its already a frame ?
-            pass
+            target_frame.datetime = self.datetime
+
 
         # Step 1: determine relative velocity between current and target frame
         rv = self.reference_frame.to_frame(target_frame)
@@ -263,7 +268,7 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
-    def resample(self, grid, method="flux_conserving", **kwargs):
+    def resample(self, grid, method="spline", **kwargs):
         """
         Resample the current spectrum to a different wavelength grid
 
@@ -304,6 +309,20 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
+    def extract_region(self, wrange):
+        wave, flux = [], []
+        for wmin, wmax in wrange.subregions:
+            mask = (self.wavelength >= wmin) & (self.wavelength <= wmax)
+
+            wave += [self.wavelength[mask]]
+            flux += [self.flux[mask]]
+
+        if len(wrange) == 1:
+            spec = Spectrum1D(flux=flux[0], spectral_axis=wave[0], **self.meta)
+        else:
+            spec = SpectrumList(flux=flux, spectral_axis=wave, **self.meta)
+
+        return spec
 
 class SpectrumList(Sequence):
     """
@@ -379,6 +398,13 @@ class SpectrumList(Sequence):
     def size(self):
         return sum(self.shape[1])
 
+    @property
+    def regions(self):
+        wrange = [spec.regions for spec in self]
+        for wr in wrange[1:]:
+            wrange[0] += wr
+        return wrange[0]
+
     @classmethod
     def from_spectra(cls, spectra):
         """
@@ -448,6 +474,10 @@ class SpectrumList(Sequence):
         for i in range(1, len(hdulist)):
             spectra += [Spectrum1D._read_fits_hdu(hdulist[i])]
 
+        ref_frame = spectra[0].reference_frame
+        for s in spectra:
+            s.reference_frame = ref_frame
+
         speclist = cls.from_spectra(spectra)
         return speclist
 
@@ -474,7 +504,7 @@ class SpectrumList(Sequence):
             )
 
         data = []
-        for i, (g, spec) in enumerate(zip(grid, self._data)):
+        for i, (g, spec) in enumerate(zip(grid, self)):
             s = spec.resample(g, **kwargs)
             data += [s]
 
@@ -496,6 +526,11 @@ class SpectrumList(Sequence):
         SpectrumList
             New shifted SpectrumList object
         """
+
+        try:
+            target_frame = self[0].reference_frame_from_name(target_frame)
+        except ValueError:
+            pass
 
         data = []
         for i, spec in enumerate(self._data):

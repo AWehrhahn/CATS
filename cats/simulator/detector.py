@@ -7,6 +7,8 @@ import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from specutils.spectra import SpectralRegion
 
+from astropy.coordinates import EarthLocation
+
 from .noise import PoisonNoise, WhiteNoise
 
 
@@ -37,7 +39,7 @@ class Crires(Detector):
         self.integration_time = 5 * u.min
         self.bad_pixel_ratio = 4e5 / (2048 ** 2)
         self.spectral_broadening = 1
-        self.observatory = "Cerro Paranal"
+        self.observatory = EarthLocation.of_site("Cerro Paranal")
 
         # TODO: gain / readnoise for each detector / wavelength range
         self.gain = [2.15, 2.19, 2.00]

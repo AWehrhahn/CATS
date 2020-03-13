@@ -30,7 +30,13 @@ def round_to_nearest(value, options):
 
 class SmeBase(DataSource):
     def __init__(
-        self, star, abundance="solar", linelist=None, atmosphere="marcs", nlte=None
+        self,
+        star,
+        abundance="solar",
+        linelist=None,
+        atmosphere="marcs",
+        nlte=None,
+        normalize=False,
     ):
         DataSource.__init__(self, "sme")
 
@@ -39,6 +45,7 @@ class SmeBase(DataSource):
         self.linelist = linelist
         self.atmosphere = atmosphere
         self.nlte = nlte
+        self.normalize = normalize
 
         if self.atmosphere == "marcs":
             vturb = self.star.vturb.to_value(u.km / u.s)
@@ -73,7 +80,7 @@ class SmeBase(DataSource):
         ]
 
         sme.cscale_flag = "none"
-        sme.normalize_by_continuum = False
+        sme.normalize_by_continuum = self.normalize
         sme.vrad_flag = "none"
 
         synthesizer = Synthesizer()
@@ -85,15 +92,32 @@ class SmeBase(DataSource):
             wave, spec, cont = synthesizer.synthesize_spectrum(sme)
 
         wave = [w << u.AA for w in wave]
-        spec = [s << flux_units for s in spec]
+        if self.normalize:
+            spec = [s << u.one for s in spec]
+        else:
+            spec = [s << flux_units for s in spec]
 
         return wave, spec, sme.citation("bibtex")
 
 
 class SmeStellar(SmeBase):
-
-    def __init__(self, star, abundance='solar', linelist=None, atmosphere='marcs', nlte=None):
-        super().__init__(star, abundance=abundance, linelist=linelist, atmosphere=atmosphere, nlte=nlte)
+    def __init__(
+        self,
+        star,
+        abundance="solar",
+        linelist=None,
+        atmosphere="marcs",
+        nlte=None,
+        normalize=False,
+    ):
+        super().__init__(
+            star,
+            abundance=abundance,
+            linelist=linelist,
+            atmosphere=atmosphere,
+            nlte=nlte,
+            normalize=normalize,
+        )
         self.is_prepared = False
         self.spectrum = None
 
@@ -131,8 +155,11 @@ class SmeIntensities(SmeBase, StellarIntensities):
         linelist=None,
         atmosphere="marcs",
         nlte=None,
+        normalize=False,
     ):
-        SmeBase.__init__(self, star, abundance, linelist, atmosphere, nlte)
+        SmeBase.__init__(
+            self, star, abundance, linelist, atmosphere, nlte, normalize=normalize
+        )
         StellarIntensities.__init__(self, star, planet)
         self.is_prepared = False
         self.times = None
@@ -152,7 +179,6 @@ class SmeIntensities(SmeBase, StellarIntensities):
             time = times[i]
 
             if mask[i]:
-                # TODO: what is the right indexing here to get the mu?
                 synth = SpectrumList(
                     flux=[s[j] for s in spec],
                     spectral_axis=wave,
@@ -169,8 +195,13 @@ class SmeIntensities(SmeBase, StellarIntensities):
                     [wmin.to_value(u.AA), wmax.to_value(u.AA)]
                     for wmin, wmax in wrange.subregions
                 ]
-                tmp_wave = [np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions]
-                tmp_spec = [np.zeros(100) << flux_units for _ in wrange.subregions]
+                tmp_wave = [
+                    np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions
+                ]
+                if self.normalize:
+                    tmp_spec  = [np.zeros(100) << u.one for _ in wrange.subregions]
+                else:
+                    tmp_spec = [np.zeros(100) << flux_units for _ in wrange.subregions]
                 synth = SpectrumList(
                     flux=tmp_spec,
                     spectral_axis=tmp_wave,

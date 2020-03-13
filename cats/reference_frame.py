@@ -3,6 +3,8 @@ from astropy.time import Time
 from astropy import units as u
 from astropy import coordinates as coords
 
+from functools import lru_cache
+
 import exoorbit
 
 rv_units = u.km / u.s
@@ -42,6 +44,7 @@ class ReferenceFrame:
 
 
 class BarycentricFrame(ReferenceFrame):
+    @lru_cache(128)
     def to_barycentric(self):
         return 0 << rv_units
 
@@ -87,6 +90,7 @@ class TelescopeFrame(ReferenceFrame):
 
         self._sky = value
 
+    @lru_cache(128)
     def to_barycentric(self):
         self.datetime.location = self.observatory
         self.sky.location = self.observatory
@@ -104,8 +108,9 @@ class StarFrame(ReferenceFrame):
     def __str__(self):
         return "star"
 
+    @lru_cache(128)
     def to_barycentric(self):
-        return self.star["radial_velocity"]
+        return self.star.radial_velocity
 
 
 class PlanetFrame(ReferenceFrame):
@@ -119,6 +124,7 @@ class PlanetFrame(ReferenceFrame):
     def __str__(self):
         return "planet"
 
+    @lru_cache(128)
     def to_barycentric(self):
         rv = self.orbit.radial_velocity_planet(self.datetime)
         return rv

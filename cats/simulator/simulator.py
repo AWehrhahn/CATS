@@ -16,6 +16,8 @@ import numpy as np
 from astropy.time import Time
 from tqdm import tqdm
 
+import matplotlib.pyplot as plt
+
 from exoorbit import Orbit
 
 from ..reference_frame import TelescopeFrame
@@ -96,12 +98,17 @@ class Simulator:
         planet_spectrum = self.planet_spectrum.get(wrange, time)
         stellar = self.stellar.get(wrange, time)
 
+        # Check that there is a planet spectrum at all!!
+        # for i in range(len(planet_spectrum)):
+        #     plt.plot(planet_spectrum[i].wavelength, planet_spectrum[i].flux)
+        # plt.show()
+
         wave = self.create_wavelength(wrange)
         blaze = self.detector.blaze
 
         # Shift to telescope restframe
-        observatory_location = "Cerro Paranal"
-        sky_location = (self.star.ra, self.star.dec)
+        observatory_location = self.detector.observatory
+        sky_location = self.star.coordinates
         frame = TelescopeFrame(Time(time, format="mjd"), observatory_location, sky_location)
         planet_spectrum = planet_spectrum.shift(frame)
         stellar = stellar.shift(frame)
@@ -159,6 +166,12 @@ class Simulator:
             noise += source(size, data)
         obs += noise
 
+        for spec in obs:
+            spec.meta["star"] = self.star
+            spec.meta["planet"] = self.planet
+            spec.meta["datetime"] = time
+            spec.reference_frame = "telescope"
+
         return obs
 
     def simulate_series(self, wrange, time, nobs):
@@ -191,7 +204,7 @@ class Simulator:
         # TODO: shift the wavelength grid a bit for each observation (as in real observations) ??
         # TODO: optimize sme calculations (i.e. do all mu values at the same time)
         spectra = []
-        for t in tqdm(time, descr="Observation"):
+        for t in tqdm(time, desc="Observation"):
             spectra += [self.simulate_single(wrange, t)]
         return spectra
 

@@ -5,10 +5,13 @@ Get Data from Stellar DB
 import logging
 import numpy as np
 
+from functools import lru_cache
+
 # from scipy import constants as const
 from astropy import constants as const
 from astropy import units as u
 from astropy.time import Time
+from astropy.coordinates import SkyCoord
 
 from exoorbit.bodies import Body, Star, Planet
 from data_sources.StellarDB import StellarDB as SDB
@@ -17,11 +20,20 @@ from .datasource import DataSource
 
 logger = logging.getLogger(__name__)
 
+
 class StellarDb(DataSource):
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = DataSource.__new__(cls, *args, **kwargs)
+        return cls._instance
+
     def __init__(self):
         super().__init__()
         self.backend = SDB()
 
+    @lru_cache(128)
     def get(self, name):
         """Load the data on the star from the local database, or online
         if not available locally.
@@ -41,6 +53,7 @@ class StellarDb(DataSource):
 
         # Convert names
         # Stellar parameters
+        coords = SkyCoord(data["coordinates"]["ra"], data["coordinates"]["dec"])
         star = Star(
             name=name,
             mass=data["mass"],
@@ -49,9 +62,9 @@ class StellarDb(DataSource):
             logg=data["logg"],
             monh=data["metallicity"],
             vturb=data["velocity_turbulence"],
-            ra=data["coordinates"]["ra"],
-            dec=data["coordinates"]["dec"],
+            coordinates=coords,
             distance=data["distance"],
+            radial_velocity=data["radial_velocity"],
         )
 
         planets = {}

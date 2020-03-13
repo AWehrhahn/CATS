@@ -20,6 +20,7 @@ from data_sources.PSG import PSG
 from .datasource import DataSource
 from ..spectrum import Spectrum1D, SpectrumList
 
+from exoorbit.orbit import Orbit
 
 class Psg(DataSource):
     def __init__(self, star, planet):
@@ -27,6 +28,7 @@ class Psg(DataSource):
 
         self.star = star
         self.planet = planet
+        self.orbit = Orbit(star, planet)
         self.dir = self.config["dir"].format(star=star.name, planet=planet.name)
 
         # TODO change psg config, to reflect orbital parameters
@@ -213,11 +215,12 @@ class Psg(DataSource):
         planet_name = planet.name
 
         # TODO figure out all the parameters we need to change to make it fit accurately
-        object_name = f"{star_name}{planet_name}"
+        object_name = f"{star_name} {planet_name}"
         object_diameter = planet.radius.to("km").value
         object_gravity = (planet.mass * G).to("m**3/s**2").value
         object_distance = planet.a.to("AU").value
-        object_velocity = 0
+        object_density = (planet.mass / planet.volume).to_value("g/cm**3")
+        object_velocity = self.orbit.radial_velocity_semiamplitude_planet()
 
         star_temp = star.teff.to("K").value
         star_radius = star.radius.to("R_sun").value
@@ -226,11 +229,23 @@ class Psg(DataSource):
         psg_config = psg_source.psg_config
         psg_config["OBJECT-NAME"] = object_name
         psg_config["OBJECT-DIAMETER"] = object_diameter
-        psg_config["OBJECT-GRAVITY"] = object_gravity
+        psg_config["OBJECT-GRAVITY"] = object_density
+        psg_config["OBJECT-GRAVITY-UNIT"] = "rho"
+        psg_config["OBJECT-PERIOD"] = planet.period.to_value("day")
+        # psg_config["OBJECT-SOLAR-LATITUDE"] = planet.eccentricity.to_value("deg")
+        psg_config["OBJECT-SEASON"] = 180
+
         psg_config["OBJECT-STAR-DISTANCE"] = object_distance
         psg_config["OBJECT-STAR-VELOCITY"] = object_velocity
         psg_config["OBJECT-STAR-TEMPERATURE"] = star_temp
         psg_config["OBJECT-STAR-RADIUS"] = star_radius
+        psg_config["OBJECT-STAR-METALLICITY"] = star.monh.to_value(1)
+
+        psg_config["OBJECT-OBS-VELOCITY"] = 0
+        psg_config["OBJECT-OBS-LONGITUDE"] = 270
+        psg_config["OBJECT-OBS-LATITUDE"] = planet.inclination.to_value("deg")
+        psg_config["OBJECT-OBS-ALTITUDE"] = star.distance.to_value("pc")
+
         psg_config.save()
 
     def load_psg(

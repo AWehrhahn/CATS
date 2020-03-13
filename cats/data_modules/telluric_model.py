@@ -34,9 +34,9 @@ class TelluricModel(DataSource):
         self.observatory = observatory
 
         # Define target parameterss
-        coords = SkyCoord(star.ra, star.dec)
+        coords = star.coordinates
         self.target = astroplan.FixedTarget(name=star.name, coord=coords)
-        self.observer = astroplan.Observer.at_site(observatory)
+        self.observer = astroplan.Observer(observatory)
 
         # Load telluric data
         self.points = None
@@ -139,9 +139,9 @@ class TelluricModel(DataSource):
         spec = self.interpolate_spectra(airmass)
 
         wave, flux = [], []
-        for wmin, wmax in wrange.subregions:
-            subrange = SpectralRegion(wmin, wmax)
-            s = extract_region(spec, subrange)
+        for i in range(len(wrange)):
+            subrange = wrange[i]
+            s = spec.extract_region(subrange)
             wave += [s.wavelength]
             flux += [s.flux]
 
