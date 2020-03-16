@@ -218,11 +218,17 @@ times = Time([spec[0].datetime for spec in tqdm(spectra)])
 # print(star)
 # print(planet)
 
+sort = np.argsort(times)
+spectra = [spectra[i] for i in sort]
+times = times[sort]
+
+spectra = continuum_normalize(spectra, detector.blaze)
+
 img = np.zeros((len(spectra), spectra[0].size))
 for i, spec in tqdm(enumerate(spectra)):
     img[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
 
-plt.imshow(img)
+plt.imshow(img, aspect="auto", origin="lower", vmin=0, vmax=1)
 plt.show()
 
 

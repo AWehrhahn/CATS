@@ -50,7 +50,10 @@ class Simulator:
         self.planet_spectrum = planet_spectrum
         # Noise parameters
         if noise is None:
-            self.noise = [NoiseModel.WhiteNoise(0.01), NoiseModel.BadPixelNoise(0.02, 0.1)]
+            self.noise = [
+                NoiseModel.WhiteNoise(0.01),
+                NoiseModel.BadPixelNoise(0.02, 0.1),
+            ]
         else:
             self.noise = noise
 
@@ -109,7 +112,9 @@ class Simulator:
         # Shift to telescope restframe
         observatory_location = self.detector.observatory
         sky_location = self.star.coordinates
-        frame = TelescopeFrame(Time(time, format="mjd"), observatory_location, sky_location)
+        frame = TelescopeFrame(
+            Time(time, format="mjd"), observatory_location, sky_location
+        )
         planet_spectrum = planet_spectrum.shift(frame)
         stellar = stellar.shift(frame)
         telluric = telluric.shift(frame)
@@ -124,23 +129,24 @@ class Simulator:
         i_core = i_core.resample(wave, method=method)
         i_atmo = i_atmo.resample(wave, method=method)
 
-
         # Observed spectrum
         area_planet = self.planet.area / self.star.area
         area_atm = np.pi * (self.planet.radius + self.planet.atm_scale_height) ** 2
         area_atm /= self.star.area
 
-        obs = (stellar - i_core * area_planet + (i_atmo * planet_spectrum) * area_atm) * telluric
+        obs = (
+            stellar - i_core * area_planet + (i_atmo * planet_spectrum) * area_atm
+        ) * telluric
 
         # Distance modulus
-        obs *= (self.star.radius / self.star.distance).decompose()**2
+        obs *= (self.star.radius / self.star.distance).decompose() ** 2
 
         # Convert units to number of photons
         wave_bin = [np.gradient(w.wavelength) for w in obs]
         obs *= wave_bin
         obs *= self.detector.collection_area * self.detector.integration_time
 
-        photon_energy = [w.wavelength/ (const.h * const.c) for w in obs]
+        photon_energy = [w.wavelength / (const.h * const.c) for w in obs]
         obs *= photon_energy
 
         # Detector efficiency and gain to determine ADUs
@@ -150,7 +156,7 @@ class Simulator:
         # The height of the order? No, the total is the sum of all values
         # but then the expected value of the spectrum is larger than i thought
         # obs *= 1 / self.detector.order_height
-        
+
         # Apply blaze function
         # TODO: blaze is given as the flat field measurement, so what does that mean?
         obs *= blaze
@@ -191,12 +197,15 @@ class Simulator:
 
         # Calculate phase
         duration = self.planet.transit_duration.to_value("day")
-        t1 = self.orbit.first_contact().mjd
-        t4 = self.orbit.fourth_contact().mjd
+        t1 = self.orbit.first_contact().mjd - duration / 2
+        t4 = self.orbit.fourth_contact().mjd + duration / 2
         timedelta = Time(np.linspace(t1, t4, nobs), format="mjd")
         timedelta -= self.planet.time_of_transit
         time += timedelta
-        phase = self.orbit.phase_angle(time)
+        # phase = self.orbit.phase_angle(time)
+
+        obstime = (time[-1] - time[0]) / nobs
+        self.detector.integration_time = obstime.jd * u.day
 
         # do the calculations only once
         self.intensities.prepare(wrange, time)
