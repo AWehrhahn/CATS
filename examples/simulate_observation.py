@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 from astropy.visualization import quantity_support
 from specutils.spectra import SpectralRegion
+from os.path import join, dirname
 
 from astropy.time import Time
 import astroplan as ap
@@ -52,7 +53,7 @@ def find_transit(observatory, star):
 # TODO: get transit times with astroplan
 # and compare to my internal calculations in ExoOrbit
 
-data_directory = "/DATA/exoSpectro"
+data_directory = join(dirname(__file__), "../data")
 target_directory = join(dirname(__file__), "noise_zero")
 detector = Crires("H/1/4", [1, 2, 3])
 

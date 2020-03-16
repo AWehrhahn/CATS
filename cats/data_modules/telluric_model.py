@@ -1,26 +1,27 @@
-import numpy as np
-import astropy.units as u
-
-from scipy.interpolate import interp1d
+from os.path import dirname, join
 
 import astroplan
+import astropy.units as u
+import numpy as np
 from astropy.coordinates import SkyCoord
-
 from astropy.io import fits
-from specutils.spectra import SpectralRegion
+from scipy.interpolate import interp1d
 from specutils.manipulation import extract_region
+from specutils.spectra import SpectralRegion
 
-from .datasource import DataSource, StellarIntensities
-from ..spectrum import Spectrum1D, SpectrumList
 from ..reference_frame import TelescopeFrame
+from ..spectrum import Spectrum1D, SpectrumList
+from .datasource import DataSource, StellarIntensities
 
 # Data files from the CRIRES+ wiki
 # source: Evangelos/CRIRES+ wiki
-data_directory = "/DATA/exoSpectro"
+# data_directory = "/DATA/exoSpectro"
+data_directory = join(dirname(__file__), "../../data")
 data_files = {
     1: f"{data_directory}/stdAtmos_crires_airmass1.fits",
     2: f"{data_directory}/stdAtmos_crires_airmass2.fits",
 }
+
 
 class TelluricModel(DataSource):
     """
@@ -28,6 +29,7 @@ class TelluricModel(DataSource):
     The data will be interpolated to the airmass at the time of the
     observation.
     """
+
     def __init__(self, star, observatory):
         super().__init__()
         self.star = star
@@ -92,7 +94,9 @@ class TelluricModel(DataSource):
         spec : Spectrum1D
             Telluric spectrum at the desired airmass
         """
-        flux = interp1d(self.points, self.spectra.T, "linear", fill_value="extrapolate")(airmass)
+        flux = interp1d(
+            self.points, self.spectra.T, "linear", fill_value="extrapolate"
+        )(airmass)
         flux = np.clip(flux, 0, 1)
 
         wave = self.wavelength

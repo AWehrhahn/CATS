@@ -57,8 +57,8 @@ class SmeBase(DataSource):
         sme = SME_Structure()
         # TODO other stellar parameters
         sme.teff = self.star.teff.to_value(u.K)
-        sme.logg = self.star.logg.to_value(u.one)
-        sme.monh = self.star.monh.to_value(u.one)
+        sme.logg = self.star.logg
+        sme.monh = self.star.monh
         sme.vturb = self.star.vturb.to_value(u.km / u.s)
 
         if mu is not None:

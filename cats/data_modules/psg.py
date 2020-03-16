@@ -4,7 +4,7 @@ Load spectra from Planetary Spectrum Generator (PSG)
 import glob
 import shutil
 import os
-from os.path import basename, exists, join, splitext, dirname
+from os.path import basename, exists, join, splitext, dirname, expanduser
 import re
 
 from copy import deepcopy
@@ -22,6 +22,7 @@ from ..spectrum import Spectrum1D, SpectrumList
 
 from exoorbit.orbit import Orbit
 
+
 class Psg(DataSource):
     def __init__(self, star, planet):
         super().__init__("psg")
@@ -30,6 +31,7 @@ class Psg(DataSource):
         self.planet = planet
         self.orbit = Orbit(star, planet)
         self.dir = self.config["dir"].format(star=star.name, planet=planet.name)
+        self.dir = expanduser(self.dir)
 
         # TODO change psg config, to reflect orbital parameters
 
@@ -239,7 +241,7 @@ class Psg(DataSource):
         psg_config["OBJECT-STAR-VELOCITY"] = object_velocity
         psg_config["OBJECT-STAR-TEMPERATURE"] = star_temp
         psg_config["OBJECT-STAR-RADIUS"] = star_radius
-        psg_config["OBJECT-STAR-METALLICITY"] = star.monh.to_value(1)
+        psg_config["OBJECT-STAR-METALLICITY"] = star.monh
 
         psg_config["OBJECT-OBS-VELOCITY"] = 0
         psg_config["OBJECT-OBS-LONGITUDE"] = 270
