@@ -5,3 +5,8 @@ cats.egg-info/
 .pytest_cache/
 examples/test.fits
 examples/transit/
+examples/extract_transit/
+examples/noise_zero/
+examples/extract_noise_zero/
+examples/stellar.html
+examples/hd209458.sme

@@ -199,24 +199,32 @@ wrange = detector.regions
 
 # Load data from disk
 spectra = [SpectrumList.read(f) for f in tqdm(glob(files))]
-times = Time([spec[0].datetime for spec in spectra])
+times = Time([spec[0].datetime for spec in tqdm(spectra)])
 
 # Star and Planet nominal data
-star = spectra[0][0].meta["star"]
-planet = star.planets["b"]
+# star = spectra[0][0].meta["star"]
+# planet = star.planets["b"]
 
 # We fix the metadata since that has been saved incorrectly in the simulator
 # The bug should be fixed now, but we haven't recalculated the files yet
-for spec in spectra:
-    for s in spec:
-        s.meta["star"] = star
-        s.meta["planet"] = planet
-        s.meta["observatory_location"] = observatory
-        s.reference_frame.observatory = observatory
+# for spec in spectra:
+#     for s in spec:
+#         s.meta["star"] = star
+#         s.meta["planet"] = planet
+#         s.meta["observatory_location"] = observatory
+#         s.reference_frame.observatory = observatory
 
 
-print(star)
-print(planet)
+# print(star)
+# print(planet)
+
+img = np.zeros((len(spectra), spectra[0].size))
+for i, spec in tqdm(enumerate(spectra)):
+    img[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
+
+plt.imshow(img)
+plt.show()
+
 
 # Prepare planet spectrum
 planet_spectrum = PsgPlanetSpectrum(star, planet)
