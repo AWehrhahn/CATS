@@ -10,6 +10,9 @@ from cats.cats import main
 from cats import cats
 from cats.data_modules.aronson import aronson
 
+logger = logging.getLogger(__name__)
+
+
 if len(sys.argv) > 1:
     parser = argparse.ArgumentParser(
         description="Extract the planetary transmittance spectrum, from one or more transit observations."
@@ -39,28 +42,16 @@ if len(sys.argv) > 1:
         try:
             lamb = float(lamb)
         except ValueError:
-            logging.error("Invalid value for -l/-lambda")
+            logger.error("Invalid value for -l/-lambda")
             exit()
 else:
     star = "GJ1214"
     planet = "b"
-    lamb = 6810
+    lamb = "auto"
 
 try:
-    # main(star, planet, lamb=lamb)
-    
-    # Generate synthetic data
-    configuration = cats.load_configuration(star, planet)
-    data = cats.load_data(star, planet, configuration)
-
-    # Assume that the first guess for the planet size is off by 5%
-    print(data["parameters"]["r_planet"])
-    data["parameters"]["r_planet"] *= 1.05
-
-    # Try to use Aronson method on it
-    module = aronson(configuration)
-    intensity = module.get_intensities(**data)
+    main(star, planet, lamb=lamb)
 
 except FileNotFoundError as fnfe:
-    logging.error("Some files seem to be missing, can't complete calculation")
-    logging.error(fnfe)
+    logger.error("Some files seem to be missing, can't complete calculation")
+    logger.error(fnfe)

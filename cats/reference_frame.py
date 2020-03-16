@@ -3,7 +3,9 @@ from astropy.time import Time
 from astropy import units as u
 from astropy import coordinates as coords
 
-import ExoOrbit
+from functools import lru_cache
+
+import exoorbit
 
 rv_units = u.km / u.s
 
@@ -42,16 +44,23 @@ class ReferenceFrame:
 
 
 class BarycentricFrame(ReferenceFrame):
+    @lru_cache(128)
     def to_barycentric(self):
         return 0 << rv_units
+
+    def __str__(self):
+        return "barycentric"
 
 
 class TelescopeFrame(ReferenceFrame):
     def __init__(self, datetime, observatory_location, sky_location):
         super().__init__()
         self.datetime = Time(datetime)
-        self.observatory_location = observatory_location
-        self.sky_location = sky_location
+        self.observatory = observatory_location
+        self.sky = sky_location
+
+    def __str__(self):
+        return "telescope"
 
     @property
     def observatory(self):
@@ -81,9 +90,10 @@ class TelescopeFrame(ReferenceFrame):
 
         self._sky = value
 
+    @lru_cache(128)
     def to_barycentric(self):
-        self.datetime.location = self.observatory_location
-        self.sky.location = self.observatory_location
+        self.datetime.location = self.observatory
+        self.sky.location = self.observatory
         self.sky.obstime = self.datetime
 
         correction = self.sky.radial_velocity_correction()
@@ -95,8 +105,12 @@ class StarFrame(ReferenceFrame):
         super().__init__()
         self.star = star
 
+    def __str__(self):
+        return "star"
+
+    @lru_cache(128)
     def to_barycentric(self):
-        return self.star["radial_velocity"]
+        return self.star.radial_velocity
 
 
 class PlanetFrame(ReferenceFrame):
@@ -105,9 +119,12 @@ class PlanetFrame(ReferenceFrame):
         self.datetime = Time(datetime)
         self.star = star
         self.planet = planet
-        self.orbit = ExoOrbit.Orbit(star, planet)
+        self.orbit = exoorbit.Orbit(star, planet)
 
+    def __str__(self):
+        return "planet"
+
+    @lru_cache(128)
     def to_barycentric(self):
-        mjd = self.datetime.to_value("mjd", "long").value
-        rv = self.orbit.radial_velocity_planet(mjd)
+        rv = self.orbit.radial_velocity_planet(self.datetime)
         return rv

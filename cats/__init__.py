@@ -1,52 +1,39 @@
-""" Initiate logger """
-import os
-import logging
+# Load correct version string
+from ._version import get_versions
 
-def log_init(fname="cats.log"):    
-    """Start logging to log file and command line
+__version__ = get_versions()["version"]
+del get_versions
 
-    Parameters
-    ----------
-    log_file : str, optional
-        name of the logging file (default: "log.log")
-    """
+# # Add output to the console
+# import logging
+# import colorlog
+# import tqdm
 
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
 
-    # Remove existing File handles
-    hasStream = False
-    for h in list(logger.handlers):
-        if isinstance(h, logging.FileHandler):
-            logger.removeHandler(h)
-        if isinstance(h, logging.StreamHandler):
-            hasStream = True
+# class TqdmLoggingHandler(logging.Handler):
+#     def __init__(self, level=logging.NOTSET):
+#         super().__init__(level)
 
-    # Command Line output
-    # only if not running in notebook
-    if not hasStream:
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        ch_formatter = logging.Formatter("%(levelname)s - %(message)s")
-        ch.setFormatter(ch_formatter)
-        logger.addHandler(ch)
+#     def emit(self, record):
+#         try:
+#             msg = self.format(record)
+#             tqdm.tqdm.write(msg)
+#             self.flush()
+#         except (KeyboardInterrupt, SystemExit):
+#             raise
+#         except:
+#             self.handleError(record)
 
-    # Log file settings
-    if fname is not None:
-        path = os.path.abspath(__file__)
-        path = os.path.dirname(path)
-        log_file = os.path.join(path, "..", "logs", fname)
-        log_dir = os.path.dirname(log_file)
-        if log_dir != "" and not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        file = logging.FileHandler(log_file)
-        file.setLevel(logging.DEBUG)
-        file_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        file.setFormatter(file_formatter)
-        logger.addHandler(file)
 
-    logging.captureWarnings(True)
+# logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)
 
-    logging.debug("----------------------")
+# console = TqdmLoggingHandler()
+# console.setLevel(logging.INFO)
+# console.setFormatter(
+#     colorlog.ColoredFormatter("%(log_color)s%(levelname)s - %(message)s")
+# )
+# logger.addHandler(console)
 
-log_init()
+# del logging
+# del colorlog

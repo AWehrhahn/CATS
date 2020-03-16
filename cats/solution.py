@@ -173,8 +173,6 @@ def best_lambda(f, g, ratio=50, method='Tikhonov', plot=False, spacing=None):
         Best fit regularization parameter lambda
     """
 
-    logging.info('DeltaX/Residual ratio: %i' % ratio)
-
     def get_point(lamb, A, D, r):
         """ calculate points of the L-curve"""
         if method == 'Tikhonov':

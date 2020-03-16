@@ -54,7 +54,7 @@ class Orbit:
         ecc = self.par["ecc"]
         inc = self.par["inc"]
         w = self.par["w"]
-        transit = self.par["transit"]
+        transit = 0 #self.par["transit"]
         # periastron = self.par["periastron"]
         teff = self.par["teff"]
 

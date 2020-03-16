@@ -245,6 +245,17 @@ class data_intensities(di):
             raise ValueError
 
 
+    def load_intensities(self, **data):
+        """ Load specific intensity data, for this method
+
+        Returns
+        -------
+        ds : dataset
+            With wave = wavelength
+            and flux = pandas dataframe with columns mu and intensities in rows
+        """
+        raise NotImplementedError
+
     def get_intensities(self, **data):
         self.init(**data)
         # phases = data["observations"].phase

@@ -2,4 +2,7 @@
 *.log
 cats.egg-info/
 .vscode/
+.pytest_cache/
+examples/test.fits
+examples/transit/
 data/

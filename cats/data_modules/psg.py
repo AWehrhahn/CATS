@@ -7,52 +7,57 @@ import os
 from os.path import basename, exists, join, splitext, dirname
 import re
 
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 from astropy import units as u
 from astropy.constants import G
+from astropy.time import Time
 
 from data_sources.PSG import PSG
 
 from .datasource import DataSource
-from ..spectrum import Spectrum1D
+from ..spectrum import Spectrum1D, SpectrumList
 
+from exoorbit.orbit import Orbit
 
 class Psg(DataSource):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, star, planet):
+        super().__init__("psg")
 
-        star = self.config["_star"]
-        planet = self.config["_planet"]
-        self.config["dir"] = self.config["dir"].format(star=star, planet=planet)
+        self.star = star
+        self.planet = planet
+        self.orbit = Orbit(star, planet)
+        self.dir = self.config["dir"].format(star=star.name, planet=planet.name)
 
         # TODO change psg config, to reflect orbital parameters
 
     @property
     def file_atm(self):
-        return join(self.configuration["dir"], self.configuration["file_atm"])
+        return join(self.dir, self.config["file_atm"])
 
     @property
     def file_obs(self):
-        return join(self.configuration["dir"], self.configuration["file_obs"])
+        return join(self.dir, self.config["file_obs"])
 
     @property
     def file_phase(self):
-        return join(self.configuration["dir"], self.configuration["file_phase"])
+        return join(self.dir, self.config["file_phase"])
 
     @property
     def file_flux(self):
-        return join(self.configuration["dir"], self.configuration["file_star"])
+        return join(self.dir, self.config["file_star"])
 
     @property
     def file_tell(self):
-        return join(self.configuration["dir"], self.configuration["file_tell"])
+        return join(self.dir, self.config["file_tell"])
 
     @property
     def file_config(self):
-        return join(self.configuration["dir"], self.configuration["file_config"])
+        return join(self.dir, self.config["file_config"])
 
-    def get_planet(self, **data):
+    def get_planet(self, wrange, time):
         """ load planetary transmission spectrum
 
         Parameters:
@@ -65,22 +70,32 @@ class Psg(DataSource):
         planet : dataset
             planetary transmission spectrum
         """
-        wave_grid = data["observations"].wave
-        wmin, wmax = wave_grid[0], wave_grid[-1]
-        if not exists(self.file_atm) or not self.check_wavelength_range(
-            self.file_atm, (wmin, wmax)
-        ):
-            self.prepare_config_file(data["parameters"])
-            self.load_psg(None, wmin, wmax, planet=True)
+        wave, planet = [], []
+        for wmin, wmax in wrange.subregions:
+            wmin, wmax = wmin.to_value(u.AA), wmax.to_value(u.AA)
 
-        unit = u.angstrom
+            if not exists(self.file_atm) or not self.check_wavelength_range(
+                self.file_atm, (wmin, wmax)
+            ):
+                self.prepare_config_file(self.star, self.planet)
+                self.load_psg(None, wmin, wmax, planet=True)
 
-        planet = pd.read_csv(self.file_atm)
-        wl = planet["Wave/freq"].values * unit.to(u.angstrom)
-        planet = planet["Total"].values
+            data = pd.read_csv(self.file_atm)
+            wave += [data["Wave/freq"].values << u.AA]
+            planet += [data["Total"].values << u.one]
 
-        ds = dataset(wl, planet)
-        return ds
+        spectra = SpectrumList(
+            flux=planet,
+            spectral_axis=wave,
+            source="Planet Spectrum Generator",
+            description="Model Planet Transmission spectrum",
+            reference_frame="planet",
+            datetime=time,
+            star=self.star,
+            planet=self.planet,
+        )
+
+        return spectra
 
     def get_observations(self, **data):
         """ load observations created by PSG
@@ -189,35 +204,48 @@ class Psg(DataSource):
         wave = ds["Wave/freq"].values
         return not (wave[0] > wmin or wave[-1] < wmax)
 
-    def prepare_config_file(self, parameters):
+    def prepare_config_file(self, star, planet):
         if not exists(self.file_config):
             base_file = dirname(__file__)
             base_file = join(base_file, "psg_config.xml")
             os.makedirs(os.path.dirname(self.file_config), exist_ok=True)
             shutil.copyfile(base_file, self.file_config)
 
-        star = self.configuration["_star"]
-        planet = self.configuration["_planet"]
+        star_name = star.name
+        planet_name = planet.name
 
         # TODO figure out all the parameters we need to change to make it fit accurately
-        object_name = f"{star}{planet}"
-        object_diameter = parameters["r_planet"].to("km").value
-        object_gravity = (parameters["m_planet"] * G).to("m**3/s**2").value
-        object_distance = parameters["sma"].to("AU").value
-        object_velocity = 0
+        object_name = f"{star_name} {planet_name}"
+        object_diameter = planet.radius.to("km").value
+        object_gravity = (planet.mass * G).to("m**3/s**2").value
+        object_distance = planet.a.to("AU").value
+        object_density = (planet.mass / planet.volume).to_value("g/cm**3")
+        object_velocity = self.orbit.radial_velocity_semiamplitude_planet()
 
-        star_temp = parameters["teff"].to("K").value
-        star_radius = parameters["r_star"].to("R_sun").value
+        star_temp = star.teff.to("K").value
+        star_radius = star.radius.to("R_sun").value
 
         psg_source = PSG(config_file=self.file_config)
         psg_config = psg_source.psg_config
         psg_config["OBJECT-NAME"] = object_name
         psg_config["OBJECT-DIAMETER"] = object_diameter
-        psg_config["OBJECT-GRAVITY"] = object_gravity
+        psg_config["OBJECT-GRAVITY"] = object_density
+        psg_config["OBJECT-GRAVITY-UNIT"] = "rho"
+        psg_config["OBJECT-PERIOD"] = planet.period.to_value("day")
+        # psg_config["OBJECT-SOLAR-LATITUDE"] = planet.eccentricity.to_value("deg")
+        psg_config["OBJECT-SEASON"] = 180
+
         psg_config["OBJECT-STAR-DISTANCE"] = object_distance
         psg_config["OBJECT-STAR-VELOCITY"] = object_velocity
         psg_config["OBJECT-STAR-TEMPERATURE"] = star_temp
         psg_config["OBJECT-STAR-RADIUS"] = star_radius
+        psg_config["OBJECT-STAR-METALLICITY"] = star.monh.to_value(1)
+
+        psg_config["OBJECT-OBS-VELOCITY"] = 0
+        psg_config["OBJECT-OBS-LONGITUDE"] = 270
+        psg_config["OBJECT-OBS-LATITUDE"] = planet.inclination.to_value("deg")
+        psg_config["OBJECT-OBS-ALTITUDE"] = star.distance.to_value("pc")
+
         psg_config.save()
 
     def load_psg(
@@ -277,3 +305,23 @@ class Psg(DataSource):
                 psg_source.change_config({"OBJECT-SEASON": p})
                 df = psg_source.get_data_in_range(wl_low, wl_high, wephm="T")
                 df.to_csv(obs_file, index=False)
+
+
+class PsgPlanetSpectrum(Psg):
+    def __init__(self, star, planet):
+        super().__init__(star, planet)
+        self.spectrum = None
+        self.is_prepared = False
+
+    def prepare(self, wave):
+        self.spectrum = self.get_planet(wave, Time.now())
+        self.is_prepared = True
+
+    def get(self, wave, time):
+        if not self.is_prepared:
+            self.prepare(wave)
+
+        synth = deepcopy(self.spectrum)
+        synth.time = time
+
+        return synth
