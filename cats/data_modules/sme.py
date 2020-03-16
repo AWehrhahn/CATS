@@ -147,6 +147,8 @@ class SmeStellar(SmeBase):
 
 
 class SmeIntensities(SmeBase, StellarIntensities):
+    # TODO: Rossiter-McLaughlin effect should blue/red shift the observations depending on the
+    # rotation velocity of the star
     def __init__(
         self,
         star,
@@ -199,7 +201,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
                     np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions
                 ]
                 if self.normalize:
-                    tmp_spec  = [np.zeros(100) << u.one for _ in wrange.subregions]
+                    tmp_spec = [np.zeros(100) << u.one for _ in wrange.subregions]
                 else:
                     tmp_spec = [np.zeros(100) << flux_units for _ in wrange.subregions]
                 synth = SpectrumList(

@@ -19,6 +19,7 @@ quantity_support()
 # TODO: figure out logging (again)
 logger = logging.getLogger(__name__)
 
+
 def find_transit(observatory, star):
     observer = ap.Observer.at_site(observatory)
     coords = SkyCoord(star.ra, star.dec)
@@ -33,7 +34,7 @@ def find_transit(observatory, star):
     constraints = [
         ap.PrimaryEclipseConstraint(system),
         ap.AtNightConstraint.twilight_civil(),
-        ap.AirmassConstraint(min=1, max=2)
+        ap.AirmassConstraint(min=1, max=2),
     ]
 
     # TODO: Pick a good transit time automatically
@@ -52,6 +53,7 @@ def find_transit(observatory, star):
 # and compare to my internal calculations in ExoOrbit
 
 data_directory = "/DATA/exoSpectro"
+target_directory = join(dirname(__file__), "noise_zero")
 detector = Crires("H/1/4", [1, 2, 3])
 
 # Define wavelength range
@@ -83,7 +85,8 @@ telluric = telluric_model.TelluricModel(star, observatory)
 planet_spectrum = psg.PsgPlanetSpectrum(star, planet)
 
 # Run Simulation
-noise = detector.load_noise_parameters()
+noise = []
+# noise = detector.load_noise_parameters()
 # noise += [WhiteNoisePercentage(0.01)]
 sim = Simulator(
     detector, star, planet, stellar, intensities, telluric, planet_spectrum, noise=noise
@@ -91,16 +94,21 @@ sim = Simulator(
 spec = sim.simulate_series(wrange, transit_time, 68)
 
 for i, s in enumerate(spec):
-    s.write(f"transit/{planet.name}_{i}.fits", detector=detector)
+    s.write(f"{target_directory}/{planet.name}_{i}.fits", detector=detector)
 
 # Compare to pure stellar spectrum
 # Note: probably with different rest frame
 # star_spec = stellar.get(wrange, 0)
 
+planet_spectrum = planet_spectrum.get(wrange, transit_time)
+planet_spectrum.write("planet_spectrum.fits")
+
+
 for i in range(len(spec)):
+    plt.clf()
     for s in spec[i]:
         plt.plot(s.wavelength, s.flux.decompose())
-    plt.show()
+    plt.savefig(f"{target_directory}/plot.png")
 
 
 pass
