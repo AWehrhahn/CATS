@@ -26,7 +26,7 @@ from cats.data_modules.psg import PsgPlanetSpectrum
 from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumList
 from cats import reference_frame as rf
-from cats.reference_frame import PlanetFrame
+from cats.reference_frame import PlanetFrame, TelescopeFrame
 from exoorbit import Orbit
 
 
@@ -52,7 +52,7 @@ def continuum_normalize(spectra, blaze):
     # Maybe we can have some observations of the out of transit be in H/2/4 to fill the gaps?
     # We can't change it during transit, and the gaps are larger than the radial velocity shift
     spectra = [
-        spec / [np.nanmedian(s.flux.to_value(u.one)) for s in spec]
+        spec / [np.nanpercentile(s.flux.to_value(u.one), 95) for s in spec]
         for spec in tqdm(spectra)
     ]
 
@@ -187,9 +187,51 @@ def extract_intensities(wrange, times, star, planet, linelist):
     return intensities
 
 
+def extract_stellar_parameters(spectra, star, **kwargs):
+    # TODO: actually fit the spectrum with SME
+    return star
+
+
+def create_stellar(wave, wrange, star, time, reference_frame):
+    stellar = SmeStellar(star, linelist=f"{data_dir}/crires_h_1_4.lin", normalize=False)
+    stellar = stellar.get(wrange, time)
+    for s in stellar:
+        s.meta["planet"] = planet
+        s.meta["observatory_location"] = detector.observatory
+    # stellar = stellar.shift(reference_frame)
+    # stellar = stellar.resample(wave)
+    return stellar
+
+
+def upper_envelope(x, y, deg=5, factor=100):
+    from scipy.optimize import minimize
+
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+
+    offset_x = np.mean(x)
+    offset_y = np.mean(y)
+    x -= offset_x
+    y -= offset_y
+
+    def cost(p):
+        m = np.polyval(p, x)
+        c = m - y
+        r = np.count_nonzero(c >= 0) / x.size
+        return np.mean(c ** 2) + factor * (r - 0.95) ** 2
+
+    x0 = np.polyfit(x, y, deg)
+    res = minimize(cost, x0=x0, method="powell")
+    coeff = res.x
+    coeff[-1] += offset_y
+
+    return res.x
+
+
 data_dir = join(dirname(__file__), "noise_zero")
 target_dir = join(dirname(__file__), "extact_noise_zero")
-files = join(data_dir, "b_*.fits")
+files = join(data_dir, "b_1.fits")
 
 linelist = f"{data_dir}/crires_h_1_4.lin"
 
@@ -198,35 +240,76 @@ observatory = detector.observatory
 wrange = detector.regions
 
 # Load data from disk
-spectra = [SpectrumList.read(f) for f in tqdm(glob(files))]
+# TODO load ALL files
+spectra = [SpectrumList.read(f) for f in tqdm(glob(files)[:1])]
 times = Time([spec[0].datetime for spec in tqdm(spectra)])
-
-# Star and Planet nominal data
-# star = spectra[0][0].meta["star"]
-# planet = star.planets["b"]
-
-# We fix the metadata since that has been saved incorrectly in the simulator
-# The bug should be fixed now, but we haven't recalculated the files yet
-# for spec in spectra:
-#     for s in spec:
-#         s.meta["star"] = star
-#         s.meta["planet"] = planet
-#         s.meta["observatory_location"] = observatory
-#         s.reference_frame.observatory = observatory
-
-
-# print(star)
-# print(planet)
 
 sort = np.argsort(times)
 spectra = [spectra[i] for i in sort]
 times = times[sort]
 
+wave = [spec.wavelength for spec in spectra[0]]
+wave_all = np.concatenate(wave).to_value(u.AA)
+
+# Star and Planet nominal data
+sdb = StellarDb()
+star = sdb.get("HD209458")
+planet = star.planets["b"]
+
+# star = spectra[0][0].meta["star"]
+# planet = star.planets["b"]
+orbit = Orbit(star, planet)
+
+
+observatory_location = detector.observatory
+sky_location = star.coordinates
+frame = TelescopeFrame(observatory_location, sky_location)
+
 spectra = continuum_normalize(spectra, detector.blaze)
+
+stellar = create_stellar(wave, wrange, star, times[0], spectra[0][0].reference_frame)
+stellar = stellar.shift(frame)
+stellar = stellar.resample(wave, method="linear")
+stellar /= [np.nanmedian(spec) for spec in stellar.flux]
+
+
+plt.plot(
+    np.concatenate(stellar.wavelength).to_value(u.AA),
+    np.concatenate(stellar.flux).value,
+    "--",
+    label="star",
+)
+
+plt.plot(
+    np.concatenate(spectra[0].wavelength).to_value(u.AA),
+    np.concatenate(spectra[0].flux).to_value(1),
+    ":",
+    label="observation",
+)
+plt.legend()
+plt.show()
+# TODO: account for airmass !!!
+# divide by tellurics? at least to determine the planet transit!
+# altaz = observer.altaz(times, target)
+# airmass = altaz.secz.value
+# spectra = [spectra[i] / telluric[i] for i in range(len(spectra))]
 
 img = np.zeros((len(spectra), spectra[0].size))
 for i, spec in tqdm(enumerate(spectra)):
     img[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
+
+coeff = upper_envelope(wave_all, img[0])
+envelope = np.polyval(coeff, wave_all)
+plt.plot(wave_all, img[0])
+plt.plot(wave_all, envelope)
+plt.show()
+
+pa = orbit.phase_angle(times)
+idx = np.where(orbit.mu(times) > 0)[0][[0, -1]]
+
+plt.plot(pa, np.nanmean(img, axis=1))
+plt.vlines(pa[idx], 0.9, 1.1)
+plt.show()
 
 plt.imshow(img, aspect="auto", origin="lower", vmin=0, vmax=1)
 plt.show()

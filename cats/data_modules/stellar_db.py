@@ -27,10 +27,13 @@ class StellarDb(DataSource):
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = DataSource.__new__(cls, *args, **kwargs)
+            cls._instance._init()
         return cls._instance
 
     def __init__(self):
         super().__init__()
+
+    def _init(self):
         self.backend = SDB()
 
     @lru_cache(128)

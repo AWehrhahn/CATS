@@ -127,7 +127,7 @@ class SmeStellar(SmeBase):
         synth = SpectrumList(
             flux=spec,
             spectral_axis=wave,
-            reference_frame="barycentric",
+            reference_frame="star",
             star=self.star,
             source="sme",
             description="synthetic stellar spectrum",
@@ -141,7 +141,8 @@ class SmeStellar(SmeBase):
             self.prepare(wrange)
 
         synth = deepcopy(self.spectrum)
-        synth.datetime = time
+        for s in synth:
+            s.datetime = time
 
         return synth
 
@@ -184,7 +185,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
                 synth = SpectrumList(
                     flux=[s[j] for s in spec],
                     spectral_axis=wave,
-                    reference_frame="barycentric",
+                    reference_frame="star",
                     datetime=time,
                     star=self.star,
                     source="sme",
@@ -207,7 +208,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
                 synth = SpectrumList(
                     flux=tmp_spec,
                     spectral_axis=tmp_wave,
-                    reference_frame="barycentric",
+                    reference_frame="star",
                     source="sme",
                     datetime=time,
                     description="stellar specific intensities. All zero since the time is out of transit",

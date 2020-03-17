@@ -1,5 +1,5 @@
 import logging
-from copy import copy
+from copy import copy, deepcopy
 from collections import Sequence
 
 import operator as op
@@ -65,8 +65,21 @@ class Spectrum1D(specutils.Spectrum1D):
         return len(self.spectral_axis)
 
     def __copy__(self):
-        other = super().__copy__()
-        other.__class__ = self.__class__
+        cls = self.__class__
+        wave = np.copy(self.wavelength)
+        flux = np.copy(self.flux)
+        meta = self.meta
+
+        other = cls(flux=flux, spectral_axis=wave, **meta)
+        return other
+
+    def __deepcopy__(self, *args, **kwargs):
+        cls = self.__class__
+        wave = np.copy(self.wavelength)
+        flux = np.copy(self.flux)
+        meta = deepcopy(self.meta)
+
+        other = cls(flux=flux, spectral_axis=wave, **meta)
         return other
 
     @property
@@ -86,7 +99,7 @@ class Spectrum1D(specutils.Spectrum1D):
     @property
     def regions(self):
         wmin, wmax = self.wavelength[[0, -1]]
-        return specutils.SpectralRegion(wmin ,wmax)
+        return specutils.SpectralRegion(wmin, wmax)
 
     @reference_frame.setter
     def reference_frame(self, value):
@@ -107,15 +120,13 @@ class Spectrum1D(specutils.Spectrum1D):
             frame = rf.BarycentricFrame()
         elif frame == "telescope":
             frame = rf.TelescopeFrame(
-                self.datetime,
                 self.meta["observatory_location"],
                 sky_location=self.meta["star"].coordinates,
             )
         elif frame == "star":
             frame = rf.StarFrame(self.meta["star"])
         elif frame == "planet":
-            frame = rf.PlanetFrame(
-                self.meta["datetime"], self.meta["star"], self.meta["planet"]
+            frame = rf.PlanetFrame(self.meta["star"], self.meta["planet"]
             )
         else:
             raise ValueError(
@@ -251,11 +262,10 @@ class Spectrum1D(specutils.Spectrum1D):
         try:
             target_frame = self.reference_frame_from_name(target_frame)
         except ValueError:
-            target_frame.datetime = self.datetime
-
-
+            pass
+        
         # Step 1: determine relative velocity between current and target frame
-        rv = self.reference_frame.to_frame(target_frame)
+        rv = self.reference_frame.to_frame(target_frame, self.datetime)
 
         # Step 2: Use the determined radial velocity to calculate a new wavelength grid
         shifted = copy(self.wavelength)
@@ -324,6 +334,7 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
+
 class SpectrumList(Sequence):
     """
     Stores a list of Spectrum1D objects, with shared metadata
@@ -390,6 +401,13 @@ class SpectrumList(Sequence):
     def __truediv__(self, other):
         return self.__operator__(other, op.truediv)
 
+    def __copy__(self):
+        return SpectrumList.from_spectra(self._data)
+
+    def __deepcopy__(self, *args, **kwargs):
+        data = [deepcopy(s, *args, **kwargs) for s in self]
+        return SpectrumList.from_spectra(data)
+
     @property
     def shape(self):
         return (len(self), [len(d) for d in self])
@@ -404,6 +422,32 @@ class SpectrumList(Sequence):
         for wr in wrange[1:]:
             wrange[0] += wr
         return wrange[0]
+
+    @property
+    def flux(self):
+        return [s.flux for s in self]
+
+    @property
+    def wavelength(self):
+        return [s.wavelength for s in self]
+
+    @property
+    def datetime(self):
+        return self[0].datetime
+
+    @datetime.setter
+    def datetime(self, value):
+        for s in self:
+            s.datetime = value
+
+    @property
+    def reference_frame(self):
+        return self[0].reference_frame
+
+    @reference_frame.setter
+    def reference_frame(self, value):
+        for s in self:
+            s.reference_frame = value
 
     @classmethod
     def from_spectra(cls, spectra):
@@ -462,6 +506,7 @@ class SpectrumList(Sequence):
         hdulist = fits.open(fname)
         header = hdulist[0].header
 
+        det = None
         if "INSTRUME" in header:
             det = header["INSTRUME"]
             setting = header["INS SET"]
@@ -473,10 +518,9 @@ class SpectrumList(Sequence):
         spectra = []
         for i in range(1, len(hdulist)):
             spectra += [Spectrum1D._read_fits_hdu(hdulist[i])]
-
-        ref_frame = spectra[0].reference_frame
-        for s in spectra:
-            s.reference_frame = ref_frame
+            if det is not None:
+                spectra[-1].meta["observatory_location"] = det.observatory
+                spectra[-1].reference_frame.observatory = det.observatory
 
         speclist = cls.from_spectra(spectra)
         return speclist

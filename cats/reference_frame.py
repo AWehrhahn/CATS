@@ -11,7 +11,7 @@ rv_units = u.km / u.s
 
 
 class ReferenceFrame:
-    def from_barycentric(self):
+    def from_barycentric(self, datetime):
         """
         Calculate the radial velocity from the barycentric restframe
         to this rest frame
@@ -22,9 +22,9 @@ class ReferenceFrame:
             radial velocity
         """
         # This and from barycentric are just inverse to each other
-        return -self.to_barycentric()
+        return -self.to_barycentric(datetime)
 
-    def to_barycentric(self):
+    def to_barycentric(self, datetime):
         """
         Calculate the radial velocity from this restframe to the
         barycentric restframe
@@ -36,16 +36,15 @@ class ReferenceFrame:
         """
         raise NotImplementedError
 
-    def to_frame(self, frame):
-        return frame.from_barycentric() + self.to_barycentric()
+    def to_frame(self, frame, datetime):
+        return frame.from_barycentric(datetime) + self.to_barycentric(datetime)
 
-    def from_frame(self, frame):
-        return -self.to_frame(frame)
+    def from_frame(self, frame, datetime):
+        return -self.to_frame(frame, datetime)
 
 
 class BarycentricFrame(ReferenceFrame):
-    @lru_cache(128)
-    def to_barycentric(self):
+    def to_barycentric(self, datetime):
         return 0 << rv_units
 
     def __str__(self):
@@ -53,9 +52,8 @@ class BarycentricFrame(ReferenceFrame):
 
 
 class TelescopeFrame(ReferenceFrame):
-    def __init__(self, datetime, observatory_location, sky_location):
+    def __init__(self, observatory_location, sky_location):
         super().__init__()
-        self.datetime = Time(datetime)
         self.observatory = observatory_location
         self.sky = sky_location
 
@@ -84,17 +82,14 @@ class TelescopeFrame(ReferenceFrame):
     def sky(self, value):
         if isinstance(value, tuple):
             ra, dec = value
-            value = coords.SkyCoord(
-                ra, dec, obstime=self.datetime, location=self.observatory
-            )
+            value = coords.SkyCoord(ra, dec, location=self.observatory)
 
         self._sky = value
 
     @lru_cache(128)
-    def to_barycentric(self):
-        self.datetime.location = self.observatory
+    def to_barycentric(self, datetime):
         self.sky.location = self.observatory
-        self.sky.obstime = self.datetime
+        self.sky.obstime = datetime
 
         correction = self.sky.radial_velocity_correction()
         return correction
@@ -108,15 +103,13 @@ class StarFrame(ReferenceFrame):
     def __str__(self):
         return "star"
 
-    @lru_cache(128)
-    def to_barycentric(self):
+    def to_barycentric(self, datetime):
         return self.star.radial_velocity
 
 
 class PlanetFrame(ReferenceFrame):
-    def __init__(self, datetime, star, planet):
+    def __init__(self, star, planet):
         super().__init__()
-        self.datetime = Time(datetime)
         self.star = star
         self.planet = planet
         self.orbit = exoorbit.Orbit(star, planet)
@@ -125,6 +118,7 @@ class PlanetFrame(ReferenceFrame):
         return "planet"
 
     @lru_cache(128)
-    def to_barycentric(self):
-        rv = self.orbit.radial_velocity_planet(self.datetime)
+    def to_barycentric(self, datetime):
+        rv = self.orbit.radial_velocity_planet(datetime)
+        rv += self.star.radial_velocity
         return rv

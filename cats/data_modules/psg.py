@@ -324,6 +324,6 @@ class PsgPlanetSpectrum(Psg):
             self.prepare(wave)
 
         synth = deepcopy(self.spectrum)
-        synth.time = time
+        synth.datetime = time
 
         return synth
