@@ -113,11 +113,11 @@ class Simulator:
         observatory_location = self.detector.observatory
         sky_location = self.star.coordinates
         frame = TelescopeFrame(observatory_location, sky_location)
-        planet_spectrum = planet_spectrum.shift(frame)
-        stellar = stellar.shift(frame)
-        telluric = telluric.shift(frame)
-        i_core = i_core.shift(frame)
-        i_atmo = i_atmo.shift(frame)
+        planet_spectrum = planet_spectrum.shift(frame, inplace=True)
+        stellar = stellar.shift(frame, inplace=True)
+        telluric = telluric.shift(frame, inplace=True)
+        i_core = i_core.shift(frame, inplace=True)
+        i_atmo = i_atmo.shift(frame, inplace=True)
 
         # interpolate all onto the same wavelength grid
         method = "linear"
@@ -173,8 +173,22 @@ class Simulator:
         for spec in obs:
             spec.meta["star"] = self.star
             spec.meta["planet"] = self.planet
+            spec.meta["observatory_location"] = self.detector.observatory
+            spec.meta["sky_location"] = self.star.coordinates
             spec.meta["datetime"] = time
-            # spec.reference_frame = frame
+            spec.meta["source"] = "CATS Simulator"
+            spec.meta["description"] = "Simulated observation during planet transit"
+            spec.meta["citation"] = "".join(
+                [
+                    spec.meta["citation"]
+                    for spec in [telluric, stellar, intensities, planet_spectrum]
+                ]
+            )
+            spec.reference_frame = frame
+
+        # for spec in obs:
+        #     plt.plot(spec.wavelength, spec.flux)
+        # plt.show()
 
         return obs
 
@@ -196,10 +210,12 @@ class Simulator:
         # Calculate phase
         self.orbit.planet.time_of_transit = time
 
-        duration = self.planet.transit_duration.to_value("day")
-        t1 = self.orbit.first_contact().mjd - duration / 2
-        t4 = self.orbit.fourth_contact().mjd + duration / 2
-        time = Time(np.linspace(t1, t4, nobs), format="mjd")
+        duration = self.planet.transit_duration
+        start = time - duration / 2
+        end = time + duration / 2
+        time = Time(np.linspace(start.mjd, end.mjd, nobs), format="mjd")
+
+        # self.orbit.mu(time)
 
         obstime = (time[-1] - time[0]) / nobs
         self.detector.integration_time = obstime.jd * u.day

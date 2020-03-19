@@ -12,3 +12,4 @@ examples/stellar.html
 examples/hd209458.sme
 data/
 *.fits
+*.npy

@@ -22,9 +22,9 @@ quantity_support()
 logger = logging.getLogger(__name__)
 
 
-def find_transit(observatory, star):
-    observer = ap.Observer.at_site(observatory)
-    coords = SkyCoord(star.ra, star.dec)
+def find_transit(observatory, star, planet):
+    observer = ap.Observer(observatory)
+    coords = star.coordinates
     target = ap.FixedTarget(name=star.name, coord=coords)
     system = ap.EclipsingSystem(
         primary_eclipse_time=planet.time_of_transit,
@@ -46,6 +46,12 @@ def find_transit(observatory, star):
 
     plot_airmass(target, observer, transit_time)
     plt.vlines(transit_time.plot_date, 0, 3)
+    plt.vlines(
+        (transit_time - planet.transit_duration).plot_date, 0, 3, linestyles="dashed"
+    )
+    plt.vlines(
+        (transit_time + planet.transit_duration).plot_date, 0, 3, linestyles="dashed"
+    )
     plt.show()
 
     return transit_time
@@ -69,8 +75,11 @@ planet = star.planets["b"]
 observatory = detector.observatory
 
 # Find next transit
+# transit = find_transit(observatory, star, planet)
 transit_time = "2020-05-25T10:31:25.418"
 transit_time = Time(transit_time, format="fits")
+
+planet.time_of_transit = transit_time
 
 # Prepare stellar spectrum
 stellar = sme.SmeStellar(star, linelist=f"{data_directory}/crires_h_1_4.lin")

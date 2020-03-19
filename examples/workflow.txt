@@ -1,0 +1,32 @@
+Input:
+    - Observations / Simulations
+
+Step 1: Determine tellurics:
+    - observations are all in the telescope restframe
+    - Determine airmass
+    - Interpolate between models
+    OR:
+    - Fit tellurics to observations somehow
+
+Step 2: Determine stellar parameters
+    - Shift all observations into stellar/barycentric restframe
+    - Mask regions with strong telluric features
+    - Use only regions with clear continuum
+    - Use PySME to fit stellar parameters
+    
+Step 3: Prepare models
+    - Get MARCS model for the found stellar parameters
+    - Calculate best PySME model
+    - Calcualate PySME specific intensities
+
+Step 4: Normalize observations
+    - Normalize the observations to (stellar * telluric) spectrum
+    - dont forget to shift the stellar frames to the telescope restframe
+
+Step 5: Determine planet transit
+    - Median along the spectral axis to determine the planet absorption in each observation
+    - Fit that with transit model to obtain best fit transit time and radial velocity
+
+Step 6: Extract Planet spectrum
+    - shift all observations and models to the planet restframe
+    - Use inverse problem minimization to find the best fit spectrum

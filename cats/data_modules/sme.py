@@ -189,7 +189,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
                     datetime=time,
                     star=self.star,
                     source="sme",
-                    description=f"synthetic stellar spectrum. Mu={mu}",
+                    description=f"synthetic specific intensities. Mu={m.decompose()}",
                     citation=citation,
                 )
                 j += 1

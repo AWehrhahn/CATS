@@ -232,7 +232,7 @@ class Spectrum1D(specutils.Spectrum1D):
         spec = Spectrum1D._read_fits_hdu(hdulist[0])
         return spec
 
-    def shift(self, target_frame, inplace=False):
+    def shift(self, target_frame, inplace=False, rv=None):
         """
         Shift the spectrum from the current
         to a new reference frame
@@ -263,18 +263,27 @@ class Spectrum1D(specutils.Spectrum1D):
             target_frame = self.reference_frame_from_name(target_frame)
         except ValueError:
             pass
-        
+
         # Step 1: determine relative velocity between current and target frame
-        rv = self.reference_frame.to_frame(target_frame, self.datetime)
+        if rv is None:
+            rv = self.reference_frame.to_frame(target_frame, self.datetime)
 
         # Step 2: Use the determined radial velocity to calculate a new wavelength grid
-        shifted = copy(self.wavelength)
+        if not inplace:
+            shifted = np.copy(self.wavelength)
+        else:
+            shifted = self.wavelength
         beta = rv / const.c
         shifted *= np.sqrt((1 + beta) / (1 - beta))
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
-        spec = Spectrum1D(spectral_axis=shifted, flux=self.flux, **self.meta)
-        spec.reference_frame = target_frame
+        if inplace:
+            self.spectral_axis = shifted
+            self.reference_frame = target_frame
+            spec = self
+        else:
+            spec = Spectrum1D(spectral_axis=shifted, flux=self.flux, **self.meta)
+            spec.reference_frame = target_frame
 
         return spec
 
@@ -555,7 +564,7 @@ class SpectrumList(Sequence):
         sl = SpectrumList.from_spectra(data)
         return sl
 
-    def shift(self, target_frame, **kwargs):
+    def shift(self, target_frame, inplace=False, rv=None, **kwargs):
         """
         Shift all spectra to the target frame
         
@@ -576,10 +585,17 @@ class SpectrumList(Sequence):
         except ValueError:
             pass
 
-        data = []
-        for i, spec in enumerate(self._data):
-            s = spec.shift(target_frame, **kwargs)
-            data += [s]
+        if rv is None:
+            rv = self.reference_frame.to_frame(target_frame, self.datetime)
 
-        sl = SpectrumList.from_spectra(data)
-        return sl
+        data = []
+        for spec in self:
+            s = spec.shift(target_frame, inplace=inplace, rv=rv, **kwargs)
+            data += [s]
+        
+        if not inplace:
+            sl = SpectrumList.from_spectra(data)
+            return sl
+        else:
+            return self
+

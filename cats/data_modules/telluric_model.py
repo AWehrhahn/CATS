@@ -120,6 +120,10 @@ class TelluricModel(DataSource):
         """
         altaz = self.observer.altaz(time, self.target)
         airmass = altaz.secz.value
+        if np.any(airmass < 0):
+            raise ValueError(
+                "Nonsensical negative airmass was calculated, check your observation times"
+            )
         return airmass
 
     def get(self, wrange, time):

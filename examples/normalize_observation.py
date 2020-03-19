@@ -51,10 +51,42 @@ def continuum_normalize(spectra, blaze):
     # Without overlap between orders its going to be difficult to normalize
     # Maybe we can have some observations of the out of transit be in H/2/4 to fill the gaps?
     # We can't change it during transit, and the gaps are larger than the radial velocity shift
-    spectra = [
-        spec / [np.nanpercentile(s.flux.to_value(u.one), 95) for s in spec]
-        for spec in tqdm(spectra)
-    ]
+    for i, spec in tqdm(enumerate(spectra)):
+        for j, s in enumerate(spec):
+            f = s.flux.to_value(u.one)
+            d = np.nanpercentile(f, 95)
+            spectra[i][j]._data /= d
+
+    return spectra
+
+
+def continuum_normalize_part_2(spectra, stellar, telluric, detector):
+    for j in tqdm(range(len(spectra))):
+        spec = spectra[j]
+        simulation = stellar[j] * telluric[j]
+        simulation = detector.apply_instrumental_broadening(simulation)
+
+        for i in tqdm(range(len(simulation))):
+            x = spec[i].wavelength.to_value(u.AA)
+            y = spec[i].flux.to_value(1)
+            yp = simulation[i].flux.to_value(1)
+
+            mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(yp)
+            x, y, yp = x[mask], y[mask], yp[mask]
+            if len(x) == 0:
+                continue
+            x0 = x[0]
+            x -= x0
+
+            def func(x, *c):
+                return y * np.polyval(c, x)
+
+            deg = 1
+            p0 = np.ones(deg + 1)
+            popt, pcov = curve_fit(func, x, yp, p0=p0)
+
+            x = spec[i].wavelength.to_value(u.AA) - x0
+            spectra[j][i]._data *= np.polyval(popt, x)
 
     return spectra
 
@@ -192,15 +224,55 @@ def extract_stellar_parameters(spectra, star, **kwargs):
     return star
 
 
-def create_stellar(wave, wrange, star, time, reference_frame):
-    stellar = SmeStellar(star, linelist=f"{data_dir}/crires_h_1_4.lin", normalize=False)
-    stellar = stellar.get(wrange, time)
-    for s in stellar:
-        s.meta["planet"] = planet
-        s.meta["observatory_location"] = detector.observatory
-    # stellar = stellar.shift(reference_frame)
-    # stellar = stellar.resample(wave)
-    return stellar
+def create_stellar(wrange, star, planet, observatory, times, spectra):
+    stellar = SmeStellar(star, linelist=f"{data_dir}/crires_h_1_4.lin", normalize=True)
+    result = []
+    for i, time in tqdm(enumerate(times)):
+        reference_frame = spectra[i].reference_frame
+        wave = spectra[i].wavelength
+        spec = stellar.get(wrange, time)
+        for s in spec:
+            s.meta["planet"] = planet
+            s.meta["observatory_location"] = observatory
+        spec = spec.shift(reference_frame, inplace=True)
+        spec = spec.resample(wave, method="linear")
+        result += [spec]
+    return result
+
+
+def create_intensities(wrange, star, planet, observatory, times, spectra):
+    stellar = SmeIntensities(
+        star, planet, linelist=f"{data_dir}/crires_h_1_4.lin", normalize=True
+    )
+    stellar.prepare(wrange, times)
+    result = []
+    for i, time in tqdm(enumerate(times)):
+        reference_frame = spectra[i].reference_frame
+        wave = spectra[i].wavelength
+        spec = stellar.get(wrange, time)
+        for s in spec:
+            s.meta["planet"] = planet
+            s.meta["observatory_location"] = observatory
+        spec = spec.shift(reference_frame, inplace=True)
+        spec = spec.resample(wave, method="linear")
+        result += [spec]
+    return result
+
+
+def create_telluric(wrange, star, planet, observatory, times, spectra):
+    telluric = TelluricModel(star, observatory)
+    result = []
+    for i, time in tqdm(enumerate(times)):
+        reference_frame = spectra[i].reference_frame
+        wave = spectra[i].wavelength
+        spec = telluric.get(wrange, time)
+        for s in spec:
+            s.meta["planet"] = planet
+            s.meta["observatory_location"] = observatory
+        spec = spec.shift(reference_frame, inplace=True)
+        spec = spec.resample(wave, method="linear")
+        result += [spec]
+    return result
 
 
 def upper_envelope(x, y, deg=5, factor=100):
@@ -231,7 +303,7 @@ def upper_envelope(x, y, deg=5, factor=100):
 
 data_dir = join(dirname(__file__), "noise_zero")
 target_dir = join(dirname(__file__), "extact_noise_zero")
-files = join(data_dir, "b_1.fits")
+files = join(data_dir, "b_*.fits")
 
 linelist = f"{data_dir}/crires_h_1_4.lin"
 
@@ -241,8 +313,8 @@ wrange = detector.regions
 
 # Load data from disk
 # TODO load ALL files
-spectra = [SpectrumList.read(f) for f in tqdm(glob(files)[:1])]
-times = Time([spec[0].datetime for spec in tqdm(spectra)])
+spectra = [SpectrumList.read(f) for f in tqdm(glob(files))]
+times = Time([spec.datetime for spec in tqdm(spectra)])
 
 sort = np.argsort(times)
 spectra = [spectra[i] for i in sort]
@@ -255,192 +327,68 @@ wave_all = np.concatenate(wave).to_value(u.AA)
 sdb = StellarDb()
 star = sdb.get("HD209458")
 planet = star.planets["b"]
-
-# star = spectra[0][0].meta["star"]
-# planet = star.planets["b"]
 orbit = Orbit(star, planet)
 
-
-observatory_location = detector.observatory
-sky_location = star.coordinates
-frame = TelescopeFrame(observatory_location, sky_location)
-
 spectra = continuum_normalize(spectra, detector.blaze)
 
-stellar = create_stellar(wave, wrange, star, times[0], spectra[0][0].reference_frame)
-stellar = stellar.shift(frame)
-stellar = stellar.resample(wave, method="linear")
-stellar /= [np.nanmedian(spec) for spec in stellar.flux]
+# TODO: Extract stellar parameters from Spectra
+stellar = create_stellar(wrange, star, planet, observatory, times, spectra)
+# TODO: currently the tellurics is only based on the airmass at the time
+# can we extract it from the observation somehow?
+telluric = create_telluric(wrange, star, planet, observatory, times, spectra)
 
+intensities = create_intensities(wrange, star, planet, observatory, times, spectra)
 
+i = 0
 plt.plot(
-    np.concatenate(stellar.wavelength).to_value(u.AA),
-    np.concatenate(stellar.flux).value,
+    np.concatenate(spectra[i].wavelength).to_value(u.AA),
+    np.concatenate(spectra[i].flux).value,
+)
+plt.plot(
+    np.concatenate(stellar[i].wavelength).to_value(u.AA),
+    np.concatenate(stellar[i].flux).value,
     "--",
-    label="star",
 )
-
-plt.plot(
-    np.concatenate(spectra[0].wavelength).to_value(u.AA),
-    np.concatenate(spectra[0].flux).to_value(1),
-    ":",
-    label="observation",
-)
-plt.legend()
 plt.show()
-# TODO: account for airmass !!!
-# divide by tellurics? at least to determine the planet transit!
-# altaz = observer.altaz(times, target)
-# airmass = altaz.secz.value
-# spectra = [spectra[i] / telluric[i] for i in range(len(spectra))]
 
-img = np.zeros((len(spectra), spectra[0].size))
+
+spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
+
+img_spectra = np.zeros((len(spectra), spectra[0].size))
 for i, spec in tqdm(enumerate(spectra)):
-    img[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
+    img_spectra[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
 
-coeff = upper_envelope(wave_all, img[0])
-envelope = np.polyval(coeff, wave_all)
-plt.plot(wave_all, img[0])
-plt.plot(wave_all, envelope)
-plt.show()
+img_telluric = np.zeros((len(spectra), spectra[0].size))
+for i, spec in tqdm(enumerate(telluric)):
+    img_telluric[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
 
-pa = orbit.phase_angle(times)
-idx = np.where(orbit.mu(times) > 0)[0][[0, -1]]
+img_stellar = np.zeros((len(spectra), spectra[0].size))
+for i, spec in tqdm(enumerate(stellar)):
+    img_stellar[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
 
-plt.plot(pa, np.nanmean(img, axis=1))
-plt.vlines(pa[idx], 0.9, 1.1)
-plt.show()
-
-plt.imshow(img, aspect="auto", origin="lower", vmin=0, vmax=1)
-plt.show()
+img_intensities = np.zeros((len(spectra), spectra[0].size))
+for i, spec in tqdm(enumerate(intensities)):
+    img_intensities[i] = np.concatenate([s.flux.to_value(u.one) for s in spec])
 
 
-# Prepare planet spectrum
-planet_spectrum = PsgPlanetSpectrum(star, planet)
-planet_spectrum.prepare(wrange)
-planet_spectrum_input = [planet_spectrum.get(wrange, time) for time in times]
-
-# Sort spectra by time
-sort = np.argsort(times)
-
-spectra = continuum_normalize(spectra, detector.blaze)
-
-telluric = extract_telluric(spectra, star, detector.observatory)
-
-stellar, star = extract_stellar_test(spectra, star, linelist)
-
-intensities = extract_intensities(wrange, times, star, planet, linelist)
-
-# Solve equation
-area_planet = planet.area / star.area
-area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
-area_atmosphere /= star.area
-area_planet = area_planet.to_value(u.one)
-area_atmosphere = area_atmosphere.to_value(u.one)
+img_wave = np.zeros((len(spectra), spectra[0].size))
+for i, spec in tqdm(enumerate(spectra)):
+    img_wave[i] = np.concatenate([s.wavelength.to_value(u.AA) for s in spec])
 
 
-def standardize_spectrum(spectrum, wave, reference_frame="planet"):
-    spec = spectrum.shift(reference_frame).resample(wave)
-    spec = [spec.flux.to_value(u.one) for spec in spec]
-    spec = np.array(spec)
-    return spec
+np.save("spectra.npy", img_spectra)
+np.save("telluric.npy", img_telluric)
+np.save("stellar.npy", img_stellar)
+np.save("intensities.npy", img_intensities)
 
+np.save("wave.npy", img_wave)
+np.save("times.npy", [t.fits for t in times])
 
-n = len(spectra)
-f, g, w = [_ for _ in range(n)], [_ for _ in range(n)], [_ for _ in range(n)]
+intermediate_dir = "noise_zero_intermediate"
+intermediate_dir = join(dirname(__file__), intermediate_dir)
 for i in range(len(spectra)):
-    wave = [spec.wavelength for spec in spectra[i]]
-    spec = [spec.flux.to_value(u.one) for spec in spectra[i]]
-    spec = np.array(spec)
+    spectra[i].write(join(intermediate_dir, f"spectra_{i}.fits"))
+    telluric[i].write(join(intermediate_dir, f"telluric_{i}.fits"))
+    stellar[i].write(join(intermediate_dir, f"stellar_{i}.fits"))
+    intensities[i].write(join(intermediate_dir, f"intensities_{i}.fits"))
 
-    rf_planet = PlanetFrame(Time.now(), star, planet)
-
-    stel = standardize_spectrum(stellar[i], wave, rf_planet)
-    inti = standardize_spectrum(intensities[i], wave, rf_planet)
-    tell = standardize_spectrum(telluric[i], wave, rf_planet)
-
-    f[i] = inti * tell * area_atmosphere
-    g[i] = spec - (stel - inti * area_planet) * tell
-    w[i] = [w.to_value(u.AA) for w in wave]
-
-# Create common wavelength grid from all observations
-# TODO: does that take to long?
-wave = np.concatenate(w)
-wave = np.unique(wave)
-
-
-def nonlinear_leastsq(A, b, segment=5):
-    from scipy.optimize import minimize
-    from cats.solution import __difference_matrix__, best_lambda, Tikhonov
-
-    def func(x, A, b):
-        return A * x - b
-
-    def reg(x, D):
-        return D @ x
-
-    def cost(x):
-        cost = np.mean(func(x, A, b) ** 2)
-        regul = regweight * np.mean(reg(x, D) ** 2)
-        return cost + regul
-
-    A = [a[segment] for a in A]
-    b = [c[segment] for c in b]
-    A = np.nan_to_num(np.asarray(A))
-    b = np.nan_to_num(np.asarray(b))
-
-    size = len(A[0])
-    D = __difference_matrix__(size)
-    regweight = best_lambda(np.mean(A, axis=0), np.mean(b, axis=0), plot=False)
-    bounds = [(0, 1)] * size
-    x0 = Tikhonov(np.mean(A, axis=0), np.mean(b, axis=0), regweight)
-    x0 -= np.min(x0)
-    x0 /= np.max(x0)
-
-    res = minimize(
-        cost,
-        x0=x0,
-        bounds=bounds,
-        options={"maxiter": int(1e10), "maxfun": int(1e10), "iprint": 1},
-    )
-    return res.x
-
-
-def gaussian_process(A, b, segment=5):
-    import GPy
-
-    X = [a[segment] for a in A]
-    Y = [c[segment] for c in b]
-    X = np.nan_to_num(np.asarray(X))
-    Y = np.nan_to_num(np.asarray(Y))
-
-    X = np.mean(X, axis=0)
-    Y = np.mean(Y, axis=0)
-
-    kernel = GPy.kern.RBF(input_dim=1, variance=1, lengthscale=1)
-    model = GPy.models.GPRegression(X, Y, kernel)
-    model.optimize(messages=True)
-
-    GPy.plotting.show(model.plot())
-
-    return model
-
-
-for seg in tqdm(range(24)):
-    # planet_spectrum = gaussian_process(f, g)
-    planet_spectrum = nonlinear_leastsq(f, g, seg)
-    wave = spectra[0][seg].wavelength
-
-    np.save(f"{target_dir}/planet_{seg}.npy", planet_spectrum)
-
-    psi = planet_spectrum_input[0][seg].resample(wave)
-    x = psi.wavelength
-    y = psi.flux
-    y = gaussian_filter1d(y, 5)
-
-    plt.clf()
-    plt.plot(x, y)
-    plt.plot(wave, planet_spectrum)
-
-    plt.savefig(f"{target_dir}/result_{seg}.png")
-pass
