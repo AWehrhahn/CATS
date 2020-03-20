@@ -4,8 +4,10 @@ Put different noise statistics in here
 
 import numpy as np
 
+
 class NoiseBase:
     pass
+
 
 class WhiteNoise(NoiseBase):
     def __init__(self, sigma):
@@ -20,6 +22,7 @@ class WhiteNoise(NoiseBase):
             # sigma is a scalar ?
             noise = np.random.normal(scale=self.sigma, size=size)
         return noise
+
 
 class WhiteNoisePercentage(NoiseBase):
     def __init__(self, sigma):
@@ -38,6 +41,7 @@ class WhiteNoisePercentage(NoiseBase):
         noise = data * (1 + noise)
 
         return noise
+
 
 class BadPixelNoise(NoiseBase):
     """
@@ -69,9 +73,12 @@ class BadPixelNoise(NoiseBase):
         bad_pixels = np.random.choice(nsize, size=number_bad_pixels)
 
         noise = np.zeros(size)
-        noise.ravel()[bad_pixels] += np.random.normal(scale=self.sigma, size=number_bad_pixels)
+        noise.ravel()[bad_pixels] += np.random.normal(
+            scale=self.sigma, size=number_bad_pixels
+        )
 
         return noise
+
 
 class PoisonNoise(NoiseBase):
     def __init__(self, scaling):
@@ -82,6 +89,7 @@ class PoisonNoise(NoiseBase):
         sigma = [np.sqrt(d.decompose()) for d in data]
         noise = np.zeros(size)
         for i, s in enumerate(sigma):
+            s = np.nan_to_num(s)
             noise[i] = np.random.poisson(lam=s)
         noise *= self.scaling
         return noise

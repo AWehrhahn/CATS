@@ -180,8 +180,8 @@ class Simulator:
             spec.meta["description"] = "Simulated observation during planet transit"
             spec.meta["citation"] = "".join(
                 [
-                    spec.meta["citation"]
-                    for spec in [telluric, stellar, intensities, planet_spectrum]
+                    spec[0].meta["citation"]
+                    for spec in [telluric, stellar, i_core, planet_spectrum]
                 ]
             )
             spec.reference_frame = frame
