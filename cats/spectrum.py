@@ -8,6 +8,7 @@ from datetime import datetime
 
 import astropy.constants as const
 import astropy.units as u
+from astropy import coordinates as coords
 import numpy as np
 import specutils
 import specutils.manipulation as specman
@@ -126,8 +127,7 @@ class Spectrum1D(specutils.Spectrum1D):
         elif frame == "star":
             frame = rf.StarFrame(self.meta["star"])
         elif frame == "planet":
-            frame = rf.PlanetFrame(self.meta["star"], self.meta["planet"]
-            )
+            frame = rf.PlanetFrame(self.meta["star"], self.meta["planet"])
         else:
             raise ValueError(
                 "Could not recognize reference frame name."
@@ -172,8 +172,12 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSLON"] = (self.meta["observatory_location"][1],)
                 header["OBSALT"] = (self.meta["observatory_location"][2],)
         if self.meta["sky_location"] is not None:
-            header["RA"] = self.meta["sky_location"][0]
-            header["DEC"] = self.meta["sky_location"][1]
+            if hasattr(self.meta["sky_location"], "__len__"):
+                header["RA"] = self.meta["sky_location"][0]
+                header["DEC"] = self.meta["sky_location"][1]
+            else:
+                header["RA"] = self.meta["sky_location"].ra.to_value("hourangle")
+                header["DEC"] = self.meta["sky_location"].dec.to_value("deg")
 
         header = fits.Header(header)
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
@@ -216,7 +220,9 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSALT"],
             )
         if "RA" in header:
-            meta["sky_location"] = header["RA"], header["DEC"]
+            ra = coords.Angle(header["RA"], "hourangle")
+            dec = header["DEC"] * u.deg
+            meta["sky_location"] = ra, dec
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 
@@ -592,7 +598,7 @@ class SpectrumList(Sequence):
         for spec in self:
             s = spec.shift(target_frame, inplace=inplace, rv=rv, **kwargs)
             data += [s]
-        
+
         if not inplace:
             sl = SpectrumList.from_spectra(data)
             return sl
