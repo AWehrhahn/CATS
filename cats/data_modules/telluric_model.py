@@ -15,8 +15,8 @@ from .datasource import DataSource, StellarIntensities
 
 # Data files from the CRIRES+ wiki
 # source: Evangelos/CRIRES+ wiki
-# data_directory = "/DATA/exoSpectro"
-data_directory = join(dirname(__file__), "../../data")
+data_directory = "/DATA/exoSpectro"
+# data_directory = join(dirname(__file__), "../../data")
 data_files = {
     1: f"{data_directory}/stdAtmos_crires_airmass1.fits",
     2: f"{data_directory}/stdAtmos_crires_airmass2.fits",

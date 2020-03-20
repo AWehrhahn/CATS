@@ -59,8 +59,8 @@ def find_transit(observatory, star, planet):
 
 # TODO: get transit times with astroplan
 # and compare to my internal calculations in ExoOrbit
-
-data_directory = join(dirname(__file__), "../data")
+data_directory = "/DATA/exoSpectro"
+# data_directory = join(dirname(__file__), "../data")
 target_directory = join(dirname(__file__), "noise_zero")
 detector = Crires("H/1/4", [1, 2, 3])
 
@@ -97,8 +97,8 @@ planet_spectrum = psg.PsgPlanetSpectrum(star, planet)
 
 # Run Simulation
 noise = []
-# noise = detector.load_noise_parameters()
-# noise += [WhiteNoisePercentage(0.01)]
+noise = detector.load_noise_parameters()
+noise += [WhiteNoisePercentage(0.01)]
 sim = Simulator(
     detector, star, planet, stellar, intensities, telluric, planet_spectrum, noise=noise
 )
