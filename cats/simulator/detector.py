@@ -10,7 +10,6 @@ from specutils.spectra import SpectralRegion
 from astropy.coordinates import EarthLocation
 
 from .noise import PoisonNoise, WhiteNoise
-from ..spectrum import Spectrum1D, SpectrumList
 
 
 class Detector:
@@ -170,11 +169,11 @@ class Crires(Detector):
     def apply_instrumental_broadening(self, spec):
         # TODO what is the psf?
         sigma = self.spectral_broadening
-        if isinstance(spec, Spectrum1D):
+        if hasattr(spec, "flux") and not hasattr(spec, "__len__"):
             flux = spec.flux.decompose()
             spec._unit = u.one
             spec._data[:] = gaussian_filter1d(flux, sigma)
-        elif isinstance(spec, SpectrumList):
+        elif hasattr(spec, "flux") and hasattr(spec, "__len__"):
             for s in spec:
                 flux = s.flux.decompose()
                 s._unit = u.one
