@@ -30,7 +30,6 @@ times = Time(times, format="fits")
 
 simulation = img_stellar * img_telluric
 simulation = np.nan_to_num(simulation)
-
 simulation = gaussian_filter1d(simulation, detector.spectral_broadening, axis=1)
 
 # TODO Fit planet transit orbit to this curve5

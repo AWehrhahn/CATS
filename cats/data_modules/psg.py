@@ -84,7 +84,9 @@ class Psg(DataSource):
 
             data = pd.read_csv(self.file_atm)
             wave += [data["Wave/freq"].values << u.AA]
-            planet += [data["Total"].values << u.one]
+            flux = data["Total"].values
+            flux = np.clip(flux, 0, 1)
+            planet += [flux << u.one]
 
         spectra = SpectrumList(
             flux=planet,

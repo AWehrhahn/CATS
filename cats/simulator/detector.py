@@ -10,6 +10,7 @@ from specutils.spectra import SpectralRegion
 from astropy.coordinates import EarthLocation
 
 from .noise import PoisonNoise, WhiteNoise
+from ..spectrum import Spectrum1D, SpectrumList
 
 
 class Detector:
@@ -149,10 +150,10 @@ class Crires(Detector):
         # so the individual noise is reduced by a factor of scaling
         # TODO: the exact factor depends on the slitfunction of the spectrum
         # For a gaussian with width 10: 0.28
-        # For a gaussuan with width 20: 0.12 
+        # For a gaussuan with width 20: 0.12
         scaling = 0.28
         # Readnoise is just Gaussian
-        readnoise = self.readnoise  * scaling
+        readnoise = self.readnoise * scaling
         noise += [WhiteNoise(readnoise)]
 
         # Shotnoise depends on the measured spectrum
@@ -168,11 +169,17 @@ class Crires(Detector):
 
     def apply_instrumental_broadening(self, spec):
         # TODO what is the psf?
-
         sigma = self.spectral_broadening
-        for s in spec:
-            flux = s.flux.decompose()
-            s._unit = u.one
-            s.flux[:] = gaussian_filter1d(flux, sigma)
+        if isinstance(spec, Spectrum1D):
+            flux = spec.flux.decompose()
+            spec._unit = u.one
+            spec._data[:] = gaussian_filter1d(flux, sigma)
+        elif isinstance(spec, SpectrumList):
+            for s in spec:
+                flux = s.flux.decompose()
+                s._unit = u.one
+                s._data[:] = gaussian_filter1d(flux, sigma)
+        else:
+            spec = gaussian_filter1d(spec, sigma)
 
         return spec

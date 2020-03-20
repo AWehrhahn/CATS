@@ -10,8 +10,13 @@ from astropy import units as u
 
 from cats.simulator.detector import Crires
 from cats.data_modules.stellar_db import StellarDb
-from cats.reference_frame import PlanetFrame, TelescopeFrame
+from cats.reference_frame import PlanetFrame, TelescopeFrame, StarFrame
 from exoorbit.orbit import Orbit
+
+from scipy.optimize import minimize
+
+from cats.solver.solution import __difference_matrix__, best_lambda, Tikhonov
+from cats.solver.linear import LinearSolver
 
 
 def standardize_spectrum(spectrum, wave, time, telescope_frame, planet_frame):
@@ -24,9 +29,6 @@ def standardize_spectrum(spectrum, wave, time, telescope_frame, planet_frame):
 
 
 def nonlinear_leastsq(A, b, segment=5):
-    from scipy.optimize import minimize
-    from cats.solution import __difference_matrix__, best_lambda, Tikhonov
-
     def func(x, A, b):
         return A * x - b
 
@@ -94,41 +96,20 @@ img_spectra = np.load("spectra.npy")
 img_telluric = np.load("telluric.npy")
 img_stellar = np.load("stellar.npy")
 img_intensities = np.load("intensities.npy")
-
+planet_model = np.load("planet_model.npy")
 times = Time(times, format="fits")
 
-# Determine Planet Size
-area_planet = planet.area / star.area
-area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
-area_atmosphere /= star.area
-area_planet = area_planet.to_value(u.one)
-area_atmosphere = area_atmosphere.to_value(u.one)
+solver = LinearSolver(detector, star, planet)
+wave, x0 = solver.solve(
+    times,
+    wavelength,
+    img_spectra,
+    img_stellar,
+    img_intensities,
+    img_telluric,
+    regweight=200,
+)
 
-telescope_frame = TelescopeFrame(detector.observatory, star.coordinates)
-planet_frame = PlanetFrame(star, planet)
-
-# Shift Everything into the planet frame
-n = len(img_spectra)
-f, g, w = [_ for _ in range(n)], [_ for _ in range(n)], [_ for _ in range(n)]
-for i in range(n):
-    wave = wavelength[i]
-    spec = img_spectra[i]
-
-    stel = standardize_spectrum(
-        img_stellar[i], wave, times[i], telescope_frame, planet_frame
-    )
-    inti = standardize_spectrum(
-        img_intensities[i], wave, times[i], telescope_frame, planet_frame
-    )
-    tell = standardize_spectrum(
-        img_telluric[i], wave, times[i], telescope_frame, planet_frame
-    )
-
-    f[i] = inti * tell * area_atmosphere
-    g[i] = spec - (stel - inti * area_planet) * tell
-    w[i] = wavelength[i]
-
-planet_spectrum = nonlinear_leastsq(f, g)
-
-plt.plot(planet_spectrum)
+plt.plot(wavelength[32], planet_model)
+plt.plot(wave, x0)
 plt.show()
