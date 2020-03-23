@@ -121,7 +121,6 @@ class LinearSolver(SolverBase):
 
         # Resize the results on the same size as the input
         s = np.full(len(mask), 0, dtype=float)
-        s = np.ma.masked_array(s, mask=~mask)
         s[mask] = sol
         return s
 
@@ -345,4 +344,3 @@ class LinearSolver(SolverBase):
         x0 /= np.max(x0)
 
         return wave, x0
-

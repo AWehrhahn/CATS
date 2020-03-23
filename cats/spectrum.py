@@ -1,7 +1,8 @@
 import logging
 from copy import copy, deepcopy
 from collections import Sequence
-
+from os import makedirs
+from os.path import dirname, abspath
 import operator as op
 
 from datetime import datetime
@@ -172,12 +173,12 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSLON"] = (self.meta["observatory_location"][1],)
                 header["OBSALT"] = (self.meta["observatory_location"][2],)
         if self.meta["sky_location"] is not None:
-            if hasattr(self.meta["sky_location"], "__len__"):
-                header["RA"] = self.meta["sky_location"][0]
-                header["DEC"] = self.meta["sky_location"][1]
-            else:
+            if isinstance(self.meta["sky_location"], coords.SkyCoord):
                 header["RA"] = self.meta["sky_location"].ra.to_value("hourangle")
                 header["DEC"] = self.meta["sky_location"].dec.to_value("deg")
+            else:
+                header["RA"] = self.meta["sky_location"][0].to_value("hourangle")
+                header["DEC"] = self.meta["sky_location"][1].to_value("deg")
 
         header = fits.Header(header)
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
@@ -514,6 +515,7 @@ class SpectrumList(Sequence):
             secondary += [spec._get_fits_hdu()]
 
         hdulist = fits.HDUList(hdus=[primary, *secondary])
+        makedirs(dirname(abspath(fname)), exist_ok=True)
         hdulist.writeto(fname, overwrite=True)
 
     @classmethod
@@ -604,4 +606,3 @@ class SpectrumList(Sequence):
             return sl
         else:
             return self
-

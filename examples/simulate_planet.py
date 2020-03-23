@@ -7,8 +7,16 @@ from cats.data_modules.stellar_db import StellarDb
 from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumList
 
-stellar = SpectrumList.read("stellar.fits")
-wave = stellar.wavelength
+from os.path import join, dirname
+
+# stellar = SpectrumList.read("stellar.fits")
+# wave = stellar.wavelength
+
+data_dir = join(dirname(__file__), "noise_zero")
+files = join(data_dir, "b_0.fits")
+data = SpectrumList.read(files)
+wave = data.wavelength
+
 
 detector = Crires("H/1/4", [1, 2, 3])
 wrange = detector.regions
@@ -28,4 +36,3 @@ np.save("planet_model.npy", spec)
 
 plt.plot(spec)
 plt.show()
-
