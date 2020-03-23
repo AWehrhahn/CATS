@@ -106,20 +106,3 @@ spec = sim.simulate_series(wrange, transit_time, 68)
 
 for i, s in enumerate(spec):
     s.write(f"{target_directory}/{planet.name}_{i}.fits", detector=detector)
-
-# Compare to pure stellar spectrum
-# Note: probably with different rest frame
-# star_spec = stellar.get(wrange, 0)
-
-planet_spectrum = planet_spectrum.get(wrange, transit_time)
-planet_spectrum.write("planet_spectrum.fits")
-
-
-for i in range(len(spec)):
-    plt.clf()
-    for s in spec[i]:
-        plt.plot(s.wavelength, s.flux.decompose())
-    plt.savefig(f"{target_directory}/plot.png")
-
-
-pass

@@ -38,7 +38,7 @@ class WhiteNoisePercentage(NoiseBase):
             # sigma is a scalar ?
             noise = np.random.normal(scale=self.sigma, size=size)
 
-        noise = data * (1 + noise)
+        noise = data * noise
 
         return noise
 
