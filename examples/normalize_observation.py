@@ -301,8 +301,8 @@ def upper_envelope(x, y, deg=5, factor=100):
     return res.x
 
 
-data_dir = join(dirname(__file__), "noise_zero")
-target_dir = join(dirname(__file__), "extact_noise_zero")
+data_dir = join(dirname(__file__), "noise_1")
+target_dir = join(dirname(__file__), "noise_1_intermediate")
 files = join(data_dir, "b_*.fits")
 
 linelist = f"{data_dir}/crires_h_1_4.lin"
@@ -338,19 +338,6 @@ stellar = create_stellar(wrange, star, planet, observatory, times, spectra)
 telluric = create_telluric(wrange, star, planet, observatory, times, spectra)
 
 intensities = create_intensities(wrange, star, planet, observatory, times, spectra)
-
-i = 0
-plt.plot(
-    np.concatenate(spectra[i].wavelength).to_value(u.AA),
-    np.concatenate(spectra[i].flux).value,
-)
-plt.plot(
-    np.concatenate(stellar[i].wavelength).to_value(u.AA),
-    np.concatenate(stellar[i].flux).value,
-    "--",
-)
-plt.show()
-
 
 spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
 
@@ -391,4 +378,3 @@ for i in range(len(spectra)):
     telluric[i].write(join(intermediate_dir, f"telluric_{i}.fits"))
     stellar[i].write(join(intermediate_dir, f"stellar_{i}.fits"))
     intensities[i].write(join(intermediate_dir, f"intensities_{i}.fits"))
-
