@@ -13,15 +13,6 @@ from ..reference_frame import TelescopeFrame
 from ..spectrum import Spectrum1D, SpectrumList
 from .datasource import DataSource, StellarIntensities
 
-# Data files from the CRIRES+ wiki
-# source: Evangelos/CRIRES+ wiki
-data_directory = "/DATA/exoSpectro"
-# data_directory = join(dirname(__file__), "../../data")
-data_files = {
-    1: f"{data_directory}/stdAtmos_crires_airmass1.fits",
-    2: f"{data_directory}/stdAtmos_crires_airmass2.fits",
-}
-
 
 class TelluricModel(DataSource):
     """
@@ -41,6 +32,11 @@ class TelluricModel(DataSource):
         self.observer = astroplan.Observer(observatory)
 
         # Load telluric data
+        self.data_directory = self.config["data_directory"]
+        self.data_directory = self.data_directory.format(fileDir=dirname(__file__))
+
+        self.data_files = self.config["data_files"]
+
         self.points = None
         self.spectra = None
         self.load_data_all()
@@ -68,14 +64,14 @@ class TelluricModel(DataSource):
 
     def load_data_all(self):
         """Load the telluric data from disk"""
-        nspectra = len(data_files)
+        nspectra = len(self.data_files)
 
         # This assumes all the data files are correctly formated
         xp = np.zeros(nspectra)
-        yp = [None for _ in data_files]
-        for i, (key, fname) in enumerate(data_files.items()):
-            xp[i] = key
-            yp[i] = self.load_data_one(fname)
+        yp = [None for _ in self.data_files]
+        for i, value in enumerate(self.data_files):
+            xp[i] = value["airmass"]
+            yp[i] = self.load_data_one(join(self.data_directory, value["filename"]))
 
         self.wavelength = yp[0].wavelength
         self.points = xp
