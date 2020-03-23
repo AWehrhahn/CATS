@@ -1,2 +1,4 @@
 include versioneer.py
 include cats/_version.py
+
+include config.json

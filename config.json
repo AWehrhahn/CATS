@@ -1,0 +1,40 @@
+{
+    "marcs": {
+        "data_dir": "/DATA/MARCS"
+    },
+    "claret2000": {
+        "file": "claret2000.fits",
+        "star_intensities": "geom"
+    },
+    "synthetic": {
+        "snr": 2000,
+        "fwhm": 0.5,
+        "n_exposures": 1000,
+        "wavelength_minimum": 5000,
+        "wavelength_maximum": 30000,
+        "resolution": 500
+    },
+    "telluricmodel": {
+        "source": "Evangelos/CRIRES+ wiki",
+        "data_directory": "{fileDir}/../../data",
+        "data_files": [
+            {
+                "airmass": 1,
+                "filename": "stdAtmos_crires_airmass1.fits"
+            },
+            {
+                "airmass": 2,
+                "filename": "stdAtmos_crires_airmass2.fits"
+            }
+        ]
+    },
+    "psg": {
+        "dir": "~/documents/vscode/CATS/data/{star}{planet}/input",
+        "file_obs": "radiance_*.csv",
+        "file_phase": "phases.txt",
+        "file_star": "flux.csv",
+        "file_atm": "planet.csv",
+        "file_tell": "tell.csv",
+        "file_config": "psg_config.txt"
+    }
+}
