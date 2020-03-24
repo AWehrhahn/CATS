@@ -24,6 +24,8 @@ class LinearSolver(SolverBase):
         self.method = method
         self.regularization = regularization
 
+        self.difference_accuracy = 8
+
         # Determine Planet Size
         area_planet = planet.area / star.area
         area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
@@ -100,48 +102,18 @@ class LinearSolver(SolverBase):
 
         f = np.asarray(f)
         g = np.asarray(g)
-        if f.ndim == 2:
-            f = np.sum(f, axis=0)
-            g = np.sum(g, axis=0)
-
-        # Remove any nan or zero values
-        mask = (~np.isnan(f)) & (~np.isnan(g)) & (f != 0) & (g != 0)
-        f, g = f[mask], g[mask]
 
         # Create the matrix A (and its inverse)
         if spacing is None:
-            n = len(f)
-            D = self.difference_matrix(n)
+            n = np.arange(len(f))
+            D = self.gradient_matrix(n)
         else:
-            D = self.difference_matrix_2(spacing)
+            D = self.gradient_matrix(spacing)
         A = diags(f, 0)
 
         # Solve the equation
         sol = self._Tikhonov(A, D, l, g)
-
-        # Resize the results on the same size as the input
-        s = np.full(len(mask), 0, dtype=float)
-        s[mask] = sol
-        return s
-
-    def difference_matrix(self, size):
-        """Get the difference operator matrix
-
-        The difference operator is a matrix with the diagonal = 2, and both first offsets = -1
-
-        Parameters:
-        ----------
-        size : int
-            the size of the returned matrix
-        Returns
-        -------
-        dense matrix
-            the difference matrix of size size
-        """
-        a = c = np.full(size - 1, -1)
-        b = np.full(size, 2)
-        b[0] = b[-1] = 1
-        return diags([a, b, c], offsets=[-1, 0, 1])
+        return sol
 
     def difference_matrix_2(self, spacing):
         """Get the difference operator matrix
@@ -165,6 +137,35 @@ class LinearSolver(SolverBase):
         b[0] = 1 / h[0]
         b[-1] = 1 / h[-1]
         return diags([a, b, c], offsets=[-1, 0, 1])
+
+    def gradient_matrix(self, grid):
+        size = len(grid)
+        if self.difference_accuracy == 2:
+            factors = [-1 / 2, 0.0, 1 / 2]
+        elif self.difference_accuracy == 4:
+            factors = [1 / 12, -2 / 3, 0.0, 2 / 3, -1 / 12]
+        elif self.difference_accuracy == 6:
+            factors = [-1 / 60, 3 / 20, -3 / 4, 0.0, 3 / 4, -3 / 20, 1 / 60]
+        elif self.difference_accuracy == 8:
+            factors = [
+                1 / 280,
+                -4 / 105,
+                1 / 5,
+                -4 / 5,
+                0.0,
+                4 / 5,
+                -1 / 5,
+                4 / 105,
+                -1 / 280,
+            ]
+        else:
+            raise ValueError
+
+        nf = len(factors)
+        offsets = np.arange(nf) - nf // 2
+        columns = [np.full(size - abs(j), f) for j, f in zip(offsets, factors)]
+        grad = diags(columns, offsets=offsets)
+        return grad
 
     def fourier_matrix(self, size):
         return dft(size, "sqrtn")
@@ -253,9 +254,10 @@ class LinearSolver(SolverBase):
 
         # prepare matrices
         if spacing is not None:
-            D = self.difference_matrix_2(spacing)
+            D = self.gradient_matrix(spacing)
         else:
-            D = self.difference_matrix(len(b))
+            spacing = np.arange(len(b))
+            D = self.gradient_matrix(spacing)
 
         # D = __fourier_matrix__(len(b))
         A = diags(b, offsets=0)
@@ -327,20 +329,26 @@ class LinearSolver(SolverBase):
         f, g = f[idx], g[idx]
 
         mask = np.isfinite(f) & np.isfinite(g)
+        mask &= (f != 0) & (g != 0)
         wave = wave[mask]
         f, g = f[mask], g[mask]
 
         if self.regularization:
             if regweight is None:
-                regweight = 200
-            #   regweight = self.best_lambda(f, g, plot=True)
+                # regweight = 200
+                regweight = self.best_lambda(f, g, plot=True)
+                print("Regularization weight: ", regweight)
         else:
             regweight = 0
 
         x0 = self.Tikhonov(f, g, regweight)
 
-        # Normalize x0
-        x0 -= np.min(x0)
-        x0 /= np.max(x0)
+        # Normalize x0, each segment individually?
+        diff = np.diff(wave)
+        idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
+
+        for left, right in zip(idx[:-1], idx[1:]):
+            x0[left:right] -= np.min(x0[left:right])
+            x0[left:right] /= np.max(x0[left:right])
 
         return wave, x0

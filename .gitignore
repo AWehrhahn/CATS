@@ -14,3 +14,5 @@ data/
 *.fits
 *.npy
 examples/noise_1/crires_h_1_4.lin
+*.html
+*.png

@@ -320,6 +320,7 @@ class Spectrum1D(specutils.Spectrum1D):
             resampler = specman.LinearInterpolatedResampler(**kwargs)
         elif method == "spline":
             resampler = specman.SplineInterpolatedResampler(**kwargs)
+            self._data = np.nan_to_num(self._data)
         else:
             raise ValueError(
                 f"Interpolation method not understood. Expected one of {options}, but got {method}"

@@ -59,8 +59,8 @@ def find_transit(observatory, star, planet):
 
 # TODO: get transit times with astroplan
 # and compare to my internal calculations in ExoOrbit
-data_directory = "/DATA/exoSpectro"
-# data_directory = join(dirname(__file__), "../data")
+# data_directory = "/DATA/exoSpectro"
+data_directory = join(dirname(__file__), "../data")
 target_directory = join(dirname(__file__), "noise_1")
 detector = Crires("H/1/4", [1, 2, 3])
 
@@ -105,4 +105,4 @@ sim = Simulator(
 spec = sim.simulate_series(wrange, transit_time, 68)
 
 for i, s in enumerate(spec):
-    s.write(f"{target_directory}/{planet.name}_{i}.fits", detector=detector)
+    s.write(f"{target_directory}/{star.name}_{planet.name}_{i}.fits", detector=detector)

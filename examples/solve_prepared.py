@@ -12,8 +12,6 @@ from cats.simulator.detector import Crires
 from cats.data_modules.stellar_db import StellarDb
 from cats.reference_frame import PlanetFrame, TelescopeFrame
 
-
-from cats.solver.solution import __difference_matrix__, best_lambda, Tikhonov
 from cats.solver.linear import LinearSolver
 
 detector = Crires("H/1/4", [1, 2, 3])
@@ -34,6 +32,10 @@ img_intensities = np.load("intensities.npy")
 planet_model = np.load("planet_model.npy")
 times = Time(times, format="fits")
 
+# regweight:
+# for noise 0:  200
+# for noise 1%: 2000
+
 solver = LinearSolver(detector, star, planet)
 wave, x0 = solver.solve(
     times,
@@ -42,12 +44,13 @@ wave, x0 = solver.solve(
     img_stellar,
     img_intensities,
     img_telluric,
-    regweight=200,
+    regweight=1,
 )
 
-np.save("planet_spectrum.npy", x0)
-np.save("wavelength_planet.npy", wave)
+np.save("planet_spectrum_noise_1.npy", x0)
+np.save("wavelength_planet_noise_1.npy", wave)
 
-plt.plot(wavelength[32], planet_model)
 plt.plot(wave, x0)
-plt.savefig("planet_spectrum.png")
+plt.plot(wavelength[32], planet_model)
+plt.show()
+plt.savefig("planet_spectrum_noise_1.png")

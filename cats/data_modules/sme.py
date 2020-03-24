@@ -182,6 +182,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
             time = times[i]
 
             if mask[i]:
+                # TODO Rossiter McLaughlin Effect
                 synth = SpectrumList(
                     flux=[s[j] for s in spec],
                     spectral_axis=wave,

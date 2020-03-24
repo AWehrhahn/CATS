@@ -27,7 +27,7 @@ from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumList
 from cats import reference_frame as rf
 from cats.reference_frame import PlanetFrame, TelescopeFrame
-from exoorbit import Orbit
+from exoorbit import Orbit, Star
 
 
 def round_to_nearest(value, options):
@@ -84,6 +84,11 @@ def continuum_normalize_part_2(spectra, stellar, telluric, detector):
             deg = 1
             p0 = np.ones(deg + 1)
             popt, pcov = curve_fit(func, x, yp, p0=p0)
+
+            # For debugging
+            # plt.plot(x, y * np.polyval(popt, x), label="observation")
+            # plt.plot(x, yp, label="model")
+            # plt.show()
 
             x = spec[i].wavelength.to_value(u.AA) - x0
             spectra[j][i]._data *= np.polyval(popt, x)
@@ -303,7 +308,7 @@ def upper_envelope(x, y, deg=5, factor=100):
 
 data_dir = join(dirname(__file__), "noise_1")
 target_dir = join(dirname(__file__), "noise_1_intermediate")
-files = join(data_dir, "b_*.fits")
+files = join(data_dir, "*.fits")
 
 linelist = f"{data_dir}/crires_h_1_4.lin"
 
@@ -327,6 +332,7 @@ wave_all = np.concatenate(wave).to_value(u.AA)
 sdb = StellarDb()
 star = sdb.get("HD209458")
 planet = star.planets["b"]
+star = Star.load("star.yaml")
 orbit = Orbit(star, planet)
 
 spectra = continuum_normalize(spectra, detector.blaze)
