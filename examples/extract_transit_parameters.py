@@ -1,19 +1,20 @@
-import numpy as np
-from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import curve_fit
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-from astropy.time import Time
-from astropy.constants import c
+from os.path import dirname, join
 
 import batman
-import emcee
 import corner
+import emcee
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy.constants import c
+from astropy.time import Time
+from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import curve_fit
+from tqdm import tqdm
 
-from cats.simulator.detector import Crires
 from cats.data_modules.stellar_db import StellarDb
+from cats.simulator.detector import Crires
+from exoorbit.bodies import Planet, Star
 from exoorbit.orbit import Orbit
-from exoorbit.bodies import Star, Planet
 
 
 def log_likelihood(theta):
@@ -29,11 +30,25 @@ def log_likelihood(theta):
         return -np.inf
 
 
+data_dir = join(dirname(__file__), "noise_1", "raw")
+target_dir = join(dirname(__file__), "noise_1", "medium")
+files = join(data_dir, "*.fits")
+
 detector = Crires("H/1/4", [1, 2, 3])
 sdb = StellarDb()
 star = sdb.get("HD209458")
 planet = star.planets["b"]
 orbit = Orbit(star, planet)
+
+transit_time = "2020-05-25T10:31:25.418"
+transit_time = Time(transit_time, format="fits")
+planet.transit_time = transit_time
+
+fname = join(target_dir, "planet.yaml")
+planet.save(fname)
+# TODO actually fit the transit
+print("TODO: Actually fit the planet transit in the data!")
+exit
 
 transit_time = "2020-05-25T10:31:25.418"
 transit_time = Time(transit_time, format="fits")

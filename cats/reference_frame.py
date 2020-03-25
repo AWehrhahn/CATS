@@ -124,3 +124,22 @@ class PlanetFrame(ReferenceFrame):
         rv = self.orbit.radial_velocity_planet(datetime)
         rv += self.star.radial_velocity
         return rv
+
+
+def reference_frame_from_name(frame, star=None, planet=None, observatory=None):
+    reference_frame_values = ["barycentric", "telescope", "star", "planet"]
+
+    if frame == "barycentric":
+        frame = BarycentricFrame()
+    elif frame == "telescope":
+        frame = TelescopeFrame(observatory, star.coordinates)
+    elif frame == "star":
+        frame = StarFrame(star)
+    elif frame == "planet":
+        frame = PlanetFrame(star, planet)
+    else:
+        raise ValueError(
+            "Could not recognize reference frame name."
+            f"Expected one of {reference_frame_values} but got {frame} instead."
+        )
+    return frame
