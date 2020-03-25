@@ -652,7 +652,7 @@ class SpectrumArray(Sequence):
             meta = self.meta.copy()
             meta["datetime"] = self.datetime[key]
             spec = Spectrum1D(
-                flux=flux[left:right], spectral_axis=wave[left:right], **self.meta
+                flux=flux[left:right], spectral_axis=wave[left:right], **meta
             )
             spectra += [spec]
 

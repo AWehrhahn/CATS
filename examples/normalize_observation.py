@@ -4,20 +4,14 @@ Normalize the observation
 from glob import glob
 from os.path import dirname, join
 
-import astroplan as ap
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
-from astropy.time import Time
 from scipy.optimize import curve_fit
 from tqdm import tqdm
 
-from cats.data_modules.sme import SmeIntensities, SmeStellar
-from cats.data_modules.stellar_db import StellarDb
-from cats.data_modules.telluric_model import TelluricModel
 from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumArray, SpectrumList
-from exoorbit import Orbit, Star, Planet
 
 
 def continuum_normalize(spectra, blaze):
@@ -85,27 +79,18 @@ observatory = detector.observatory
 wrange = detector.regions
 
 # Load data from disk
+print("Loading data...")
 spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
-times = spectra.datetime
-
-# Load the stellar parameters determined in extract_stellar_parameters.py and extract_transit_parameters.py
-star = Star.load(join(target_dir, "star.yaml"))
-planet = Planet.load(join(target_dir, "planet.yaml"))
-orbit = Orbit(star, planet)
-
-# Based on SME
 stellar = SpectrumArray.read(join(target_dir, "stellar.npz"))
-
-# Based on TelluricModel data
 telluric = SpectrumArray.read(join(target_dir, "telluric.npz"))
 
+print("Normalizing spectra...")
 # Divide by the blaze and the median of each observation
 spectra = continuum_normalize(spectra, detector.blaze)
 # Use stellar * telluric as a reference model to normalize each observation
 spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
 
+print("Saving normalized data...")
 spectra = SpectrumArray(spectra)
-
-spectra.write("spectra_normalized.npz")
-
+spectra.write(join(target_dir, "spectra_normalized.npz"))
 pass

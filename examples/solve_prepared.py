@@ -34,6 +34,7 @@ telluric = SpectrumArray.read(join(medium_dir, "telluric.npz"))
 stellar = SpectrumArray.read(join(medium_dir, "stellar.npz"))
 intensities = SpectrumArray.read(join(medium_dir, "intensities.npz"))
 
+times = spectra.datetime
 wavelength = spectra.wavelength.to_value(u.AA)
 spectra = spectra.flux.to_value(1)
 telluric = telluric.flux.to_value(1)
@@ -46,13 +47,7 @@ intensities = intensities.flux.to_value(1)
 
 solver = LinearSolver(detector, star, planet)
 wave, x0 = solver.solve(
-    times,
-    wavelength,
-    img_spectra,
-    img_stellar,
-    img_intensities,
-    img_telluric,
-    regweight=1,
+    times, wavelength, spectra, stellar, intensities, telluric, regweight=1,
 )
 
 np.save("planet_spectrum_noise_1.npy", x0)

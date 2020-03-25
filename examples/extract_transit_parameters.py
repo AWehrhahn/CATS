@@ -48,7 +48,7 @@ fname = join(target_dir, "planet.yaml")
 planet.save(fname)
 # TODO actually fit the transit
 print("TODO: Actually fit the planet transit in the data!")
-exit
+exit()
 
 transit_time = "2020-05-25T10:31:25.418"
 transit_time = Time(transit_time, format="fits")
