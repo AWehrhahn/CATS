@@ -1,24 +1,24 @@
 import logging
-from copy import copy, deepcopy
-from collections import Sequence
-from os import makedirs
-from os.path import dirname, abspath
 import operator as op
-
+from collections import Sequence
+from copy import copy, deepcopy
 from datetime import datetime
+from os import makedirs
+from os.path import abspath, dirname
 
+from tqdm import tqdm
 import astropy.constants as const
 import astropy.units as u
-from astropy import coordinates as coords
 import numpy as np
 import specutils
 import specutils.manipulation as specman
-from astropy.time import Time
+from astropy import coordinates as coords
 from astropy.io import fits
+from astropy.time import Time
 
 from . import reference_frame as rf
-from .simulator import detector
 from .data_modules.stellar_db import StellarDb
+from .simulator import detector
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,13 @@ class Spectrum1D(specutils.Spectrum1D):
         meta["star"] = kwargs.pop("star", None)
         meta["planet"] = kwargs.pop("planet", None)
         meta["observatory_location"] = kwargs.pop("observatory_location", None)
-        meta["sky_location"] = kwargs.pop("sky_location", None)
         # Datetime of the observation
         meta["datetime"] = kwargs.pop("datetime", Time(0, format="mjd"))
         # One of "barycentric", "telescope", "planet", "star"
         reference_frame = kwargs.pop("reference_frame", "barycentric")
+
+        # Obsolete keywords
+        kwargs.pop("sky_location", None)
 
         kwmeta = kwargs.get("meta", {}) if kwargs.get("meta") is not None else {}
         kwmeta.update(meta)
@@ -118,22 +120,7 @@ class Spectrum1D(specutils.Spectrum1D):
         self.meta["reference_frame"] = value
 
     def reference_frame_from_name(self, frame):
-        if frame == "barycentric":
-            frame = rf.BarycentricFrame()
-        elif frame == "telescope":
-            frame = rf.TelescopeFrame(
-                self.meta["observatory_location"],
-                sky_location=self.meta["star"].coordinates,
-            )
-        elif frame == "star":
-            frame = rf.StarFrame(self.meta["star"])
-        elif frame == "planet":
-            frame = rf.PlanetFrame(self.meta["star"], self.meta["planet"])
-        else:
-            raise ValueError(
-                "Could not recognize reference frame name."
-                f"Expected one of {self.reference_frame_values} but got {frame} instead."
-            )
+        frame = rf.reference_frame_from_name(frame, star=self.meta["star"], planet=self.meta["planet"], observatory=self.meta["observatory_location"])
         return frame
 
     def _get_fits_hdu(self):
@@ -163,6 +150,8 @@ class Spectrum1D(specutils.Spectrum1D):
         # EarthCoordinates for observatory
         if self.meta["star"] is not None:
             header["STAR"] = str(self.meta["star"])
+            header["RA"] = self.meta["star"].coordinates.ra.to_value("hourangle")
+            header["DEC"] = self.meta["star"].coordinates.dec.to_value("deg")
         if self.meta["planet"] is not None:
             header["PLANET"] = str(self.meta["planet"])
         if self.meta["observatory_location"] is not None:
@@ -172,13 +161,6 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSLAT"] = (self.meta["observatory_location"][0],)
                 header["OBSLON"] = (self.meta["observatory_location"][1],)
                 header["OBSALT"] = (self.meta["observatory_location"][2],)
-        if self.meta["sky_location"] is not None:
-            if isinstance(self.meta["sky_location"], coords.SkyCoord):
-                header["RA"] = self.meta["sky_location"].ra.to_value("hourangle")
-                header["DEC"] = self.meta["sky_location"].dec.to_value("deg")
-            else:
-                header["RA"] = self.meta["sky_location"][0].to_value("hourangle")
-                header["DEC"] = self.meta["sky_location"][1].to_value("deg")
 
         header = fits.Header(header)
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
@@ -222,8 +204,10 @@ class Spectrum1D(specutils.Spectrum1D):
             )
         if "RA" in header:
             ra = coords.Angle(header["RA"], "hourangle")
+            meta["star"].coordinates.ra = ra
+        if "DEC" in header:
             dec = header["DEC"] * u.deg
-            meta["sky_location"] = ra, dec
+            meta["star"].coordinates.dec = dec
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 
@@ -449,6 +433,10 @@ class SpectrumList(Sequence):
         return [s.wavelength for s in self]
 
     @property
+    def meta(self):
+        return self[0].meta
+
+    @property
     def datetime(self):
         return self[0].datetime
 
@@ -607,3 +595,121 @@ class SpectrumList(Sequence):
             return sl
         else:
             return self
+
+
+class SpectrumArray(Sequence):
+    """
+    A Collection of Spectra with the same size,
+    but possibly different wavelength axis
+    """
+
+    def __init__(self, *args, **kwargs):
+        if len(args) == 1:
+            if isinstance(args[0], list):
+                spectra = args[0]
+            elif isinstance(args[0], SpectrumList):
+                spectra = [args[0]]
+            else:
+                raise ValueError
+
+            nspec = len(spectra)
+            nseg = spectra[0].shape[0]
+            npix = spectra[0].size
+
+            wunit = spectra[0][0].wavelength.unit
+            funit = spectra[0][0].flux.unit
+        
+            self.wavelength = np.zeros((nspec, npix)) << wunit
+            self.flux = np.zeros((nspec, npix)) << funit
+            for i, spec in enumerate(spectra):
+                self.wavelength[i] = np.concatenate(spec.wavelength)
+                self.flux[i] = np.concatenate(spec.flux)
+
+            self.segments = np.zeros(nseg + 1, dtype=int)
+            self.segments[1:] = spectra[0].shape[1]
+            self.segments = np.cumsum(self.segments)
+
+            self.meta = spectra[0].meta
+            times = Time([spec.datetime for spec in spectra])
+            self.meta["datetime"] = times     
+        elif len(args) == 0 and len(kwargs) > 0:
+            self.wavelength = kwargs.pop("spectral_axis")
+            self.flux = kwargs.pop("flux")
+            self.segments = kwargs.pop("segments")
+            self.meta = kwargs
+        else:
+            raise ValueError
+
+    def __len__(self):
+        return len(self.wavelength)
+
+    def __getitem__(self, key):
+        wave = self.wavelength[key]
+        flux = self.flux[key]
+
+        spectra = []
+        for left, right in zip(self.segments[:-1], self.segments[1:]):
+            meta = self.meta.copy()
+            meta["datetime"] = self.datetime[key]
+            spec = Spectrum1D(
+                flux=flux[left:right], spectral_axis=wave[left:right], **self.meta
+            )
+            spectra += [spec]
+
+        speclist = SpectrumList.from_spectra(spectra)
+        return speclist
+
+    def __setitem__(self, key, value):
+        self.wavelength[key] = np.concatenate(value.wavelength)
+        self.flux[key] = np.concatenate(value.flux)
+
+    @property
+    def datetime(self):
+        return self.meta["datetime"]
+
+    @property
+    def reference_frame(self):
+        return self.meta["reference_frame"]
+
+    def write(self, fname):
+        np.savez(
+            fname,
+            wavelength=self.wavelength.value,
+            flux=self.flux.value,
+            meta=self.meta,
+            segments=self.segments,
+            flux_unit=str(self.flux.unit),
+            wave_unit=str(self.wavelength.unit),
+        )
+
+    @classmethod
+    def read(cls, fname):
+        data = np.load(fname, allow_pickle=True)
+        meta = data["meta"][()]
+        flux_unit = data["flux_unit"][()]
+        wave_unit = data["wave_unit"][()]
+        flux = data["flux"] << u.Unit(flux_unit)
+        wave = data["wavelength"] << u.Unit(wave_unit)
+        segments = data["segments"]
+        self = cls(flux=flux, spectral_axis=wave, segments=segments, **meta)
+        return self
+
+    def shift(self, target_frame, inplace=True):
+        for i in tqdm(range(len(self))):
+            meta =self.meta.copy()
+            meta["datetime"] = self.datetime[i]
+            spec = Spectrum1D(flux=self.flux[i], spectral_axis=self.wavelength[i], **meta)
+            spec.shift(target_frame)
+            self.wavelength[i] = spec.wavelength
+            target_frame = spec.reference_frame
+
+        self.meta["reference_frame"] = target_frame
+        return self
+
+    def resample(self, wavelength, inplace=True):
+        for i in tqdm(range(len(self))):
+            spec = Spectrum1D(flux=self.flux[i], spectral_axis=self.wavelength[i])
+            spec = spec.resample(wavelength)
+            self.wavelength[i] = wavelength
+            self.flux[i] = spec.flux
+        return self
