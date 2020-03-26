@@ -202,12 +202,10 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSLAT"],
                 header["OBSALT"],
             )
-        if "RA" in header:
+        if "RA" in header and "DEC" in header:
             ra = coords.Angle(header["RA"], "hourangle")
-            meta["star"].coordinates.ra = ra
-        if "DEC" in header:
             dec = header["DEC"] * u.deg
-            meta["star"].coordinates.dec = dec
+            meta["star"].coordinates = coords.SkyCoord(ra, dec)
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 

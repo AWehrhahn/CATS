@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from cats.data_modules.stellar_db import StellarDb
 from cats.simulator.detector import Crires
+from cats.spectrum import SpectrumArray
 from exoorbit.bodies import Planet, Star
 from exoorbit.orbit import Orbit
 
@@ -30,7 +31,10 @@ def log_likelihood(theta):
         return -np.inf
 
 
-def extract_transit_parameters(spectra, star, planet):
+def extract_transit_parameters(spectra, star):
+    sdb = StellarDb()
+    planet = sdb.get("HD209458")["b"]
+
     transit_time = "2020-05-25T10:31:25.418"
     transit_time = Time(transit_time, format="fits")
     planet.transit_time = transit_time
@@ -117,12 +121,10 @@ if __name__ == "__main__":
     files = join(data_dir, "*.fits")
 
     detector = Crires("H/1/4", [1, 2, 3])
-    sdb = StellarDb()
-    star = sdb.get("HD209458")
-    planet = star.planets["b"]
     star = Star.load(join(target_dir, "star.yaml"))
+    spectra = SpectrumArray.read(join(target_dir, "spectra_normalized.npz"))
 
-    planet = extract_transit_parameters(spectra, star, planet)
+    planet = extract_transit_parameters(spectra, star)
 
     fname = join(target_dir, "planet.yaml")
     planet.save(fname)

@@ -25,7 +25,7 @@ Step 2: Determine stellar parameters
 
 # prepare_stellar_spectrum.py
 Step 3: Prepare stellar models
-    - Get MARCS model for the found stellar parameters
+    - TODO: Get MARCS model for the found stellar parameters
     - Calculate best PySME model
 
 # normalize_observations.py
