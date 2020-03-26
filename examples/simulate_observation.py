@@ -57,52 +57,62 @@ def find_transit(observatory, star, planet):
     return transit_time
 
 
-# TODO: get transit times with astroplan
-# and compare to my internal calculations in ExoOrbit
-# data_directory = "/DATA/exoSpectro"
-data_directory = join(dirname(__file__), "../data")
-target_directory = join(dirname(__file__), "noise_1")
-detector = Crires("H/1/4", [1, 2, 3])
+if __name__ == "__main__":
+    # TODO: get transit times with astroplan
+    # and compare to my internal calculations in ExoOrbit
+    # data_directory = "/DATA/exoSpectro"
+    data_directory = join(dirname(__file__), "../data")
+    target_directory = join(dirname(__file__), "noise_1")
+    detector = Crires("H/1/4", [1, 2, 3])
 
-# Define wavelength range
-wrange = detector.regions
-blaze = detector.blaze
+    # Define wavelength range
+    wrange = detector.regions
+    blaze = detector.blaze
 
-# Load orbital and stellar parameters from Database
-sdb = stellar_db.StellarDb()
-star = sdb.get("HD209458")
-planet = star.planets["b"]
-observatory = detector.observatory
+    # Load orbital and stellar parameters from Database
+    sdb = stellar_db.StellarDb()
+    star = sdb.get("HD209458")
+    planet = star.planets["b"]
+    observatory = detector.observatory
 
-# Find next transit
-# transit = find_transit(observatory, star, planet)
-transit_time = "2020-05-25T10:31:25.418"
-transit_time = Time(transit_time, format="fits")
+    # Find next transit
+    # transit = find_transit(observatory, star, planet)
+    transit_time = "2020-05-25T10:31:25.418"
+    transit_time = Time(transit_time, format="fits")
 
-planet.time_of_transit = transit_time
+    planet.time_of_transit = transit_time
 
-# Prepare stellar spectrum
-stellar = sme.SmeStellar(star, linelist=f"{data_directory}/crires_h_1_4.lin")
+    # Prepare stellar spectrum
+    stellar = sme.SmeStellar(star, linelist=f"{data_directory}/crires_h_1_4.lin")
 
-# Prepare stellar intensities
-intensities = sme.SmeIntensities(
-    star, planet, linelist=f"{data_directory}/crires_h_1_4.lin"
-)
+    # Prepare stellar intensities
+    intensities = sme.SmeIntensities(
+        star, planet, linelist=f"{data_directory}/crires_h_1_4.lin"
+    )
 
-# Prepare telluric spectrum
-telluric = telluric_model.TelluricModel(star, observatory)
+    # Prepare telluric spectrum
+    telluric = telluric_model.TelluricModel(star, observatory)
 
-# Prepare planet spectrum
-planet_spectrum = psg.PsgPlanetSpectrum(star, planet)
+    # Prepare planet spectrum
+    planet_spectrum = psg.PsgPlanetSpectrum(star, planet)
 
-# Run Simulation
-noise = []
-noise = detector.load_noise_parameters()
-noise += [WhiteNoisePercentage(0.01)]
-sim = Simulator(
-    detector, star, planet, stellar, intensities, telluric, planet_spectrum, noise=noise
-)
-spec = sim.simulate_series(wrange, transit_time, 68)
+    # Run Simulation
+    noise = []
+    noise = detector.load_noise_parameters()
+    noise += [WhiteNoisePercentage(0.01)]
+    sim = Simulator(
+        detector,
+        star,
+        planet,
+        stellar,
+        intensities,
+        telluric,
+        planet_spectrum,
+        noise=noise,
+    )
+    spec = sim.simulate_series(wrange, transit_time, 68)
 
-for i, s in enumerate(spec):
-    s.write(f"{target_directory}/{star.name}_{planet.name}_{i}.fits", detector=detector)
+    for i, s in enumerate(spec):
+        s.write(
+            f"{target_directory}/{star.name}_{planet.name}_{i}.fits", detector=detector
+        )

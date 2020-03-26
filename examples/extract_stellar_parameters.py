@@ -1,3 +1,26 @@
+"""
+Option A:
+  - resample all spectra to a common wavelength grid
+  - add them together
+  - fit to that
+Pros:
+  - easier to normalize
+  - radial velocity shift between observations is small (if from the same transit)
+Cons:
+  - Loose some precision due to resampling
+
+Option B:
+  - calculate SME spectra without sampling to wavelength grid
+  - do least-squares to each spectrum individually and add them together
+Pros:
+  - more precise, since no interpolation
+Cons:
+  - difficult to normalize individual spectra
+  - more effort
+
+Lets do Option A!
+
+"""
 from glob import glob
 from os.path import dirname, join
 
@@ -44,148 +67,131 @@ def round_to_nearest(value, options):
     return nearest
 
 
-data_dir = join(dirname(__file__), "noise_1", "raw")
-target_dir = join(dirname(__file__), "noise_1", "medium")
-util_dir = join(dirname(__file__), "noise_1")
-files = join(data_dir, "*.fits")
+def extract_stellar_parameters(spectra, star, blaze, linelist):
+    # Shift to the same reference frame (barycentric)
+    print("Shift observations to the barycentric restframe")
+    spectra = spectra.shift("barycentric", inplace=True)
 
-linelist = join(util_dir, "crires_h_1_4.lin")
+    # TODO: The telluric spectrum will change between observations
+    # and therefore influence the recovered stellar parameters
+    # Especially when we combine data from different transits!
 
-detector = Crires("H/1/4", [1, 2, 3])
-observatory = detector.observatory
-wrange = detector.regions
-blaze = detector.blaze
+    # Arbitrarily choose the central grid as the common one
+    print("Combine all observations")
+    wavelength = spectra.wavelength[len(spectra) // 2]
+    spectra = spectra.resample(wavelength)
+    spectrum = np.nansum(spectra.flux, axis=0)
+    spectrum = SpectrumArray(
+        flux=spectrum[None, :],
+        spectral_axis=wavelength[None, :],
+        segments=spectra.segments,
+        datetime=[spectra.datetime[len(spectra) // 2]],
+    )
 
-# Load the nominal values for an initial guess
-sdb = StellarDb()
-star = sdb.get("HD209458")
+    # Normalize to upper envelope
+    print("Normalize combined spectrum")
+    spectrum.flux /= blaze.ravel()
+    for left, right in zip(spectrum.segments[:-1], spectrum.segments[1:]):
+        spectrum.flux[left:right] /= np.nanpercentile(spectrum.flux[left:right], 95)
 
-# Load data
-print("Loading data...")
-spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
-times = spectra.datetime
+    spectrum = spectrum[0]
 
-# Shift to the same reference frame (barycentric)
-print("Shift observations to the barycentric restframe")
-spectra = spectra.shift("barycentric", inplace=True)
+    # Create SME structure
+    print("Preparing PySME structure")
+    sme = SME_Structure()
+    sme.wave = [wave.to_value(u.AA) for wave in spectrum.wavelength]
+    sme.spec = [spec.to_value(1) for spec in spectrum.flux]
 
-# Option A:
-#   - resample all spectra to a common wavelength grid
-#   - add them together
-#   - fit to that
-# Pros:
-#   - easier to normalize
-#   - radial velocity shift between observations is small (if from the same transit)
-# Cons:
-#   - Loose some precision due to resampling
+    sme.teff = star.teff.to_value(u.K)
+    sme.logg = star.logg.to_value(1)
+    sme.monh = star.monh.to_value(1)
+    sme.vturb = star.vturb.to_value(u.km / u.s)
 
-# Option B:
-#   - calculate SME spectra without sampling to wavelength grid
-#   - do least-squares to each spectrum individually and add them together
-# Pros:
-#   - more precise, since no interpolation
-# Cons:
-#   - difficult to normalize individual spectra
-#   - more effort
+    sme.abund = "solar"
+    sme.linelist = ValdFile(linelist)
 
-# Lets do Option A!
+    vturb = round_to_nearest(sme.vturb, [1, 2, 5])
+    atmosphere = f"marcs2012s_t{vturb:1.1f}.sav"
+    sme.atmo.source = atmosphere
+    sme.atmo.method = "grid"
 
-# TODO: The telluric spectrum will change between observations
-# and therefore influence the recovered stellar parameters
-# Especially when we combine data from different transits!
+    nlte = None
+    if nlte is not None:
+        for elem, grid in nlte.items():
+            sme.nlte.set_nlte(elem, grid)
 
-# Arbitrarily choose the central grid as the common one
-print("Combine all observations")
-wavelength = spectra.wavelength[len(spectra) // 2]
-spectra = spectra.resample(wavelength)
-spectrum = np.nansum(spectra.flux, axis=0)
-spectrum = SpectrumArray(
-    flux=spectrum[None, :],
-    spectral_axis=wavelength[None, :],
-    segments=spectra.segments,
-    datetime=[spectra.datetime[len(spectra) // 2]],
-)
+    sme.cscale_flag = "none"
+    sme.normalize_by_continuum = True
+    sme.vrad_flag = "whole"
+    sme.vrad = star.radial_velocity.to_value("km/s")
 
-# Normalize to upper envelope
-print("Normalize combined spectrum")
-spectrum.flux /= blaze.ravel()
-for left, right in zip(spectrum.segments[:-1], spectrum.segments[1:]):
-    spectrum.flux[left:right] /= np.nanpercentile(spectrum.flux[left:right], 95)
+    # Create an initial spectrum using the nominal values
+    # This also determines the radial velocity
+    print("Determine the radial velocity using the nominal stellar parameters")
+    synthesizer = Synthesizer()
+    sme = synthesizer.synthesize_spectrum(sme)
 
-spectrum = spectrum[0]
+    # Set the mask, using only points that are close to the expected values
+    print("Create bad pixel mask")
+    sme.mask = sme.mask_values["bad"]
+    # TODO determine threshold value
+    threshold = 0.05
+    for seg in range(sme.nseg):
+        diff = np.abs(sme.spec[seg] - sme.synth[seg])
+        close = diff < threshold
+        upper = sme.spec[seg] > 0.95
+        sme.mask[seg][close & upper] = sme.mask_values["continuum"]
+        sme.mask[seg][close & (~upper)] = sme.mask_values["line"]
 
-# Create SME structure
-print("Preparing PySME structure")
-sme = SME_Structure()
-sme.wave = [wave.to_value(u.AA) for wave in spectrum.wavelength]
-sme.spec = [spec.to_value(1) for spec in spectrum.flux]
+    fig = plot_plotly.FinalPlot(sme)
+    fig.save(filename="mask.html")
 
-sme.teff = star.teff.to_value(u.K)
-sme.logg = star.logg.to_value(1)
-sme.monh = star.monh.to_value(1)
-sme.vturb = star.vturb.to_value(u.km / u.s)
+    # Fit the observation with SME
+    print("Fit stellar spectrum with PySME")
+    sme.cscale_flag = "constant"
+    sme.cscale_type = "mask"
+    sme.vrad_flag = "fix"
 
-sme.abund = "solar"
-sme.linelist = ValdFile(linelist)
+    solver = SME_Solver()
+    sme = solver.solve(sme, param_names=["teff", "logg", "monh"])
 
-vturb = round_to_nearest(sme.vturb, [1, 2, 5])
-atmosphere = f"marcs2012s_t{vturb:1.1f}.sav"
-sme.atmo.source = atmosphere
-sme.atmo.method = "grid"
+    fig = plot_plotly.FinalPlot(sme)
+    fig.save(filename="solved.html")
 
-nlte = None
-if nlte is not None:
-    for elem, grid in nlte.items():
-        sme.nlte.set_nlte(elem, grid)
+    # Save output
+    print("Save results")
+    print(f"Teff: {sme.teff} K")
+    print(f"logg: {sme.logg} log(cm/s**2)")
+    print(f"MonH: {sme.monh} dex")
 
-sme.cscale_flag = "none"
-sme.normalize_by_continuum = True
-sme.vrad_flag = "whole"
-sme.vrad = star.radial_velocity.to_value("km/s")
+    star.effective_temperature = sme.teff * u.K
+    star.logg = sme.logg * u.one
+    star.monh = sme.monh * u.one
+    return star
 
-# Create an initial spectrum using the nominal values
-# This also determines the radial velocity
-print("Determine the radial velocity using the nominal stellar parameters")
-synthesizer = Synthesizer()
-sme = synthesizer.synthesize_spectrum(sme)
 
-# Set the mask, using only points that are close to the expected values
-print("Create bad pixel mask")
-sme.mask = sme.mask_values["bad"]
-# TODO determine threshold value
-threshold = 0.05
-for seg in range(sme.nseg):
-    diff = np.abs(sme.spec[seg] - sme.synth[seg])
-    close = diff < threshold
-    upper = sme.spec[seg] > 0.95
-    sme.mask[seg][close & upper] = sme.mask_values["continuum"]
-    sme.mask[seg][close & (~upper)] = sme.mask_values["line"]
+if __name__ == "__main__":
+    data_dir = join(dirname(__file__), "noise_1", "raw")
+    target_dir = join(dirname(__file__), "noise_1", "medium")
+    util_dir = join(dirname(__file__), "noise_1")
+    files = join(data_dir, "*.fits")
 
-fig = plot_plotly.FinalPlot(sme)
-fig.save(filename="mask.html")
+    linelist = join(util_dir, "crires_h_1_4.lin")
 
-# Fit the observation with SME
-print("Fit stellar spectrum with PySME")
-sme.cscale_flag = "constant"
-sme.cscale_type = "mask"
-sme.vrad_flag = "fix"
+    detector = Crires("H/1/4", [1, 2, 3])
+    blaze = detector.blaze
 
-solver = SME_Solver()
-sme = solver.solve(sme, param_names=["teff", "logg", "monh"])
+    # Load the nominal values for an initial guess
+    sdb = StellarDb()
+    star = sdb.get("HD209458")
 
-fig = plot_plotly.FinalPlot(sme)
-fig.save(filename="solved.html")
+    # Load data
+    print("Loading data...")
+    spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
+    times = spectra.datetime
 
-# Save output
-print("Save results")
-print(f"Teff: {sme.teff} K")
-print(f"logg: {sme.logg} log(cm/s**2)")
-print(f"MonH: {sme.monh} dex")
+    star = extract_stellar_parameters(spectra, star, blaze, linelist)
 
-star.effective_temperature = sme.teff * u.K
-star.logg = sme.logg * u.one
-star.monh = sme.monh * u.one
-
-fname = join(target_dir, "star.yaml")
-star.save(fname)
-pass
+    fname = join(target_dir, "star.yaml")
+    star.save(fname)
+    pass

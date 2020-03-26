@@ -314,6 +314,12 @@ class LinearSolver(SolverBase):
         g = self.detector.apply_instrumental_broadening(g)
         g = spectra - g
 
+        # Each observation will have a different wavelength grid
+        # in the planet restframe (since the planet moves quite fast)
+        # therefore we use each wavelength point from each observation
+        # individually, but we sort them by wavelength
+        # so that the gradient, is still only concerned about the immediate
+        # neighbours
         wave = []
         for time, w in zip(times, wavelength):
             rv = self.telescope_frame.to_frame(self.planet_frame, time)

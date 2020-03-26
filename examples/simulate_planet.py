@@ -9,30 +9,34 @@ from cats.spectrum import SpectrumList
 
 from os.path import join, dirname
 
-# stellar = SpectrumList.read("stellar.fits")
-# wave = stellar.wavelength
 
-data_dir = join(dirname(__file__), "noise_zero")
-files = join(data_dir, "b_0.fits")
-data = SpectrumList.read(files)
-wave = data.wavelength
+def simulate_planet(wavelength, star, planet, detector):
+    wrange = detector.regions
+
+    psg = PsgPlanetSpectrum(star, planet)
+    spec = psg.get(wrange, Time.now())
+    spec = spec.resample(wavelength)
+    spec = detector.apply_instrumental_broadening(spec)
+
+    return spec
 
 
-detector = Crires("H/1/4", [1, 2, 3])
-wrange = detector.regions
+if __name__ == "__main__":
+    detector = Crires("H/1/4", [1, 2, 3])
+    wrange = detector.regions
 
-sdb = StellarDb()
-star = sdb.get("HD209458")
-planet = star.planets["b"]
+    sdb = StellarDb()
+    star = sdb.get("HD209458")
+    planet = star.planets["b"]
 
-psg = PsgPlanetSpectrum(star, planet)
-spec = psg.get(wrange, Time.now())
-spec = spec.resample(wave)
-spec = detector.apply_instrumental_broadening(spec)
+    print("Loading data...")
+    data_dir = join(dirname(__file__), "noise_1", "raw")
+    files = join(data_dir, "HD209458_b_0.fits")
+    data = SpectrumList.read(files)
+    wave = data.wavelength
 
-spec = np.concatenate(spec.flux).to_value(1)
-wave = np.concatenate(wave).to_value("AA")
-np.save("planet_model.npy", spec)
+    print("Creating planet spectrum...")
+    spec = simulate_planet(wave, star, planet, detector)
 
-plt.plot(spec)
-plt.show()
+    print("Saving data...")
+    spec.write("planet_model.fits")

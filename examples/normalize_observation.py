@@ -68,29 +68,33 @@ def continuum_normalize_part_2(spectra, stellar, telluric, detector):
     return spectra
 
 
-data_dir = join(dirname(__file__), "noise_1", "raw")
-target_dir = join(dirname(__file__), "noise_1", "medium")
-files = join(data_dir, "*.fits")
+def normalize_observation(spectra, stellar, telluric, detector):
+    # Divide by the blaze and the median of each observation
+    spectra = continuum_normalize(spectra, detector.blaze)
+    # Use stellar * telluric as a reference model to normalize each observation
+    spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
+    return spectra
 
-linelist = f"{data_dir}/crires_h_1_4.lin"
 
-detector = Crires("H/1/4", [1, 2, 3])
-observatory = detector.observatory
-wrange = detector.regions
+if __name__ == "__main__":
+    data_dir = join(dirname(__file__), "noise_1", "raw")
+    target_dir = join(dirname(__file__), "noise_1", "medium")
+    files = join(data_dir, "*.fits")
 
-# Load data from disk
-print("Loading data...")
-spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
-stellar = SpectrumArray.read(join(target_dir, "stellar.npz"))
-telluric = SpectrumArray.read(join(target_dir, "telluric.npz"))
+    linelist = f"{data_dir}/crires_h_1_4.lin"
 
-print("Normalizing spectra...")
-# Divide by the blaze and the median of each observation
-spectra = continuum_normalize(spectra, detector.blaze)
-# Use stellar * telluric as a reference model to normalize each observation
-spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
+    detector = Crires("H/1/4", [1, 2, 3])
+    observatory = detector.observatory
+    wrange = detector.regions
 
-print("Saving normalized data...")
-spectra = SpectrumArray(spectra)
-spectra.write(join(target_dir, "spectra_normalized.npz"))
-pass
+    print("Loading data...")
+    spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
+    stellar = SpectrumArray.read(join(target_dir, "stellar.npz"))
+    telluric = SpectrumArray.read(join(target_dir, "telluric.npz"))
+
+    print("Normalizing spectra...")
+    spectra = normalize_observation(spectra, stellar, telluric, detector)
+
+    print("Saving normalized data...")
+    spectra = SpectrumArray(spectra)
+    spectra.write(join(target_dir, "spectra_normalized.npz"))

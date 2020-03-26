@@ -1,23 +1,15 @@
 import pytest
-from astropy.units import UnitConversionError
-from astropy.time import Time
 
-from cats.data_modules.stellar_db import stellar_db
+from cats.data_modules.stellar_db import StellarDb
+
+# @pytest.fixture
+# def parameters_expected_outputs():
+#     return [("period", "day"), ("periastron", "jd"), ("transit", "jd"), ("teff", "K"), ("logg", ""), ("monh", ""), ("r_star", "km"),
+#             ("m_star", "kg"), ("r_planet", "km"), ("m_planet", "kg"), ("sma", "km"), ("inc", "deg"), ("ecc", ""), ("w", "deg")]
 
 
+def test_load_data(star):
+    sdb = StellarDb()
+    star_dict = sdb.get(star)
 
-def test_load_data(star, planet, configuration, parameters_expected_outputs):
-    sdb = stellar_db(configuration)
-    par = sdb.get_parameters()
-
-    assert isinstance(par, dict)
-    for quantity, unit in parameters_expected_outputs:
-        assert quantity in par.keys()
-        try:
-            if unit != "jd":
-                par[quantity].to(unit)
-                assert True
-            else:
-                assert isinstance(par[quantity], Time)
-        except UnitConversionError:
-            assert False, f"{quantity} is in an incompatible units. Expected {unit}, but got {par[quantity].unit}"
+    assert isinstance(star_dict, dict)
