@@ -1,12 +1,13 @@
 from setuptools import setup, find_packages
 from shutil import copyfile
 from os.path import dirname, join, expanduser
-
+from os import makedirs
 import versioneer
 
 # TODO Create and populate ~/.cats/config.json
 config_file = expanduser("~/.cats/config.json")
 local_file = join(dirname(__file__), "config.json")
+makedirs(dirname(config_file), exist_ok=True)
 copyfile(local_file, config_file)
 
 setup(
