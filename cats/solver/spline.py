@@ -15,7 +15,7 @@ class SplineSolver(SolverBase):
         wave, f, g = self.prepare_fg(
             times, wavelength, spectra, stellar, intensities, telluric
         )
-        spl = UnivariateSpline(wave, g / f, s=spectra.shape[1][0])
+        spl = UnivariateSpline(wave, g / f, s=spectra.shape[1])
         x0 = spl(wave)
 
         spec = Spectrum1D(

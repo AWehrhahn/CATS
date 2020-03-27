@@ -14,6 +14,8 @@ from cats.data_modules.stellar_db import StellarDb
 from cats.reference_frame import PlanetFrame, TelescopeFrame
 from cats.simulator.detector import Crires
 from cats.solver.linear import LinearSolver
+from cats.solver.spline import SplineSolver
+from cats.solver.bayes import BayesSolver
 from cats.spectrum import SpectrumArray, SpectrumList
 
 from exoorbit.bodies import Star, Planet
@@ -21,9 +23,15 @@ from exoorbit.bodies import Star, Planet
 
 def solve_prepared(spectra, telluric, stellar, intensities, detector, star, planet):
     # regweight:
-    # for noise 0:  200
-    # for noise 1%: 2000
+    # for noise 0:  1
+    # for noise 1%: 23
     print("Solving the problem...")
+    seg = 5
+    spectra = spectra.get_segment(seg)
+    telluric = telluric.get_segment(seg)
+    stellar = stellar.get_segment(seg)
+    intensities = intensities.get_segment(seg)
+
     times = spectra.datetime
     wavelength = spectra.wavelength.to_value(u.AA)
     spectra = spectra.flux.to_value(1)
@@ -31,12 +39,16 @@ def solve_prepared(spectra, telluric, stellar, intensities, detector, star, plan
     stellar = stellar.flux.to_value(1)
     intensities = intensities.flux.to_value(1)
 
-    # TODO: determine regweight
-    solver = LinearSolver(detector, star, planet, regularization_ratio=1, plot=True)
+    # solver = LinearSolver(detector, star, planet, regularization_ratio=1, plot=True)
+    # spec = solver.solve(
+    #     times, wavelength, spectra, stellar, intensities, telluric, regweight=1
+    # )
+    # solver = SplineSolver(detector, star, planet)
+    # spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
+    solver = BayesSolver(detector, star, planet)
 
-    spec = solver.solve(
-        times, wavelength, spectra, stellar, intensities, telluric, regweight=None
-    )
+    spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
+
     return spec
 
 
@@ -66,9 +78,12 @@ if __name__ == "__main__":
     spec.write("planet_noise_1.fits")
 
     print("Plotting results...")
-    planet_model = SpectrumList.read(join(medium_dir, "planet_model.fits"))
+    planet_model = SpectrumList.read(join(done_dir, "planet_model.fits"))
 
     plt.plot(spec.wavelength, spec.flux)
-    plt.plot(planet_model.wavelength, planet_model.flux)
+    plt.plot(
+        np.concatenate(planet_model.wavelength),
+        gaussian_filter1d(np.concatenate(planet_model.flux), 1),
+    )
     plt.show()
     plt.savefig(join(done_dir, "planet_spectrum_noise_1.png"))

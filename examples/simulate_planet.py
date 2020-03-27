@@ -31,6 +31,8 @@ if __name__ == "__main__":
 
     print("Loading data...")
     data_dir = join(dirname(__file__), "noise_1", "raw")
+    target_dir = join(dirname(__file__), "noise_1", "done")
+
     files = join(data_dir, "HD209458_b_0.fits")
     data = SpectrumList.read(files)
     wave = data.wavelength
@@ -39,4 +41,4 @@ if __name__ == "__main__":
     spec = simulate_planet(wave, star, planet, detector)
 
     print("Saving data...")
-    spec.write("planet_model.fits")
+    spec.write(join(target_dir, "planet_model.fits"))

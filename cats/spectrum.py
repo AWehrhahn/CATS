@@ -120,7 +120,12 @@ class Spectrum1D(specutils.Spectrum1D):
         self.meta["reference_frame"] = value
 
     def reference_frame_from_name(self, frame):
-        frame = rf.reference_frame_from_name(frame, star=self.meta["star"], planet=self.meta["planet"], observatory=self.meta["observatory_location"])
+        frame = rf.reference_frame_from_name(
+            frame,
+            star=self.meta["star"],
+            planet=self.meta["planet"],
+            observatory=self.meta["observatory_location"],
+        )
         return frame
 
     def _get_fits_hdu(self):
@@ -616,7 +621,7 @@ class SpectrumArray(Sequence):
 
             wunit = spectra[0][0].wavelength.unit
             funit = spectra[0][0].flux.unit
-        
+
             self.wavelength = np.zeros((nspec, npix)) << wunit
             self.flux = np.zeros((nspec, npix)) << funit
             for i, spec in enumerate(spectra):
@@ -629,7 +634,7 @@ class SpectrumArray(Sequence):
 
             self.meta = spectra[0].meta
             times = Time([spec.datetime for spec in spectra])
-            self.meta["datetime"] = times     
+            self.meta["datetime"] = times
         elif len(args) == 0 and len(kwargs) > 0:
             self.wavelength = kwargs.pop("spectral_axis")
             self.flux = kwargs.pop("flux")
@@ -669,6 +674,15 @@ class SpectrumArray(Sequence):
     def reference_frame(self):
         return self.meta["reference_frame"]
 
+    def get_segment(self, seg):
+        left, right = self.segments[seg : seg + 2]
+        wave = self.wavelength[:, left:right]
+        flux = self.flux[:, left:right]
+        specarr = SpectrumArray(
+            flux=flux, spectral_axis=wave, segments=[0, wave.shape[1]], **self.meta
+        )
+        return specarr
+
     def write(self, fname):
         np.savez(
             fname,
@@ -694,9 +708,11 @@ class SpectrumArray(Sequence):
 
     def shift(self, target_frame, inplace=True):
         for i in tqdm(range(len(self))):
-            meta =self.meta.copy()
+            meta = self.meta.copy()
             meta["datetime"] = self.datetime[i]
-            spec = Spectrum1D(flux=self.flux[i], spectral_axis=self.wavelength[i], **meta)
+            spec = Spectrum1D(
+                flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
+            )
             spec.shift(target_frame)
             self.wavelength[i] = spec.wavelength
             target_frame = spec.reference_frame
