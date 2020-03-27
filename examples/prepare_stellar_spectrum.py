@@ -2,25 +2,10 @@ from os.path import dirname, join
 
 from tqdm import tqdm
 
-from cats.data_modules.sme import SmeStellar
 from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumArray
 from exoorbit.bodies import Star
-
-
-def create_stellar(wrange, spectra, star, times):
-    stellar = SmeStellar(star, linelist=linelist, normalize=True)
-    reference_frame = spectra.reference_frame
-    result = []
-    for i, time in tqdm(enumerate(times), total=len(times)):
-        wave = spectra[i].wavelength
-        spec = stellar.get(wrange, time)
-        spec = spec.shift(reference_frame, inplace=True)
-        spec = spec.resample(wave, method="linear")
-        result += [spec]
-    result = SpectrumArray(result)
-    return result
-
+from cats.extractor.prepare import create_stellar
 
 if __name__ == "__main__":
     target_dir = join(dirname(__file__), "noise_1", "medium")

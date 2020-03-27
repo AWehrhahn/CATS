@@ -7,18 +7,17 @@ from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumList
 from cats.data_modules.stellar_db import StellarDb
 
-from collect_observations import collect_observations
-from extract_stellar_parameters import extract_stellar_parameters
-from extract_transit_parameters import extract_transit_parameters
-from normalize_observation import normalize_observation
-from prepare_stellar_intensities import create_intensities
-from prepare_stellar_spectrum import create_stellar
-from prepare_telluric_spectrum import create_telluric
+from cats.extractor.collect_observations import collect_observations
+from cats.extractor.extract_stellar_parameters import extract_stellar_parameters
+from cats.extractor.extract_transit_parameters import extract_transit_parameters
+from cats.extractor.normalize_observation import normalize_observation
+from cats.extractor.prepare import create_intensities, create_stellar, create_telluric
 from solve_prepared import solve_prepared
 
-from astroplan import download_IERS_A
+from astroplan import download_IERS_A, IERS_A_in_cache
 
-# download_IERS_A()
+if not IERS_A_in_cache():
+    download_IERS_A()
 
 if __name__ == "__main__":
     base_dir = join(dirname(__file__), "noise_1")

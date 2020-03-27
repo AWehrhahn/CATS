@@ -11,33 +11,49 @@ from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve, minimize_scalar
 from astropy.constants import c
 from astropy import units as u
+from tqdm import tqdm
 
 from .solver import SolverBase
 from ..reference_frame import TelescopeFrame, PlanetFrame
+from ..spectrum import Spectrum1D
 
 
 class LinearSolver(SolverBase):
-    def __init__(self, detector, star, planet, method="Tikhonov", regularization=True):
-        self.star = star
-        self.planet = planet
-        self.detector = detector
+    def __init__(
+        self,
+        detector,
+        star,
+        planet,
+        method="Tikhonov",
+        regularization=True,
+        regularization_ratio=50,
+        plot=False,
+    ):
+        super().__init__(detector, star, planet)
         self.method = method
         self.regularization = regularization
+        self.regularization_ratio = regularization_ratio
 
+        self.plot = plot
         self.difference_accuracy = 8
 
-        # Determine Planet Size
-        area_planet = planet.area / star.area
-        area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
-        area_atmosphere /= star.area
-        self.area_planet = area_planet.to_value(u.one)
-        self.area_atmosphere = area_atmosphere.to_value(u.one)
+    @property
+    def method(self):
+        if self._method == "Tikhonov":
+            return self.Tikhonov
+        elif self._method == "Franklin":
+            return self.Franklin
+        else:
+            return self._method
 
-        # Set the Reference frames
-        self.telescope_frame = TelescopeFrame(detector.observatory, star.coordinates)
-        self.planet_frame = PlanetFrame(star, planet)
+    @method.setter
+    def method(self, value):
+        self._method = value
 
-    def Franklin(self, wl, f, g, lamb):
+    def _Franklin(self, A, D, l, g):
+        return spsolve(A + l * D, g)
+
+    def Franklin(self, f, g, lamb, spacing=None):
         """Solve the minimization problem f * x - g = 0
 
         Use simple Franklin regularization with parameter lamb
@@ -63,21 +79,16 @@ class LinearSolver(SolverBase):
             lamb = lamb[0]
 
         if isinstance(lamb, (int, float, np.int64, np.float)):
-            lamb = np.full(len(wl), lamb)
-        a, c = np.zeros(len(wl)), np.zeros(len(wl))
+            lamb = np.full(len(f), lamb)
+        a, c = np.zeros(len(f)), np.zeros(len(f))
         a[1:] = -lamb[:-1]
         c[:-1] = -lamb[1:]
 
-        b = np.sum(f, axis=0)
-        r = np.sum(g, axis=0)
-        b[:-1] += lamb[:-1]
-        b[1:] += lamb[1:]
+        f[:-1] += lamb[:-1]
+        f[1:] += lamb[1:]
 
-        ab = np.array([a, b, c])
-        # func = np.sum((so / ff - sigma_p / sigma_a * ke + ke *
-        #               (np.tile(planet, n_phase).reshape((n_phase, len(planet)))) - obs / ff)**2)
-        # reg = lamb * np.sum((sol[1:] - sol[:-1])**2)
-        return solve_banded((1, 1), ab, r)
+        ab = np.array([a, f, c])
+        return solve_banded((1, 1), ab, g)
 
     def _Tikhonov(self, A, D, l, g):
         return spsolve(A ** 2 + l ** 2 * D.T * D, A * g)
@@ -202,7 +213,7 @@ class LinearSolver(SolverBase):
         lamb = np.abs(lamb[0])
         return lamb
 
-    def best_lambda(self, f, g, ratio=50, plot=False, spacing=None):
+    def best_lambda(self, f, g, spacing=None):
         """Use the L-curve algorithm to find the best regularization parameter lambda
 
         http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -218,7 +229,7 @@ class LinearSolver(SolverBase):
         f : np.ndarray
         g : np.ndarray
         ratio: float, optional
-            how much more important y is relative to x (default is 80, which gives "nice" results)
+            how much more important y is relative to x (default is 50, which gives "nice" results)
         method: {'Tikhonov', 'Franklin'}, optional
             which regularization method to use, for best lambda finding, should be the same, that is used for the final calculation (default is 'Tikhonov')
         plot : bool, optional
@@ -232,9 +243,9 @@ class LinearSolver(SolverBase):
 
         def get_point(lamb, A, D, r):
             """ calculate points of the L-curve"""
-            if self.method == "Tikhonov":
+            if self._method == "Tikhonov":
                 sol = self._Tikhonov(A, D, lamb, r)
-            if self.method == "Franklin":
+            if self._method == "Franklin":
                 sol = spsolve(A + lamb * D, r)
 
             x = norm(A * sol - r, 2)
@@ -243,6 +254,7 @@ class LinearSolver(SolverBase):
 
         def func(lamb, ratio, A, D, r, angle=-np.pi / 4):
             """ get "goodness" value for a given lambda using L-parameter """
+            progress.update(1)
             x, y = get_point(lamb, A, D, r)
             # scale and rotate point
             return -x * np.sin(angle) + y * ratio * np.cos(angle)
@@ -264,9 +276,11 @@ class LinearSolver(SolverBase):
         A.I = diags(1 / b, 0)
 
         # Calculate best lambda
-        res = minimize_scalar(func, args=(ratio, A, D, r))
-
-        if plot:
+        progress = tqdm(total=500)
+        ratio = self.regularization_ratio
+        res = minimize_scalar(func, args=(ratio, A, D, r), method="brent")
+        progress.close()
+        if self.plot:
             import matplotlib.pyplot as plt
 
             ls = np.geomspace(1, 1e6, 300)
@@ -307,49 +321,21 @@ class LinearSolver(SolverBase):
         Find the least-squares solution to the linear equation
         f * x - g = 0
         """
-        f = intensities * telluric * self.area_atmosphere
-        g = (stellar - intensities * self.area_planet) * telluric
-
-        f = self.detector.apply_instrumental_broadening(f)
-        g = self.detector.apply_instrumental_broadening(g)
-        g = spectra - g
-
-        # Each observation will have a different wavelength grid
-        # in the planet restframe (since the planet moves quite fast)
-        # therefore we use each wavelength point from each observation
-        # individually, but we sort them by wavelength
-        # so that the gradient, is still only concerned about the immediate
-        # neighbours
-        wave = []
-        for time, w in zip(times, wavelength):
-            rv = self.telescope_frame.to_frame(self.planet_frame, time)
-            beta = (rv / c).to_value(1)
-            w = np.copy(w) * np.sqrt((1 + beta) / (1 - beta))
-            wave += [w]
-
-        wave = np.concatenate(wave)
-        f = f.ravel()
-        g = g.ravel()
-        idx = np.argsort(wave)
-        wave = wave[idx]
-        f, g = f[idx], g[idx]
-
-        mask = np.isfinite(f) & np.isfinite(g)
-        mask &= (f != 0) & (g != 0)
-        wave = wave[mask]
-        f, g = f[mask], g[mask]
+        wave, f, g = self.prepare_fg(
+            times, wavelength, spectra, stellar, intensities, telluric
+        )
 
         if self.regularization:
             if regweight is None:
                 # regweight = 200
-                regweight = self.best_lambda(f, g, plot=True)
+                regweight = self.best_lambda(f, g)
                 print("Regularization weight: ", regweight)
         else:
             regweight = 0
 
         x0 = self.Tikhonov(f, g, regweight)
 
-        # Normalize x0, each segment individually?
+        # Normalize x0, each segment individually
         diff = np.diff(wave)
         idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
 
@@ -357,4 +343,15 @@ class LinearSolver(SolverBase):
             x0[left:right] -= np.min(x0[left:right])
             x0[left:right] /= np.max(x0[left:right])
 
-        return wave, x0
+        spec = Spectrum1D(
+            flux=x0 << u.one,
+            spectral_axis=wave << u.AA,
+            source="Linear solver",
+            description="recovered planet transmission spectrum",
+            reference_frame="planet",
+            star=self.star,
+            planet=self.planet,
+            observatory_location=self.detector.observatory,
+        )
+
+        return spec

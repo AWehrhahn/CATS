@@ -2,24 +2,10 @@ from os.path import dirname, join
 
 from tqdm import tqdm
 
-from cats.data_modules.telluric_model import TelluricModel
 from cats.simulator.detector import Crires
 from cats.spectrum import SpectrumArray
 from exoorbit.bodies import Star
-
-
-def create_telluric(wrange, spectra, star, observatory, times):
-    telluric = TelluricModel(star, observatory)
-    reference_frame = spectra.reference_frame
-    result = []
-    for i, time in tqdm(enumerate(times), total=len(times)):
-        wave = spectra[i].wavelength
-        spec = telluric.get(wrange, time)
-        spec = spec.shift(reference_frame, inplace=True)
-        spec = spec.resample(wave, method="linear")
-        result += [spec]
-    result = SpectrumArray(result)
-    return result
+from cats.extractor.prepare import create_telluric
 
 
 if __name__ == "__main__":

@@ -32,12 +32,12 @@ def solve_prepared(spectra, telluric, stellar, intensities, detector, star, plan
     intensities = intensities.flux.to_value(1)
 
     # TODO: determine regweight
+    solver = LinearSolver(detector, star, planet, regularization_ratio=1, plot=True)
 
-    solver = LinearSolver(detector, star, planet)
-    wave, x0 = solver.solve(
-        times, wavelength, spectra, stellar, intensities, telluric, regweight=1,
+    spec = solver.solve(
+        times, wavelength, spectra, stellar, intensities, telluric, regweight=None
     )
-    return wave, x0
+    return spec
 
 
 if __name__ == "__main__":
@@ -58,18 +58,17 @@ if __name__ == "__main__":
     stellar = SpectrumArray.read(join(medium_dir, "stellar.npz"))
     intensities = SpectrumArray.read(join(medium_dir, "intensities.npz"))
 
-    wave, x0 = solve_prepared(
+    spec = solve_prepared(
         spectra, telluric, stellar, intensities, detector, star, planet
     )
 
     print("Saving data...")
-    np.save(join(done_dir, "planet_spectrum_noise_1.npy"), x0)
-    np.save(join(done_dir, "wavelength_planet_noise_1.npy"), wave)
+    spec.write("planet_noise_1.fits")
 
     print("Plotting results...")
     planet_model = SpectrumList.read(join(medium_dir, "planet_model.fits"))
 
-    plt.plot(wave, x0)
+    plt.plot(spec.wavelength, spec.flux)
     plt.plot(planet_model.wavelength, planet_model.flux)
     plt.show()
     plt.savefig(join(done_dir, "planet_spectrum_noise_1.png"))

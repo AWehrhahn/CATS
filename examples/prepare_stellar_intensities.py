@@ -1,26 +1,11 @@
 from os.path import dirname, join
 
 from tqdm import tqdm
-
-from cats.data_modules.sme import SmeIntensities
-from cats.simulator.detector import Crires
-from cats.spectrum import SpectrumArray
 from exoorbit.bodies import Star, Planet
 
-
-def create_intensities(wrange, spectra, star, planet, observatory, times):
-    stellar = SmeIntensities(star, planet, linelist=linelist, normalize=True)
-    stellar.prepare(wrange, times)
-    reference_frame = spectra.reference_frame
-    result = []
-    for i, time in tqdm(enumerate(times), total=len(times)):
-        wave = spectra[i].wavelength
-        spec = stellar.get(wrange, time)
-        spec = spec.shift(reference_frame, inplace=True)
-        spec = spec.resample(wave, method="linear")
-        result += [spec]
-    result = SpectrumArray(result)
-    return result
+from cats.simulator.detector import Crires
+from cats.spectrum import SpectrumArray
+from cats.extractor.prepare import create_intensities
 
 
 if __name__ == "__main__":
