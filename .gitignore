@@ -18,3 +18,4 @@ examples/noise_1/crires_h_1_4.lin
 *.png
 *.yaml
 *.npz
+spectrum.sme
