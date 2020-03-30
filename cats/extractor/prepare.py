@@ -8,7 +8,8 @@ from ..simulator.detector import Crires
 from ..spectrum import SpectrumArray
 
 
-def create_stellar(wrange, spectra, star, times):
+def create_stellar(wrange, spectra, star, times, linelist):
+    print("Creating stellar...")
     stellar = SmeStellar(star, linelist=linelist, normalize=True)
     reference_frame = spectra.reference_frame
     result = []
@@ -22,7 +23,9 @@ def create_stellar(wrange, spectra, star, times):
     return result
 
 
-def create_intensities(wrange, spectra, star, planet, observatory, times):
+def create_intensities(wrange, spectra, star, planet, observatory, times, linelist):
+    print("Creating intensities...")
+
     stellar = SmeIntensities(star, planet, linelist=linelist, normalize=True)
     stellar.prepare(wrange, times)
     reference_frame = spectra.reference_frame
@@ -38,6 +41,7 @@ def create_intensities(wrange, spectra, star, planet, observatory, times):
 
 
 def create_telluric(wrange, spectra, star, observatory, times):
+    print("Creating tellurics...")
     telluric = TelluricModel(star, observatory)
     reference_frame = spectra.reference_frame
     result = []

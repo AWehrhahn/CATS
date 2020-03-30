@@ -62,6 +62,7 @@ def round_to_nearest(value, options):
 
 
 def extract_stellar_parameters(spectra, star, blaze, linelist):
+    print("Extracting stellar parameters...")
     # Shift to the same reference frame (barycentric)
     print("Shift observations to the barycentric restframe")
     spectra = spectra.shift("barycentric", inplace=True)
