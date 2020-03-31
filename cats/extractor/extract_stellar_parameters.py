@@ -61,15 +61,14 @@ def round_to_nearest(value, options):
     return nearest
 
 
-def extract_stellar_parameters(spectra, star, blaze, linelist):
-    print("Extracting stellar parameters...")
-    # Shift to the same reference frame (barycentric)
-    print("Shift observations to the barycentric restframe")
-    spectra = spectra.shift("barycentric", inplace=True)
-
+def combine_observations(spectra, blaze):
     # TODO: The telluric spectrum will change between observations
     # and therefore influence the recovered stellar parameters
     # Especially when we combine data from different transits!
+
+    # Shift to the same reference frame (barycentric)
+    print("Shift observations to the barycentric restframe")
+    spectra = spectra.shift("barycentric", inplace=True)
 
     # Arbitrarily choose the central grid as the common one
     print("Combine all observations")
@@ -90,6 +89,11 @@ def extract_stellar_parameters(spectra, star, blaze, linelist):
         spectrum.flux[left:right] /= np.nanpercentile(spectrum.flux[left:right], 95)
 
     spectrum = spectrum[0]
+    return spectrum
+
+
+def create_first_guess(spectrum, star, blaze, linelist):
+    print("Extracting stellar parameters...")
 
     # Create SME structure
     print("Preparing PySME structure")
@@ -125,7 +129,10 @@ def extract_stellar_parameters(spectra, star, blaze, linelist):
     print("Determine the radial velocity using the nominal stellar parameters")
     synthesizer = Synthesizer()
     sme = synthesizer.synthesize_spectrum(sme)
+    return sme
 
+
+def adopt_bad_pixel_mask(sme, mask):
     # Set the mask, using only points that are close to the expected values
     print("Create bad pixel mask")
     sme.mask = sme.mask_values["bad"]
@@ -140,7 +147,10 @@ def extract_stellar_parameters(spectra, star, blaze, linelist):
 
     fig = plot_plotly.FinalPlot(sme)
     fig.save(filename="mask.html")
+    return sme
 
+
+def fit_observation(sme, star):
     # Fit the observation with SME
     print("Fit stellar spectrum with PySME")
     sme.cscale_flag = "constant"
@@ -162,4 +172,12 @@ def extract_stellar_parameters(spectra, star, blaze, linelist):
     star.effective_temperature = sme.teff * u.K
     star.logg = sme.logg * u.one
     star.monh = sme.monh * u.one
+    return star
+
+
+def extract_stellar_parameters(spectra, star, blaze, linelist):
+    spectrum = combine_observations(spectra, blaze)
+    sme = create_first_guess(spectrum, star, blaze, linelist)
+    sme = adopt_bad_pixel_mask(sme, None)
+    star = fit_observation(sme, star)
     return star

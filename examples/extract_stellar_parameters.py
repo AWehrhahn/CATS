@@ -48,7 +48,11 @@ from exoorbit import Orbit, Star
 from cats.simulator.detector import Crires
 from cats.data_modules.stellar_db import StellarDb
 from cats.spectrum import SpectrumArray
-from cats.extractor.extract_stellar_parameters import extract_stellar_parameters
+from cats.extractor.extract_stellar_parameters import (
+    extract_stellar_parameters,
+    create_first_guess,
+    combine_observations,
+)
 
 if __name__ == "__main__":
     data_dir = join(dirname(__file__), "noise_5", "raw")
@@ -70,6 +74,11 @@ if __name__ == "__main__":
     spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
     times = spectra.datetime
 
+    spectrum = combine_observations(spectra, blaze)
+    sme = create_first_guess(spectrum, star, blaze, linelist)
+
+    sme.save("spectrum.sme")
+    exit()
     star = extract_stellar_parameters(spectra, star, blaze, linelist)
 
     fname = join(target_dir, "star.yaml")

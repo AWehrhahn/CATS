@@ -18,6 +18,4 @@ examples/noise_1/
 *.png
 *.yaml
 *.npz
-examples/noise_5/
-dump.bin
-uioenvfile.txt
+spectrum.sme
