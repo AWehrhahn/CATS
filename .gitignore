@@ -19,3 +19,6 @@ examples/noise_1/
 *.yaml
 *.npz
 spectrum.sme
+dump.bin
+uioenvfile.txt
+examples/noise_5/crires_h_1_4.lin
