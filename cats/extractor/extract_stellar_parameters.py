@@ -163,30 +163,3 @@ def extract_stellar_parameters(spectra, star, blaze, linelist):
     star.logg = sme.logg * u.one
     star.monh = sme.monh * u.one
     return star
-
-
-if __name__ == "__main__":
-    data_dir = join(dirname(__file__), "noise_1", "raw")
-    target_dir = join(dirname(__file__), "noise_1", "medium")
-    util_dir = join(dirname(__file__), "noise_1")
-    files = join(data_dir, "*.fits")
-
-    linelist = join(util_dir, "crires_h_1_4.lin")
-
-    detector = Crires("H/1/4", [1, 2, 3])
-    blaze = detector.blaze
-
-    # Load the nominal values for an initial guess
-    sdb = StellarDb()
-    star = sdb.get("HD209458")
-
-    # Load data
-    print("Loading data...")
-    spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
-    times = spectra.datetime
-
-    star = extract_stellar_parameters(spectra, star, blaze, linelist)
-
-    fname = join(target_dir, "star.yaml")
-    star.save(fname)
-    pass
