@@ -23,8 +23,8 @@ def collect_observations(files):
 
 
 if __name__ == "__main__":
-    data_dir = join(dirname(__file__), "noise_1", "raw")
-    target_dir = join(dirname(__file__), "noise_1", "medium")
+    data_dir = join(dirname(__file__), "noise_5", "raw")
+    target_dir = join(dirname(__file__), "noise_5", "medium")
     files = join(data_dir, "*.fits")
 
     spectra = collect_observations(files)

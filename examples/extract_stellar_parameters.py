@@ -51,9 +51,9 @@ from cats.spectrum import SpectrumArray
 from cats.extractor.extract_stellar_parameters import extract_stellar_parameters
 
 if __name__ == "__main__":
-    data_dir = join(dirname(__file__), "noise_1", "raw")
-    target_dir = join(dirname(__file__), "noise_1", "medium")
-    util_dir = join(dirname(__file__), "noise_1")
+    data_dir = join(dirname(__file__), "noise_5", "raw")
+    target_dir = join(dirname(__file__), "noise_5", "medium")
+    util_dir = join(dirname(__file__), "noise_5")
     files = join(data_dir, "*.fits")
 
     linelist = join(util_dir, "crires_h_1_4.lin")
