@@ -121,7 +121,7 @@ def create_first_guess(spectrum, star, blaze, linelist):
 
     sme.cscale_flag = "none"
     sme.normalize_by_continuum = True
-    sme.vrad_flag = "whole"
+    sme.vrad_flag = "fix"
     sme.vrad = star.radial_velocity.to_value("km/s")
 
     # Create an initial spectrum using the nominal values
@@ -150,15 +150,15 @@ def adopt_bad_pixel_mask(sme, mask):
     return sme
 
 
-def fit_observation(sme, star):
+def fit_observation(sme, star, segments="all"):
     # Fit the observation with SME
     print("Fit stellar spectrum with PySME")
-    sme.cscale_flag = "constant"
+    sme.cscale_flag = "linear"
     sme.cscale_type = "mask"
-    sme.vrad_flag = "fix"
+    sme.vrad_flag = "whole"
 
     solver = SME_Solver()
-    sme = solver.solve(sme, param_names=["teff", "logg", "monh"])
+    sme = solver.solve(sme, param_names=["teff", "logg", "monh"], segments=segments)
 
     fig = plot_plotly.FinalPlot(sme)
     fig.save(filename="solved.html")
@@ -172,12 +172,12 @@ def fit_observation(sme, star):
     star.effective_temperature = sme.teff * u.K
     star.logg = sme.logg * u.one
     star.monh = sme.monh * u.one
-    return star
+    return sme, star
 
 
 def extract_stellar_parameters(spectra, star, blaze, linelist):
     spectrum = combine_observations(spectra, blaze)
     sme = create_first_guess(spectrum, star, blaze, linelist)
     sme = adopt_bad_pixel_mask(sme, None)
-    star = fit_observation(sme, star)
-    return star
+    sme, star = fit_observation(sme, star)
+    return sme, star
