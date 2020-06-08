@@ -8,7 +8,7 @@ from ..simulator.detector import Crires
 from ..spectrum import SpectrumArray
 
 
-def create_stellar(wrange, spectra, star, times, linelist):
+def create_stellar(wrange, spectra: SpectrumArray, star, times, linelist):
     print("Creating stellar...")
     stellar = SmeStellar(star, linelist=linelist, normalize=True)
     reference_frame = spectra.reference_frame

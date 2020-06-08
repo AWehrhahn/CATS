@@ -22,4 +22,5 @@ spectrum.sme
 dump.bin
 uioenvfile.txt
 
-crires_data_challenge/
+crires_data_challenge/*/*
+crires_data_challenge/HD209458_additional_data.csv

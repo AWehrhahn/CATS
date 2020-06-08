@@ -28,6 +28,9 @@ Step 3: Prepare stellar models
     - TODO: Get MARCS model for the found stellar parameters
     - Calculate best PySME model
 
+# extract_stellar
+Step 4: Calculate the best fit stellar spectrum
+
 # normalize_observations.py
 Step 5: Normalize observations
     - Normalize the observations to (stellar * telluric) spectrum

@@ -348,43 +348,43 @@ def fit_selenite(science_spectrum, db_path, config_path):
     return tellurics
 
 
-load_store.load_star = load_star
+if __name__ == "__main__":
+    load_store.load_star = load_star
 
-local = dirname(__file__)
-science_dir = join(local, "noise_1", "raw")
-medium_dir = join(local, "noise_1", "medium")
-science_file = join(local, "noise_1", "raw", "HD209458_b_32.fits")
-config_file = join(local, "noise_1", "calibrate_selenite_cfg.yml")
-fit_cfg_file = join(local, "noise_1", "fit_selenite_cfg.yml")
+    local = dirname(__file__)
+    science_dir = join(local, "noise_1", "raw")
+    medium_dir = join(local, "noise_1", "medium")
+    science_file = join(local, "noise_1", "raw", "HD209458_b_32.fits")
+    config_file = join(local, "noise_1", "calibrate_selenite_cfg.yml")
+    fit_cfg_file = join(local, "noise_1", "fit_selenite_cfg.yml")
 
-database_file = join(local, "noise_1", "medium", "selenite_db.csv")
+    database_file = join(local, "noise_1", "medium", "selenite_db.csv")
 
-detector = Crires("H/1/4", [1, 2, 3])
-blaze = detector.blaze
-wrange = detector.regions
+    detector = Crires("H/1/4", [1, 2, 3])
+    blaze = detector.blaze
+    wrange = detector.regions
 
+    spectra = SpectrumArray.read(join(medium_dir, "spectra.npz"))
+    star = spectra.meta["star"]
+    observatory = detector.observatory
+    times = spectra.datetime
 
-spectra = SpectrumArray.read(join(medium_dir, "spectra.npz"))
-star = spectra.meta["star"]
-observatory = detector.observatory
-times = spectra.datetime
+    # normalize_bstars(config_file, spectra, join(medium_dir, "selenite"))
+    calibrate_selenite(science_file, database_file, config_file)
 
-# normalize_bstars(config_file, spectra, join(medium_dir, "selenite"))
-calibrate_selenite(science_file, database_file, config_file)
+    tell = fit_selenite(science_file, database_file, fit_cfg_file)
 
-tell = fit_selenite(science_file, database_file, fit_cfg_file)
+    spectrum = spectra[32][6]
+    spectrum /= blaze[6]
+    spectrum /= np.nanpercentile(spectrum.flux, 95)
 
-spectrum = spectra[32][6]
-spectrum /= blaze[6]
-spectrum /= np.nanpercentile(spectrum.flux, 95)
+    telluricmodel = SpectrumArray.read(join(medium_dir, "telluric.npz"))
+    telluricmodel = telluricmodel[32][6]
 
-telluricmodel = SpectrumArray.read(join(medium_dir, "telluric.npz"))
-telluricmodel = telluricmodel[32][6]
+    plt.plot(spectrum.wavelength, spectrum.flux, label="Spectrum")
+    plt.plot(spectrum.wavelength, tell[6], label="Selenite")
+    plt.plot(telluricmodel.wavelength, telluricmodel.flux, label="Input Tellurics")
+    plt.legend()
+    plt.show()
 
-plt.plot(spectrum.wavelength, spectrum.flux, label="Spectrum")
-plt.plot(spectrum.wavelength, tell[6], label="Selenite")
-plt.plot(telluricmodel.wavelength, telluricmodel.flux, label="Input Tellurics")
-plt.legend()
-plt.show()
-
-pass
+    pass

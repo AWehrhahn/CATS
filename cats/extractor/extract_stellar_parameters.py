@@ -43,13 +43,14 @@ from pysme.gui import plot_plotly
 from tqdm import tqdm
 
 from scipy.optimize import curve_fit
+from exoorbit.bodies import Star
 
 from ..data_modules.stellar_db import StellarDb
 from ..simulator.detector import Crires
 from ..spectrum import SpectrumArray
 
 
-def round_to_nearest(value, options):
+def round_to_nearest(value: np.ndarray, options: list):
     value = np.atleast_2d(value).T
     options = np.asarray(options)
 
@@ -61,7 +62,7 @@ def round_to_nearest(value, options):
     return nearest
 
 
-def combine_observations(spectra, blaze):
+def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     # TODO: The telluric spectrum will change between observations
     # and therefore influence the recovered stellar parameters
     # Especially when we combine data from different transits!
@@ -92,7 +93,9 @@ def combine_observations(spectra, blaze):
     return spectrum
 
 
-def create_first_guess(spectrum, star, blaze, linelist):
+def create_first_guess(
+    spectrum: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str
+):
     print("Extracting stellar parameters...")
 
     # Create SME structure
@@ -132,7 +135,7 @@ def create_first_guess(spectrum, star, blaze, linelist):
     return sme
 
 
-def adopt_bad_pixel_mask(sme, mask):
+def adopt_bad_pixel_mask(sme: SME_Structure, mask: np.ndarray):
     # Set the mask, using only points that are close to the expected values
     print("Create bad pixel mask")
     sme.mask = sme.mask_values["bad"]
@@ -150,7 +153,7 @@ def adopt_bad_pixel_mask(sme, mask):
     return sme
 
 
-def fit_observation(sme, star, segments="all"):
+def fit_observation(sme: SME_Structure, star: Star, segments="all"):
     # Fit the observation with SME
     print("Fit stellar spectrum with PySME")
     sme.cscale_flag = "linear"
@@ -175,7 +178,9 @@ def fit_observation(sme, star, segments="all"):
     return sme, star
 
 
-def extract_stellar_parameters(spectra, star, blaze, linelist):
+def extract_stellar_parameters(
+    spectra: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str
+):
     spectrum = combine_observations(spectra, blaze)
     sme = create_first_guess(spectrum, star, blaze, linelist)
     sme = adopt_bad_pixel_mask(sme, None)

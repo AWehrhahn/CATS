@@ -36,7 +36,11 @@ class Spectrum1D(specutils.Spectrum1D):
 
     def __init__(self, *args, **kwargs):
         # Set default options (if not given)
-        kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
+
+        if "spectral_axis" in kwargs.keys():
+            pass
+        else:
+            kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
 
         meta = {}
         # Which data source was this obtained from
@@ -51,6 +55,8 @@ class Spectrum1D(specutils.Spectrum1D):
         meta["observatory_location"] = kwargs.pop("observatory_location", None)
         # Datetime of the observation
         meta["datetime"] = kwargs.pop("datetime", Time(0, format="mjd"))
+        # airmass is somewhat redundant (it can be calculated from star, observatory, and time)
+        meta["airmass"] = kwargs.pop("airmass", None)
         # One of "barycentric", "telescope", "planet", "star"
         reference_frame = kwargs.pop("reference_frame", "barycentric")
 
@@ -272,7 +278,7 @@ class Spectrum1D(specutils.Spectrum1D):
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:
-            self.spectral_axis = shifted
+            self._spectral_axis = shifted
             self.reference_frame = target_frame
             spec = self
         else:

@@ -10,11 +10,11 @@ from astropy import units as u
 from scipy.optimize import curve_fit
 from tqdm import tqdm
 
-from ..simulator.detector import Crires
+from ..simulator.detector import Detector
 from ..spectrum import SpectrumArray, SpectrumList
 
 
-def continuum_normalize(spectra, blaze):
+def continuum_normalize(spectra: SpectrumArray, blaze: np.ndarray):
     # Correct for blaze function
     spectra = [spec / blaze for spec in tqdm(spectra)]
 
@@ -32,7 +32,12 @@ def continuum_normalize(spectra, blaze):
     return spectra
 
 
-def continuum_normalize_part_2(spectra, stellar, telluric, detector):
+def continuum_normalize_part_2(
+    spectra: SpectrumArray,
+    stellar: SpectrumArray,
+    telluric: SpectrumArray,
+    detector: Detector,
+):
     for j in tqdm(range(len(spectra))):
         spec = spectra[j]
         simulation = stellar[j] * telluric[j]
@@ -68,7 +73,12 @@ def continuum_normalize_part_2(spectra, stellar, telluric, detector):
     return spectra
 
 
-def normalize_observation(spectra, stellar, telluric, detector):
+def normalize_observation(
+    spectra: SpectrumArray,
+    stellar: SpectrumArray,
+    telluric: SpectrumArray,
+    detector: Detector,
+):
     # Divide by the blaze and the median of each observation
     spectra = continuum_normalize(spectra, detector.blaze)
     # Use stellar * telluric as a reference model to normalize each observation
@@ -77,6 +87,8 @@ def normalize_observation(spectra, stellar, telluric, detector):
 
 
 if __name__ == "__main__":
+    from ..simulator.detector import Crires
+
     data_dir = join(dirname(__file__), "noise_1", "raw")
     target_dir = join(dirname(__file__), "noise_1", "medium")
     files = join(data_dir, "*.fits")
