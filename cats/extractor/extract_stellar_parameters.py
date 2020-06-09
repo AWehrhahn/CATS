@@ -67,15 +67,28 @@ def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     # and therefore influence the recovered stellar parameters
     # Especially when we combine data from different transits!
 
+    # for i in range(spectra.shape[0]):
+    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "r")
+
     # Shift to the same reference frame (barycentric)
     print("Shift observations to the barycentric restframe")
     spectra = spectra.shift("barycentric", inplace=True)
+
+    # for i in range(spectra.shape[0]):
+    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "g")
+    # plt.show()
 
     # Arbitrarily choose the central grid as the common one
     print("Combine all observations")
     wavelength = spectra.wavelength[len(spectra) // 2]
     spectra = spectra.resample(wavelength)
+
+    # for i in range(spectra.shape[0]):
+    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "g")
+    # plt.show()
+
     spectrum = np.nansum(spectra.flux, axis=0)
+    unc = np.nanstd(spectra.flux, axis=0)
     spectrum = SpectrumArray(
         flux=spectrum[None, :],
         spectral_axis=wavelength[None, :],
@@ -86,15 +99,27 @@ def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     # Normalize to upper envelope
     print("Normalize combined spectrum")
     spectrum.flux /= blaze.ravel()
+    unc /= blaze.ravel()
+    uncs = []
     for left, right in zip(spectrum.segments[:-1], spectrum.segments[1:]):
-        spectrum.flux[left:right] /= np.nanpercentile(spectrum.flux[left:right], 95)
+        lvl = np.nanpercentile(spectrum.flux[0, left:right], 95)
+        spectrum.flux[0, left:right] /= lvl
+        uncs += [unc[left:right] / lvl << u.one]
+
+    # plt.plot(spectrum.wavelength[0], spectrum.flux[0])
+    # plt.show()
 
     spectrum = spectrum[0]
-    return spectrum
+    return spectrum, uncs
 
 
 def create_first_guess(
-    spectrum: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str
+    spectrum: SpectrumArray,
+    star: Star,
+    blaze: np.ndarray,
+    linelist: str,
+    uncs: np.ndarray,
+    detector,
 ):
     print("Extracting stellar parameters...")
 
@@ -103,6 +128,7 @@ def create_first_guess(
     sme = SME_Structure()
     sme.wave = [wave.to_value(u.AA) for wave in spectrum.wavelength]
     sme.spec = [spec.to_value(1) for spec in spectrum.flux]
+    sme.uncs = [unc.to_value(1) for unc in uncs]
 
     sme.teff = star.teff.to_value(u.K)
     sme.logg = star.logg.to_value(1)
@@ -126,6 +152,10 @@ def create_first_guess(
     sme.normalize_by_continuum = True
     sme.vrad_flag = "fix"
     sme.vrad = star.radial_velocity.to_value("km/s")
+
+    if detector is not None:
+        sme.iptype = "gauss"
+        sme.ipres = detector.resolution
 
     # Create an initial spectrum using the nominal values
     # This also determines the radial velocity
@@ -153,15 +183,17 @@ def adopt_bad_pixel_mask(sme: SME_Structure, mask: np.ndarray):
     return sme
 
 
-def fit_observation(sme: SME_Structure, star: Star, segments="all"):
+def fit_observation(
+    sme: SME_Structure, star: Star, segments="all", parameters=["teff", "logg", "monh"]
+):
     # Fit the observation with SME
     print("Fit stellar spectrum with PySME")
-    sme.cscale_flag = "linear"
-    sme.cscale_type = "mask"
-    sme.vrad_flag = "whole"
+    # sme.cscale_flag = "linear"
+    # sme.cscale_type = "mask"
+    # sme.vrad_flag = "whole"
 
     solver = SME_Solver()
-    sme = solver.solve(sme, param_names=["teff", "logg", "monh"], segments=segments)
+    sme = solver.solve(sme, param_names=parameters, segments=segments)
 
     fig = plot_plotly.FinalPlot(sme)
     fig.save(filename="solved.html")
@@ -178,11 +210,21 @@ def fit_observation(sme: SME_Structure, star: Star, segments="all"):
     return sme, star
 
 
+def first_guess(
+    spectra: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str, detector
+):
+    spectrum, uncs = combine_observations(spectra, blaze)
+    sme = create_first_guess(
+        spectrum, star, blaze, linelist, uncs=uncs, detector=detector
+    )
+
+    return sme
+
+
 def extract_stellar_parameters(
     spectra: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str
 ):
-    spectrum = combine_observations(spectra, blaze)
-    sme = create_first_guess(spectrum, star, blaze, linelist)
+    sme = first_guess(spectra, star, blaze, linelist)
     sme = adopt_bad_pixel_mask(sme, None)
     sme, star = fit_observation(sme, star)
     return sme, star

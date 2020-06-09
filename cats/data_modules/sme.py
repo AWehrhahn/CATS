@@ -74,10 +74,7 @@ class SmeBase(DataSource):
             for elem, grid in self.nlte.items():
                 sme.nlte.set_nlte(elem, grid)
 
-        sme.wran = [
-            [wmin.to_value(u.AA), wmax.to_value(u.AA)]
-            for wmin, wmax in wrange.subregions
-        ]
+        sme.wran = [[wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)] for wr in wrange]
 
         sme.cscale_flag = "none"
         sme.normalize_by_continuum = self.normalize

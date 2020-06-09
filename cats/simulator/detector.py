@@ -35,6 +35,7 @@ class Crires(Detector):
         self.detector = detector
         self.orders = orders
         self.pixels = 2048
+        self.resolution = 100_000
         self.pixel_size = 18 * u.um
         self.collection_area = (8 * u.m) ** 2
         self.integration_time = 5 * u.min
@@ -140,7 +141,7 @@ class Crires(Detector):
             if orders is None:
                 _orders = range(len(data[setting][det]))
             else:
-                _orders = range(len(orders))
+                _orders = [o - min(orders) for o in orders]
             for order in _orders:
                 b = np.polyval(data[setting][det][order], x)
                 blaze[counter] = b << u.one

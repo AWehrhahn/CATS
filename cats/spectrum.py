@@ -680,6 +680,10 @@ class SpectrumArray(Sequence):
     def reference_frame(self):
         return self.meta["reference_frame"]
 
+    @property
+    def shape(self):
+        return self.wavelength.shape
+
     def get_segment(self, seg):
         left, right = self.segments[seg : seg + 2]
         wave = self.wavelength[:, left:right]
