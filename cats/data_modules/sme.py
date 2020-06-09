@@ -193,16 +193,15 @@ class SmeIntensities(SmeBase, StellarIntensities):
                 j += 1
             else:
                 regions = [
-                    [wmin.to_value(u.AA), wmax.to_value(u.AA)]
-                    for wmin, wmax in wrange.subregions
+                    [wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)] for wr in wrange
                 ]
                 tmp_wave = [
                     np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions
                 ]
                 if self.normalize:
-                    tmp_spec = [np.zeros(100) << u.one for _ in wrange.subregions]
+                    tmp_spec = [np.zeros(100) << u.one for _ in wrange]
                 else:
-                    tmp_spec = [np.zeros(100) << flux_units for _ in wrange.subregions]
+                    tmp_spec = [np.zeros(100) << flux_units for _ in wrange]
                 synth = SpectrumList(
                     flux=tmp_spec,
                     spectral_axis=tmp_wave,

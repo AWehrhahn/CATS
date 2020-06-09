@@ -58,7 +58,7 @@ def continuum_normalize_part_2(
             def func(x, *c):
                 return y * np.polyval(c, x)
 
-            deg = 1
+            deg = 3
             p0 = np.ones(deg + 1)
             popt, pcov = curve_fit(func, x, yp, p0=p0)
 
@@ -83,6 +83,7 @@ def normalize_observation(
     spectra = continuum_normalize(spectra, detector.blaze)
     # Use stellar * telluric as a reference model to normalize each observation
     spectra = continuum_normalize_part_2(spectra, stellar, telluric, detector)
+    spectra = SpectrumArray(spectra)
     return spectra
 
 

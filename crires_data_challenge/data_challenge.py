@@ -1,20 +1,16 @@
-from os.path import dirname, join, exists, basename
 from glob import glob
+from os.path import basename, dirname, exists, join
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from astropy.io import fits
 from astropy import units as u
+from astropy.io import fits
 from astropy.time import Time
+from exoorbit.bodies import Planet, Star
 from tqdm import tqdm
 
-from pysme.sme import SME_Structure
-
-from cats.simulator.detector import Crires
-from cats.spectrum import SpectrumList, SpectrumArray, Spectrum1D
 from cats.data_modules.stellar_db import StellarDb
-
 from cats.extractor.extract_stellar_parameters import (
     extract_stellar_parameters,
     first_guess,
@@ -22,18 +18,16 @@ from cats.extractor.extract_stellar_parameters import (
 )
 from cats.extractor.extract_transit_parameters import extract_transit_parameters
 from cats.extractor.normalize_observation import normalize_observation
-from cats.extractor.prepare import create_intensities
-from cats.extractor.prepare import create_stellar
-from cats.extractor.prepare import create_telluric
+from cats.extractor.prepare import create_intensities, create_stellar, create_telluric
+from cats.simulator.detector import Crires
+from cats.spectrum import Spectrum1D, SpectrumArray, SpectrumList
+from pysme.sme import SME_Structure
+from simulate_planet import simulate_planet
+from solve_prepared import solve_prepared
 
+from astroplan import download_IERS_A
 
-from exoorbit.bodies import Star, Planet
-
-# from solve_prepared import solve_prepared
-# from simulate_planet import simulate_planet
-
-# from astroplan import download_IERS_A
-# download_IERS_A()
+download_IERS_A()
 
 
 def collect_observations(files, additional_data):
@@ -144,7 +138,7 @@ else:
 # Adjust the mask manually
 
 fname = join(medium_dir, "star.yaml")
-if not exists(fname) or True:
+if not exists(fname) or False:
     sme, star = fit_observation(sme, star)
     star.save(fname)
 else:
@@ -152,7 +146,7 @@ else:
 
 # 5: Create stellar spectra
 fname = join(medium_dir, "stellar.npz")
-if not exists(fname) or True:
+if not exists(fname) or False:
     stellar = create_stellar(wrange, spectra, star, times, linelist)
     stellar.write(fname)
 else:
@@ -160,18 +154,18 @@ else:
 
 # 6: Normalize observations
 fname = join(medium_dir, "spectra_normalized.npz")
-if not exists(fname) or True:
+if not exists(fname) or False:
     normalized = normalize_observation(spectra, stellar, telluric, detector)
     normalized.write(fname)
 else:
-    normalized = SpectrumArray(fname)
+    normalized = SpectrumArray.read(fname)
 
 # 7: Determine Planet transit
 # TODO: proper fit of transit parameters
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
-if not exists(fname) or True:
+if not exists(fname) or False:
     intensities = create_intensities(
         wrange, normalized, star, planet, observatory, times, linelist
     )

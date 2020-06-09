@@ -27,13 +27,14 @@ class LinearSolver(SolverBase):
         method="Tikhonov",
         regularization=True,
         regularization_ratio=50,
+        regularization_weight=None,
         plot=False,
     ):
         super().__init__(detector, star, planet)
         self.method = method
         self.regularization = regularization
         self.regularization_ratio = regularization_ratio
-
+        self.regularization_weight = regularization_weight
         self.plot = plot
         self.difference_accuracy = 8
 
@@ -314,9 +315,7 @@ class LinearSolver(SolverBase):
 
         return res.x
 
-    def solve(
-        self, times, wavelength, spectra, stellar, intensities, telluric, regweight=None
-    ):
+    def solve(self, times, wavelength, spectra, stellar, intensities, telluric):
         """
         Find the least-squares solution to the linear equation
         f * x - g = 0
@@ -326,10 +325,12 @@ class LinearSolver(SolverBase):
         )
 
         if self.regularization:
-            if regweight is None:
+            if self.regularization_weight is None:
                 # regweight = 200
                 regweight = self.best_lambda(f, g)
                 print("Regularization weight: ", regweight)
+            else:
+                regweight = self.regularization_weight
         else:
             regweight = 0
 

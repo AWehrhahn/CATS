@@ -83,6 +83,11 @@ class BayesSolver(SolverBase):
     def solve(
         self, times, wavelength, spectra, stellar, intensities, telluric, regweight=1
     ):
+
+        print(
+            "Bayesian solver is experimental and will probably not work for large problems"
+        )
+
         wave, f, g = self.prepare_fg(
             times, wavelength, spectra, stellar, intensities, telluric
         )

@@ -21,12 +21,21 @@ from cats.spectrum import SpectrumArray, SpectrumList
 from exoorbit.bodies import Star, Planet
 
 
-def solve_prepared(spectra, telluric, stellar, intensities, detector, star, planet):
+def solve_prepared(
+    spectra,
+    telluric,
+    stellar,
+    intensities,
+    detector,
+    star,
+    planet,
+    seg=5,
+    solver="linear",
+):
     # regweight:
     # for noise 0:  1
     # for noise 1%: 23
     print("Solving the problem...")
-    seg = 5
     spectra = spectra.get_segment(seg)
     telluric = telluric.get_segment(seg)
     stellar = stellar.get_segment(seg)
@@ -39,14 +48,23 @@ def solve_prepared(spectra, telluric, stellar, intensities, detector, star, plan
     stellar = stellar.flux.to_value(1)
     intensities = intensities.flux.to_value(1)
 
-    # solver = LinearSolver(detector, star, planet, regularization_ratio=1, plot=True)
-    # spec = solver.solve(
-    #     times, wavelength, spectra, stellar, intensities, telluric, regweight=1
-    # )
-    # solver = SplineSolver(detector, star, planet)
-    # spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
-    solver = BayesSolver(detector, star, planet)
-
+    if solver == "linear":
+        solver = LinearSolver(
+            detector,
+            star,
+            planet,
+            regularization_ratio=1,
+            plot=True,
+            regularization_weight=1,
+        )
+    elif solver == "spline":
+        solver = SplineSolver(detector, star, planet)
+    elif solver == "bayesian":
+        solver = BayesSolver(detector, star, planet)
+    else:
+        raise ValueError(
+            "Unrecognized solver option {solver} expected one of ['linear', 'spline', 'bayesian']"
+        )
     spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
 
     return spec

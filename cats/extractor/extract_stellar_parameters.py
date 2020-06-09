@@ -62,6 +62,22 @@ def round_to_nearest(value: np.ndarray, options: list):
     return nearest
 
 
+def detect_ouliers(spectra: SpectrumArray):
+    flux = np.copy(spectra.flux)
+    for i in range(len(spectra)):
+        flux[i] /= np.nanpercentile(flux[i], 95)
+
+    median = np.nanmedian(flux, axis=0)
+    flux = np.abs(flux - median)
+    mad = np.nanmedian(flux, axis=0)
+    mask = flux > 5 * mad
+
+    flux = np.ma.array(spectra.flux, mask=mask)
+    spectrum = np.ma.nanmean(flux, axis=0)
+    unc = np.ma.nanstd(flux, axis=0)
+    return spectrum, uncs
+
+
 def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     # TODO: The telluric spectrum will change between observations
     # and therefore influence the recovered stellar parameters
@@ -74,21 +90,13 @@ def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     print("Shift observations to the barycentric restframe")
     spectra = spectra.shift("barycentric", inplace=True)
 
-    # for i in range(spectra.shape[0]):
-    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "g")
-    # plt.show()
-
     # Arbitrarily choose the central grid as the common one
     print("Combine all observations")
     wavelength = spectra.wavelength[len(spectra) // 2]
     spectra = spectra.resample(wavelength)
+    # Detects ouliers based on the Median absolute deviation
+    spectrum, uncs = detect_ouliers(spectra)
 
-    # for i in range(spectra.shape[0]):
-    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "g")
-    # plt.show()
-
-    spectrum = np.nansum(spectra.flux, axis=0)
-    unc = np.nanstd(spectra.flux, axis=0)
     spectrum = SpectrumArray(
         flux=spectrum[None, :],
         spectral_axis=wavelength[None, :],
