@@ -12,15 +12,20 @@ class SolverBase:
         self.detector = detector
 
         # Determine Planet Size
-        area_planet = planet.area / star.area
-        area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
-        area_atmosphere /= star.area
-        self.area_planet = area_planet.to_value(u.one)
-        self.area_atmosphere = area_atmosphere.to_value(u.one)
+        if star is not None and planet is not None:
+            area_planet = planet.area / star.area
+            area_atmosphere = np.pi * (planet.radius + planet.atm_scale_height) ** 2
+            area_atmosphere /= star.area
+            self.area_planet = area_planet.to_value(u.one)
+            self.area_atmosphere = area_atmosphere.to_value(u.one)
 
         # Set the Reference frames
-        self.telescope_frame = TelescopeFrame(detector.observatory, star.coordinates)
-        self.planet_frame = PlanetFrame(star, planet)
+        if detector is not None and star is not None:
+            self.telescope_frame = TelescopeFrame(
+                detector.observatory, star.coordinates
+            )
+        if star is not None and planet is not None:
+            self.planet_frame = PlanetFrame(star, planet)
 
     def prepare_fg(self, times, wavelength, spectra, stellar, intensities, telluric):
         """
@@ -30,6 +35,7 @@ class SolverBase:
         f = intensities * telluric * self.area_atmosphere
         g = (stellar - intensities * self.area_planet) * telluric
 
+        # TODO: is this necessary here?
         f = self.detector.apply_instrumental_broadening(f)
         g = self.detector.apply_instrumental_broadening(g)
         g = spectra - g

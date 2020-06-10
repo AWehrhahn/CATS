@@ -3,14 +3,21 @@ from os.path import dirname, join
 from tqdm import tqdm
 
 from ..data_modules.sme import SmeStellar, SmeIntensities
+from ..data_modules.combine import CombineStellar
 from ..data_modules.telluric_model import TelluricModel
 from ..simulator.detector import Crires
 from ..spectrum import SpectrumArray
 
 
-def create_stellar(wrange, spectra: SpectrumArray, star, times, linelist):
+def create_stellar(wrange, spectra: SpectrumArray, times, method="sme", **kwargs):
     print("Creating stellar...")
-    stellar = SmeStellar(star, linelist=linelist, normalize=True)
+    if method == "sme":
+        stellar = SmeStellar(**kwargs, normalize=True)
+    elif method == "combine":
+        stellar = CombineStellar(spectra, **kwargs)
+    else:
+        raise ValueError
+
     reference_frame = spectra.reference_frame
     result = []
     for i, time in tqdm(enumerate(times), total=len(times)):
