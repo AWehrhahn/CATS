@@ -342,7 +342,7 @@ class LinearSolver(SolverBase):
 
         for left, right in zip(idx[:-1], idx[1:]):
             x0[left:right] -= np.min(x0[left:right])
-            x0[left:right] /= np.max(x0[left:right])
+            x0[left:right] /= np.nanpercentile(x0[left:right], 90)
 
         spec = Spectrum1D(
             flux=x0 << u.one,

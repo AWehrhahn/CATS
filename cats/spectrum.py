@@ -672,6 +672,36 @@ class SpectrumArray(Sequence):
         self.wavelength[key] = np.concatenate(value.wavelength)
         self.flux[key] = np.concatenate(value.flux)
 
+    def __operator__(self, other, operator):
+        if isinstance(other, (float, int)) or (
+            hasattr(other, "size") and other.size == 1
+        ):
+            data = operator(self.flux, other)
+        elif isinstance(other, SpectrumArray):
+            data = operator(self.flux, other.flux)
+        else:
+            return NotImplemented
+
+        sa = self.__class__(
+            flux=data,
+            spectral_axis=self.wavelength,
+            segments=self.segments,
+            **self.meta,
+        )
+        return sa
+
+    def __add__(self, other):
+        return self.__operator__(other, op.add)
+
+    def __sub__(self, other):
+        return self.__operator__(other, op.sub)
+
+    def __mul__(self, other):
+        return self.__operator__(other, op.mul)
+
+    def __truediv__(self, other):
+        return self.__operator__(other, op.truediv)
+
     @property
     def datetime(self):
         return self.meta["datetime"]

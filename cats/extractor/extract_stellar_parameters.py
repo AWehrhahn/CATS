@@ -71,10 +71,11 @@ def detect_ouliers(spectra: SpectrumArray):
     flux = np.abs(flux - median)
     mad = np.nanmedian(flux, axis=0)
     mask = flux > 5 * mad
+    mask |= np.isnan(spectra.flux)
 
     flux = np.ma.array(spectra.flux, mask=mask)
-    spectrum = np.ma.nanmean(flux, axis=0)
-    unc = np.ma.nanstd(flux, axis=0)
+    spectrum = np.ma.mean(flux, axis=0)
+    uncs = np.ma.std(flux, axis=0)
     return spectrum, uncs
 
 
@@ -95,27 +96,28 @@ def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
     wavelength = spectra.wavelength[len(spectra) // 2]
     spectra = spectra.resample(wavelength)
     # Detects ouliers based on the Median absolute deviation
-    spectrum, uncs = detect_ouliers(spectra)
+    spectrum, unc = detect_ouliers(spectra)
 
+    # Normalize to upper envelope
+    print("Normalize combined spectrum")
+    spectrum /= blaze.ravel()
+    unc /= blaze.ravel()
+    uncs = []
+    for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
+        lvl = np.nanpercentile(spectrum[left:right], 95)
+        spectrum[left:right] /= lvl
+        uncs += [unc[left:right] / lvl << u.one]
+
+    # plt.plot(spectrum.wavelength[0], spectrum.flux[0])
+    # plt.show()
+
+    spectrum = np.ma.getdata(spectrum)
     spectrum = SpectrumArray(
         flux=spectrum[None, :],
         spectral_axis=wavelength[None, :],
         segments=spectra.segments,
         datetime=[spectra.datetime[len(spectra) // 2]],
     )
-
-    # Normalize to upper envelope
-    print("Normalize combined spectrum")
-    spectrum.flux /= blaze.ravel()
-    unc /= blaze.ravel()
-    uncs = []
-    for left, right in zip(spectrum.segments[:-1], spectrum.segments[1:]):
-        lvl = np.nanpercentile(spectrum.flux[0, left:right], 95)
-        spectrum.flux[0, left:right] /= lvl
-        uncs += [unc[left:right] / lvl << u.one]
-
-    # plt.plot(spectrum.wavelength[0], spectrum.flux[0])
-    # plt.show()
 
     spectrum = spectrum[0]
     return spectrum, uncs
