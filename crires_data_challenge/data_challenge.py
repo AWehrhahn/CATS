@@ -22,12 +22,14 @@ from cats.extractor.prepare import create_intensities, create_stellar, create_te
 from cats.simulator.detector import Crires
 from cats.spectrum import Spectrum1D, SpectrumArray, SpectrumList
 from pysme.sme import SME_Structure
+
 from simulate_planet import simulate_planet
 from solve_prepared import solve_prepared
+from hitran_linelist import Hitran
 
-from astroplan import download_IERS_A
+# from astroplan import download_IERS_A
 
-download_IERS_A()
+# download_IERS_A()
 
 
 def collect_observations(files, additional_data):
@@ -97,7 +99,7 @@ planet = star.planets["b"]
 # Data locations
 raw_dir = join(dirname(__file__), "HD209458")
 medium_dir = join(dirname(__file__), "medium")
-done_dir = join(dirname(__file__), "medium")
+done_dir = join(dirname(__file__), "done")
 
 # Other data
 linelist = join(raw_dir, "crires_k_2_4.lin")
@@ -145,12 +147,31 @@ else:
     star = Star.load(fname)
 
 # 5: Create stellar spectra
+fname = join(medium_dir, "stellar_combined.npz")
+if not exists(fname) or False:
+    combined = create_stellar(
+        wrange,
+        spectra,
+        times,
+        method="combine",
+        blaze=detector.blaze,
+        mask=sme.mask_cont,
+        telluric=telluric,
+        detector=detector,
+    )
+    combined.write(fname)
+else:
+    combined = SpectrumArray.read(fname)
+
 fname = join(medium_dir, "stellar.npz")
 if not exists(fname) or False:
-    stellar = create_stellar(wrange, spectra, star, times, linelist)
+    stellar = create_stellar(
+        wrange, spectra, times, method="sme", star=star, linelist=linelist
+    )
     stellar.write(fname)
 else:
     stellar = SpectrumArray.read(fname)
+
 
 # 6: Normalize observations
 fname = join(medium_dir, "spectra_normalized.npz")
@@ -160,8 +181,23 @@ if not exists(fname) or False:
 else:
     normalized = SpectrumArray.read(fname)
 
+# TODO: Should these be the same?
+# sort = np.argsort(normalized.datetime)
+# # The telluric absorption influences the transmision spectrum
+# norm = np.nanmean(telluric.flux[sort], axis=1)
+# plt.plot(np.nanmean(spectra.flux[sort] / norm[:, None] / 3e4, axis=1))
+# plt.plot(np.nanmean(normalized.flux[sort] / norm[:, None], axis=1))
+# plt.show()
+
 # 7: Determine Planet transit
 # TODO: proper fit of transit parameters
+fname = join(medium_dir, "planet.yaml")
+if not exists(fname) or False:
+    planet = extract_transit_parameters(spectra, telluric, star, planet)
+    planet.save(fname)
+else:
+    planet = Planet.load(fname)
+
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -173,19 +209,57 @@ if not exists(fname) or False:
 else:
     intensities = SpectrumArray.read(fname)
 
-# 9: Solve the equation system
-spec = solve_prepared(
-    normalized, telluric, stellar, intensities, detector, star, planet
-)
-
-print("Saving data...")
-spec.write(join(done_dir, "planet_extracted.fits"))
-
-print("Plotting results...")
-planet_model = simulate_planet(wavelength, star, planet, detector)
-planet_model("planet_model.fits")
-
-plt.plot(spec.wavelength, spec.flux)
-plt.plot(planet_model.wavelength, planet_model.flux)
+i = 51
+j = 5
+plt.plot(intensities[i].wavelength[j], intensities[i].flux[j])
 plt.show()
-plt.savefig(join(done_dir, "planet_spectrum.png"))
+
+# We use sme to estimate the limb darkening at each point
+# But use the extracted stellar spectrum, to create the actual intensities
+intensities /= stellar
+intensities *= combined
+
+plt.plot(intensities[i].wavelength[j], intensities[i].flux[j])
+plt.show()
+
+
+# 9: Solve the equation system
+wavelength = normalized[0].wavelength
+flux = normalized[0].flux
+
+hitran = Hitran()
+
+for segment in tqdm(range(18)):
+    spec = solve_prepared(
+        normalized,
+        telluric,
+        combined,
+        intensities,
+        detector,
+        star,
+        planet,
+        seg=segment,
+        solver="linear",
+    )
+
+    print("Saving data...")
+    spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
+
+    # print("Plotting results...")
+    # planet_model = simulate_planet(spectra[0].wavelength, star, planet, detector)
+    # planet_model.write("planet_model.fits")
+
+    plt.plot(
+        wavelength[segment], flux[segment], label="normalized observation",
+    )
+    plt.plot(spec.wavelength, spec.flux, label="extracted")
+    # plt.vlines(hitran.wavelength, 0, 2)
+    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+
+    # plt.plot(planet_model.wavelength, planet_model.flux)
+    plt.ylabel("Flux, normalised")
+    plt.xlabel("Wavelength [Å]")
+    plt.legend()
+    # plt.show()
+    plt.savefig(join(done_dir, f"planet_spectrum_{segment}.png"))
+    plt.clf()
