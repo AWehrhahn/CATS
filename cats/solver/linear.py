@@ -37,6 +37,7 @@ class LinearSolver(SolverBase):
         self.regularization_weight = regularization_weight
         self.plot = plot
         self.difference_accuracy = 8
+        self.normalize = True
 
     @property
     def method(self):
@@ -340,9 +341,13 @@ class LinearSolver(SolverBase):
         diff = np.diff(wave)
         idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
 
-        for left, right in zip(idx[:-1], idx[1:]):
-            x0[left:right] -= np.min(x0[left:right])
-            x0[left:right] /= np.nanpercentile(x0[left:right], 90)
+        if self.normalize:
+            for left, right in zip(idx[:-1], idx[1:]):
+                x0[left:right] -= np.nanpercentile(x0[left:right], 5)
+                x0[left:right] /= np.nanpercentile(x0[left:right], 90)
+        else:
+            for left, right in zip(idx[:-1], idx[1:]):
+                x0[left:right] -= np.nanpercentile(x0[left:right], 90) + 1
 
         spec = Spectrum1D(
             flux=x0 << u.one,
@@ -353,6 +358,7 @@ class LinearSolver(SolverBase):
             star=self.star,
             planet=self.planet,
             observatory_location=self.detector.observatory,
+            datetime=times[0],
         )
 
         return spec

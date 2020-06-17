@@ -679,6 +679,8 @@ class SpectrumArray(Sequence):
             data = operator(self.flux, other)
         elif isinstance(other, SpectrumArray):
             data = operator(self.flux, other.flux)
+        elif isinstance(other, np.ndarray):
+            data = operator(self.flux, other)
         else:
             return NotImplemented
 
@@ -719,7 +721,7 @@ class SpectrumArray(Sequence):
         wave = self.wavelength[:, left:right]
         flux = self.flux[:, left:right]
         specarr = SpectrumArray(
-            flux=flux, spectral_axis=wave, segments=[0, wave.shape[1]], **self.meta
+            flux=flux, spectral_axis=wave, segments=[0, right-left], **self.meta
         )
         return specarr
 
@@ -753,7 +755,7 @@ class SpectrumArray(Sequence):
             spec = Spectrum1D(
                 flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
             )
-            spec.shift(target_frame)
+            spec.shift(target_frame, inplace=inplace)
             self.wavelength[i] = spec.wavelength
             target_frame = spec.reference_frame
 

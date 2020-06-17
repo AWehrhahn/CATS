@@ -170,7 +170,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
         mu = np.atleast_1d(mu)
 
         mask = (mu < 1) & (mu > 0)
-
+        # TODO: Does PySME handle more than 50 mu values?
         wave, spec, citation = self.synthesize(wrange, mu[mask], intensities=True)
 
         j, spectra = 0, []

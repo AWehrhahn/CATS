@@ -40,7 +40,7 @@ class Crires(Detector):
         self.collection_area = (8 * u.m) ** 2
         self.integration_time = 5 * u.min
         self.bad_pixel_ratio = 4e5 / (2048 ** 2)
-        self.spectral_broadening = 1
+        self.spectral_broadening = 2.3
         self.observatory = EarthLocation.of_site("Cerro Paranal")
 
         # TODO: gain / readnoise for each detector / wavelength range
@@ -183,14 +183,14 @@ class Crires(Detector):
         sigma = self.spectral_broadening
         if hasattr(spec, "flux") and not hasattr(spec, "__len__"):
             flux = spec.flux.decompose()
-            spec._unit = u.one
+            spec._unit = flux.unit
             spec._data[:] = gaussian_filter1d(flux, sigma)
         elif hasattr(spec, "flux") and hasattr(spec, "__len__"):
             for s in spec:
                 flux = s.flux.decompose()
-                s._unit = u.one
+                s._unit = flux.unit
                 s._data[:] = gaussian_filter1d(flux, sigma)
         else:
-            spec = gaussian_filter1d(spec, sigma)
+            spec = gaussian_filter1d(spec, sigma, axis=-1)
 
         return spec

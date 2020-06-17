@@ -48,6 +48,7 @@ from exoorbit.bodies import Star
 from ..data_modules.stellar_db import StellarDb
 from ..simulator.detector import Crires
 from ..spectrum import SpectrumArray
+from ..data_modules.combine import combine_observations
 
 
 def round_to_nearest(value: np.ndarray, options: list):
@@ -76,50 +77,6 @@ def detect_ouliers(spectra: SpectrumArray):
     flux = np.ma.array(spectra.flux, mask=mask)
     spectrum = np.ma.mean(flux, axis=0)
     uncs = np.ma.std(flux, axis=0)
-    return spectrum, uncs
-
-
-def combine_observations(spectra: SpectrumArray, blaze: np.ndarray):
-    # TODO: The telluric spectrum will change between observations
-    # and therefore influence the recovered stellar parameters
-    # Especially when we combine data from different transits!
-
-    # for i in range(spectra.shape[0]):
-    #     plt.plot(spectra.wavelength[i], spectra.flux[i], "r")
-
-    # Shift to the same reference frame (barycentric)
-    print("Shift observations to the barycentric restframe")
-    spectra = spectra.shift("barycentric", inplace=True)
-
-    # Arbitrarily choose the central grid as the common one
-    print("Combine all observations")
-    wavelength = spectra.wavelength[len(spectra) // 2]
-    spectra = spectra.resample(wavelength)
-    # Detects ouliers based on the Median absolute deviation
-    spectrum, unc = detect_ouliers(spectra)
-
-    # Normalize to upper envelope
-    print("Normalize combined spectrum")
-    spectrum /= blaze.ravel()
-    unc /= blaze.ravel()
-    uncs = []
-    for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
-        lvl = np.nanpercentile(spectrum[left:right], 95)
-        spectrum[left:right] /= lvl
-        uncs += [unc[left:right] / lvl << u.one]
-
-    # plt.plot(spectrum.wavelength[0], spectrum.flux[0])
-    # plt.show()
-
-    spectrum = np.ma.getdata(spectrum)
-    spectrum = SpectrumArray(
-        flux=spectrum[None, :],
-        spectral_axis=wavelength[None, :],
-        segments=spectra.segments,
-        datetime=[spectra.datetime[len(spectra) // 2]],
-    )
-
-    spectrum = spectrum[0]
     return spectrum, uncs
 
 
@@ -194,7 +151,10 @@ def adopt_bad_pixel_mask(sme: SME_Structure, mask: np.ndarray):
 
 
 def fit_observation(
-    sme: SME_Structure, star: Star, segments="all", parameters=["teff", "logg", "monh"]
+    sme: SME_Structure,
+    star: Star,
+    segments="all",
+    parameters=["teff", "logg", "monh", "vsini", "vmac", "vmic"],
 ):
     # Fit the observation with SME
     print("Fit stellar spectrum with PySME")
@@ -210,13 +170,14 @@ def fit_observation(
 
     # Save output
     print("Save results")
-    print(f"Teff: {sme.teff} K")
-    print(f"logg: {sme.logg} log(cm/s**2)")
-    print(f"MonH: {sme.monh} dex")
+    for param in parameters:
+        unit = getattr(star, param).unit
+        print(f"{param}: {sme[param]} {unit}")
+        setattr(star, param, sme[param] * unit)
 
-    star.effective_temperature = sme.teff * u.K
-    star.logg = sme.logg * u.one
-    star.monh = sme.monh * u.one
+    # TODO: + barycentric correction
+    star.radial_velocity = sme.vrad[0] << (u.km / u.s)
+
     return sme, star
 
 

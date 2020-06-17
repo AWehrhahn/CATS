@@ -17,8 +17,9 @@ class Space(DataSource):
 
         wave = []
         flux = []
-        for wmin, wmax in wrange.subregions:
-            wave += [np.geomspace(wmin, wmax, 100) << wrange.unit]
+        for wr in wrange:
+            wmin, wmax = wr.lower, wr.upper
+            wave += [np.geomspace(wmin, wmax, 100) << wmax.unit]
             flux += [np.ones(100) << u.one]
 
         spec = SpectrumList(
