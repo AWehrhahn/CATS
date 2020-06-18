@@ -14,6 +14,8 @@ from astropy import units as u
 from tqdm import tqdm
 
 from .solver import SolverBase
+from .least_squares import least_squares
+
 from ..reference_frame import TelescopeFrame, PlanetFrame
 from ..spectrum import Spectrum1D
 
@@ -37,7 +39,7 @@ class LinearSolver(SolverBase):
         self.regularization_weight = regularization_weight
         self.plot = plot
         self.difference_accuracy = 8
-        self.normalize = True
+        self.normalize = False
 
     @property
     def method(self):
@@ -152,7 +154,10 @@ class LinearSolver(SolverBase):
         return diags([a, b, c], offsets=[-1, 0, 1])
 
     def gradient_matrix(self, grid):
-        size = len(grid)
+        if hasattr(grid, "__len__"):
+            size = len(grid)
+        else:
+            size = int(grid)
         if self.difference_accuracy == 2:
             factors = [-1 / 2, 0.0, 1 / 2]
         elif self.difference_accuracy == 4:
@@ -325,6 +330,35 @@ class LinearSolver(SolverBase):
             times, wavelength, spectra, stellar, intensities, telluric
         )
 
+        mask = np.isfinite(f) & np.isfinite(g)
+
+        # Each observation will have a different wavelength grid
+        # in the planet restframe (since the planet moves quite fast)
+        # therefore we use each wavelength point from each observation
+        # individually, but we sort them by wavelength
+        # so that the gradient, is still only concerned about the immediate
+        # neighbours
+        # TODO: rv is (approx?) linear in time, so we could try to fit that as well
+        # at the cost of having to compute a new wavelength grid everytime
+        wavelength_shifted = np.copy(wavelength)
+        for i, time in tqdm(enumerate(times), total=len(times), leave=False):
+            rv = self.telescope_frame.to_frame(self.planet_frame, time)
+            beta = (rv / c).to_value(1)
+            wavelength_shifted[i] *= np.sqrt((1 + beta) / (1 - beta))
+
+        wave = wavelength[0]
+        p = np.zeros(wavelength.shape)
+
+        def func(x, p):
+            for i in range(len(wavelength)):
+                p[i] = np.interp(wave, wavelength_shifted[i], x, left=1, right=1)
+            return (f * p - g)[mask]
+
+        m = np.count_nonzero(mask)
+        n = wavelength.shape[1]
+        reg = np.empty(n)
+        D = self.gradient_matrix(n)
+
         if self.regularization:
             if self.regularization_weight is None:
                 # regweight = 200
@@ -335,7 +369,25 @@ class LinearSolver(SolverBase):
         else:
             regweight = 0
 
-        x0 = self.Tikhonov(f, g, regweight)
+        def regression(x):
+            reg = D * x
+            reg = reg ** 2
+            return reg
+
+        # TODO: Use sparse jacobian
+        res = least_squares(
+            func,
+            x0=np.ones(n),
+            method="trf",
+            verbose=2,
+            regression=regression,
+            r_scale=regweight,
+            args=[p],
+            tr_solver="lsmr",
+        )
+
+        x0 = res.x
+        # x0 = self.Tikhonov(f, g, regweight)
 
         # Normalize x0, each segment individually
         diff = np.diff(wave)
@@ -345,9 +397,6 @@ class LinearSolver(SolverBase):
             for left, right in zip(idx[:-1], idx[1:]):
                 x0[left:right] -= np.nanpercentile(x0[left:right], 5)
                 x0[left:right] /= np.nanpercentile(x0[left:right], 90)
-        else:
-            for left, right in zip(idx[:-1], idx[1:]):
-                x0[left:right] -= np.nanpercentile(x0[left:right], 90) + 1
 
         spec = Spectrum1D(
             flux=x0 << u.one,

@@ -1,5 +1,6 @@
 from glob import glob
 from os.path import basename, dirname, exists, join
+from copy import deepcopy
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -129,8 +130,6 @@ if not exists(fname) or False:
 else:
     telluric = SpectrumArray.read(fname)
 
-# telluric.flux = gaussian_filter1d(telluric.flux, 1)
-
 fname = join(medium_dir, "telluric_space.npz")
 if not exists(fname) or False:
     telluric_space = create_telluric(
@@ -189,31 +188,31 @@ else:
 
 
 # 6: Normalize observations
-fname = join(medium_dir, "spectra_normalized.npz")
-if not exists(fname) or False:
+stellar_orig = deepcopy(stellar)
+telluric_orig = deepcopy(telluric)
+
+for _ in range(3):
     normalized = normalize_observation(spectra, stellar, telluric, detector)
     normalized.write(fname)
-else:
-    normalized = SpectrumArray.read(fname)
 
-tmp = stellar.flux * telluric.flux
-mask = np.isfinite(tmp)
-func = (
-    lambda s: gaussian_filter1d(telluric.flux[mask], s[1])
-    * gaussian_filter1d(stellar.flux[mask], s[0])
-    - normalized.flux[mask]
-)
+    tmp = stellar.flux * telluric.flux
+    mask = np.isfinite(tmp)
+    func = (
+        lambda s: gaussian_filter1d(telluric_orig.flux[mask], abs(s[1]))
+        * gaussian_filter1d(stellar_orig.flux[mask], abs(s[0]))
+        - normalized.flux[mask]
+    )
 
-res = least_squares(func, x0=[1, 1], verbose=2)
-detector.spectral_broadening = res.x[0].to_value(1)
+    res = least_squares(func, x0=[1, 1])
+    detector.spectral_broadening = res.x[0].to_value(1)
 
-telluric.flux = gaussian_filter1d(telluric.flux, res.x[1].to_value(1)) << u.one
-stellar.flux = gaussian_filter1d(stellar.flux, res.x[0].to_value(1)) << u.one
+    telluric.flux = (
+        gaussian_filter1d(telluric_orig.flux, abs(res.x[1].to_value(1))) << u.one
+    )
+    stellar.flux = (
+        gaussian_filter1d(stellar_orig.flux, abs(res.x[0].to_value(1))) << u.one
+    )
 
-# plt.plot(normalized.wavelength[0], normalized.flux[0])
-# plt.plot(stellar.wavelength[0], tmp[0])
-# plt.plot(stellar.wavelength[0], stellar.flux[0])
-# plt.show()
 
 # 7: Determine Planet transit
 fname = join(medium_dir, "planet.yaml")
@@ -221,12 +220,7 @@ if not exists(fname) or False:
     planet = extract_transit_parameters(spectra, telluric, star, planet)
     planet.save(fname)
 else:
-    p = planet
     planet = Planet.load(fname)
-    # planet.inc = p.inc
-    # planet.ecc = p.ecc
-    # planet.radius = p.radius
-
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -255,26 +249,14 @@ plt.show()
 # # But use the extracted stellar spectrum, to create the actual intensities
 # intensities = (intensities / stellar) * combined
 
-# plt.plot(intensities[i].wavelength[j], intensities[i].flux[j])
-# plt.show()
-
 
 # 9: Solve the equation system
-wavelength = normalized[0].wavelength
-flux = normalized[0].flux
-
+i = np.arange(101)[sort][51]
+wavelength = normalized[i].wavelength
+flux = normalized[i].flux
 planet_spectrum = load_planet()
 
-# print("Shifting data to the telescope restframe")
-# # TODO: add telluric
-# for spec in [normalized, combined, intensities]:
-#     spec.meta["star"] = star
-#     spec.meta["planet"] = planet
-#     spec.meta["observatory_location"] = observatory
-#     spec.shift("telescope", inplace=True)
-
-
-for segment in tqdm([15]):
+for segment in tqdm(range(18)):
     spec = solve_prepared(
         normalized,
         telluric,
@@ -291,8 +273,6 @@ for segment in tqdm([15]):
     spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
 
     # print("Plotting results...")
-    # planet_model = simulate_planet(spectra[0].wavelength, star, planet, detector)
-    # planet_model.write("planet_model.fits")
     spec = spec.resample(wavelength[segment], "linear")
     ps = planet_spectrum.resample(wavelength[segment], "linear")
 
@@ -300,11 +280,9 @@ for segment in tqdm([15]):
         wavelength[segment], flux[segment], label="normalized observation",
     )
     plt.plot(ps.wavelength, ps.flux, label="planet model")
-    plt.plot(spec.wavelength, gaussian_filter1d(spec.flux, 10), label="extracted")
-    # plt.vlines(hitran.wavelength, 0, 2)
+    plt.plot(spec.wavelength, spec.flux, label="extracted")
     plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
     plt.ylim(0, 2)
-    # plt.plot(planet_model.wavelength, planet_model.flux)
     plt.ylabel("Flux, normalised")
     plt.xlabel("Wavelength [Å]")
     plt.legend()

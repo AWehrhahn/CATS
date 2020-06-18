@@ -117,7 +117,7 @@ def first_guess(flux, times, star, planet):
         # jac="3-point",
     )
 
-    popt[6] = np.clip(popt[6], 0, 360)
+    # popt[6] = np.clip(popt[6], 0, 360)
     # popt = np.clip(popt, bounds[0], bounds[1])
 
     return popt
@@ -177,6 +177,9 @@ def extract_transit_parameters(spectra, telluric, star, planet):
     for i in range(len(popt)):
         print("  %s: %.2f" % (names[i], popt[i]))
 
+    # popt[1] = planet.period.to_value("day")
+    popt[6] = planet.w.to_value("deg")
+
     plt.plot(times.mjd, flux)
     plt.plot(times.mjd, model(times.mjd, popt))
     plt.show()
@@ -205,7 +208,7 @@ def extract_transit_parameters(spectra, telluric, star, planet):
     values = popt
     planet.t0 = Time(values[0], format="mjd")
     # The period is impossible to guess from just one transit
-    # planet.period = values[1] * u.day
+    planet.period = values[1] * u.day
     planet.radius = values[2] * star.radius
     planet.semi_major_amplitude = values[3] * star.radius
     planet.inclination = values[4] * u.deg

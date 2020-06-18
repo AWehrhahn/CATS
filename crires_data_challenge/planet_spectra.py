@@ -18,10 +18,10 @@ def load_planet():
     intensity_sun = data[:, 1]
     flux_sun = data[:, 2]
     planetary_atmosphere_absorption = data[:, 3] << u.one
-    earth_atmosphere_absorption = data[:, 4]
+    earth_atmosphere_absorption = data[:, 4] << u.one
     flux_normalization = data[:, 5]
 
-    spec = Spectrum1D(flux=planetary_atmosphere_absorption, spectral_axis=wavelength)
+    spec = Spectrum1D(flux=earth_atmosphere_absorption, spectral_axis=wavelength)
     return spec
 
 

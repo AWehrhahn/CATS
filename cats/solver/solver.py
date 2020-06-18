@@ -1,9 +1,16 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
 from astropy.constants import c
 from tqdm import tqdm
+from scipy.sparse import diags
 
-from ..reference_frame import TelescopeFrame, PlanetFrame
+from scipy.ndimage import gaussian_filter1d
+from scipy.interpolate import interp1d
+
+from exoorbit.orbit import Orbit
+from .least_squares import least_squares
+from ..reference_frame import PlanetFrame, TelescopeFrame
 
 
 class SolverBase:
@@ -36,36 +43,41 @@ class SolverBase:
         f * x - g = 0
         """
 
-        # broadening = self.detector.apply_instrumental_broadening
-        # broadening = lambda x: x
-        f = intensities * self.area_atmosphere * telluric
-        g = (stellar - intensities * self.area_planet) * telluric - spectra
+        orb = Orbit(self.star, self.planet)
+        area = orb.stellar_surface_covered_by_planet(times)
 
-        # Each observation will have a different wavelength grid
-        # in the planet restframe (since the planet moves quite fast)
-        # therefore we use each wavelength point from each observation
-        # individually, but we sort them by wavelength
-        # so that the gradient, is still only concerned about the immediate
-        # neighbours
-        wave = []
-        for time, w in tqdm(zip(times, wavelength), total=len(times), leave=False):
-            rv = self.telescope_frame.to_frame(self.planet_frame, time)
-            beta = (rv / c).to_value(1)
-            w = np.copy(w) * np.sqrt((1 + beta) / (1 - beta))
-            wave += [w]
+        model = (stellar - intensities * area[:, None]) * telluric
+        lvl = np.mean(np.nanmean(spectra, axis=1) / np.nanmean(model, axis=1))
+        model *= lvl
 
-        wave = np.concatenate(wave)
-        f = f.ravel()
-        g = g.ravel()
-        idx = np.argsort(wave)
-        wave = wave[idx]
-        f, g = f[idx], g[idx]
+        func = lambda x: np.nanmean(spectra, axis=1) - np.nanmean(
+            (stellar - intensities * np.abs(x[:, None])) * telluric * lvl, axis=1
+        )
+        res = least_squares(func, x0=area, method="lm")
+        area = gaussian_filter1d(res.x, 1)
 
-        mask = np.isfinite(f) & np.isfinite(g)
-        mask &= (f != 0) & (g != 0)
-        wave = wave[mask]
-        f, g = f[mask], g[mask]
-        return wave, f, g
+        # model = (stellar - intensities * area[:, None]) * telluric * lvl
+
+        # plt.plot(np.nanmean(spectra, axis=1))
+        # plt.plot(np.nanmean(model, axis=1))
+        # plt.show()
+
+        # img = spectra - model
+        # plt.imshow(img, aspect="auto")
+        # plt.show()
+
+        f = (
+            intensities
+            * self.area_atmosphere
+            / self.area_planet
+            * area[:, None]
+            * telluric
+            * lvl
+        )
+        g = spectra - (stellar - intensities * area[:, None]) * telluric * lvl
+        f, g = f.to_value(1), g.to_value(1)
+
+        return wavelength, f, g
 
     def solve(
         self, times, wavelength, spectra, stellar, intensities, telluric, **kwargs
