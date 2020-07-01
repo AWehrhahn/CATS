@@ -50,7 +50,7 @@ def collect_observations(files, additional_data):
         add = additional_data.iloc[i]
         time = Time(add["time"], format="jd")
         airmass = add["airmass"]
-        rv = add["system velocity"] << (u.km / u.s)
+        rv = add["barycentric velocity (Paranal)"] << (u.km / u.s)
 
         spectra = []
         orders = list(range(wave.shape[1]))
@@ -86,6 +86,8 @@ def collect_observations(files, additional_data):
     return spectra
 
 
+# TODO: barycentric velocity is given by the table, not from star
+
 # Settings
 setting = "K/2/4"
 detectors = [1, 2, 3]
@@ -98,15 +100,16 @@ observatory = detector.observatory
 # Star info
 sdb = StellarDb()
 star = sdb.get("HD209458")
+star.vsini = 1.2 * (u.km / u.s)
 planet = star.planets["b"]
 
 # Data locations
-raw_dir = join(dirname(__file__), "HD209458")
-medium_dir = join(dirname(__file__), "medium")
+raw_dir = join(dirname(__file__), "HD209458_v3")
+medium_dir = join(dirname(__file__), "medium_v3")
 done_dir = join(dirname(__file__), "done")
 
 # Other data
-linelist = join(raw_dir, "crires_k_2_4.lin")
+linelist = join(dirname(__file__), "crires_k_2_4.lin")
 additional_data = join(raw_dir, "HD209458_additional_data.csv")
 
 # 1: Collect observations
@@ -146,7 +149,7 @@ if not exists(fname) or False:
     sme.save(fname)
 else:
     sme = SME_Structure.load(fname)
-    sme.vrad = sme.vrad.min()
+    # sme.vrad = sme.vrad.min()
     sme.vrad_flag = "fix"
     sme.cscale_flag = "fix"
 
@@ -159,6 +162,9 @@ if not exists(fname) or False:
     star.save(fname)
 else:
     star = Star.load(fname)
+
+# From info about the star
+star.radial_velocity = -14.743 * (u.km / u.s)
 
 # 5: Create stellar spectra
 fname = join(medium_dir, "stellar.npz")
@@ -217,10 +223,15 @@ for _ in range(3):
 # 7: Determine Planet transit
 fname = join(medium_dir, "planet.yaml")
 if not exists(fname) or False:
-    planet = extract_transit_parameters(spectra, telluric, star, planet)
-    planet.save(fname)
+    p = extract_transit_parameters(spectra, telluric, star, planet)
+    p.save(fname)
 else:
-    planet = Planet.load(fname)
+    p = Planet.load(fname)
+    planet.t0 = p.t0
+    # This is based on what we know about the model
+    planet.inc = 86.59 * u.deg
+    planet.ecc = 0 * u.one
+    planet.period = 3.52472 * u.day
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -256,8 +267,8 @@ wavelength = normalized[i].wavelength
 flux = normalized[i].flux
 planet_spectrum = load_planet()
 
-for segment in tqdm(range(18)):
-    spec = solve_prepared(
+for segment in tqdm(range(17)):
+    spec, null = solve_prepared(
         normalized,
         telluric,
         stellar,
@@ -271,9 +282,12 @@ for segment in tqdm(range(18)):
 
     print("Saving data...")
     spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
+    null.write(join(done_dir, f"null_extracted_{segment}.fits"))
 
     # print("Plotting results...")
     spec = spec.resample(wavelength[segment], "linear")
+    null = null.resample(wavelength[segment], "linear")
+
     ps = planet_spectrum.resample(wavelength[segment], "linear")
 
     plt.plot(
@@ -288,6 +302,20 @@ for segment in tqdm(range(18)):
     plt.legend()
     # plt.show()
     plt.savefig(join(done_dir, f"planet_spectrum_{segment}.png"))
+    plt.clf()
+
+    plt.plot(
+        wavelength[segment], flux[segment], label="normalized observation",
+    )
+    plt.plot(ps.wavelength, ps.flux, label="planet model")
+    plt.plot(null.wavelength, null.flux, label="extracted")
+    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+    plt.ylim(0, 2)
+    plt.ylabel("Flux, normalised")
+    plt.xlabel("Wavelength [Å]")
+    plt.legend()
+    # plt.show()
+    plt.savefig(join(done_dir, f"null_spectrum_{segment}.png"))
     plt.clf()
 
 pass

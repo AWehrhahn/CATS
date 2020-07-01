@@ -39,7 +39,7 @@ class LinearSolver(SolverBase):
         self.regularization_weight = regularization_weight
         self.plot = plot
         self.difference_accuracy = 8
-        self.normalize = False
+        self.normalize = True
 
     @property
     def method(self):
@@ -321,33 +321,10 @@ class LinearSolver(SolverBase):
 
         return res.x
 
-    def solve(self, times, wavelength, spectra, stellar, intensities, telluric):
-        """
-        Find the least-squares solution to the linear equation
-        f * x - g = 0
-        """
-        wave, f, g = self.prepare_fg(
-            times, wavelength, spectra, stellar, intensities, telluric
-        )
-
-        mask = np.isfinite(f) & np.isfinite(g)
-
-        # Each observation will have a different wavelength grid
-        # in the planet restframe (since the planet moves quite fast)
-        # therefore we use each wavelength point from each observation
-        # individually, but we sort them by wavelength
-        # so that the gradient, is still only concerned about the immediate
-        # neighbours
-        # TODO: rv is (approx?) linear in time, so we could try to fit that as well
-        # at the cost of having to compute a new wavelength grid everytime
-        wavelength_shifted = np.copy(wavelength)
-        for i, time in tqdm(enumerate(times), total=len(times), leave=False):
-            rv = self.telescope_frame.to_frame(self.planet_frame, time)
-            beta = (rv / c).to_value(1)
-            wavelength_shifted[i] *= np.sqrt((1 + beta) / (1 - beta))
-
+    def least_squares(self, f, g, wavelength, wavelength_shifted, regweight):
         wave = wavelength[0]
         p = np.zeros(wavelength.shape)
+        mask = np.isfinite(f) & np.isfinite(g)
 
         def func(x, p):
             for i in range(len(wavelength)):
@@ -358,16 +335,6 @@ class LinearSolver(SolverBase):
         n = wavelength.shape[1]
         reg = np.empty(n)
         D = self.gradient_matrix(n)
-
-        if self.regularization:
-            if self.regularization_weight is None:
-                # regweight = 200
-                regweight = self.best_lambda(f, g)
-                print("Regularization weight: ", regweight)
-            else:
-                regweight = self.regularization_weight
-        else:
-            regweight = 0
 
         def regression(x):
             reg = D * x
@@ -387,6 +354,50 @@ class LinearSolver(SolverBase):
         )
 
         x0 = res.x
+        return x0
+
+    def shift_wavelength(self, wavelength, times, reverse=False):
+        wavelength_shifted = np.copy(wavelength)
+        for i, time in tqdm(enumerate(times), total=len(times), leave=False):
+            rv = self.telescope_frame.to_frame(self.planet_frame, time)
+            beta = (rv / c).to_value(1)
+            beta *= -1 if reverse else 1
+            wavelength_shifted[i] *= np.sqrt((1 + beta) / (1 - beta))
+        return wavelength_shifted
+
+    def solve(
+        self, times, wavelength, spectra, stellar, intensities, telluric, reverse=False
+    ):
+        """
+        Find the least-squares solution to the linear equation
+        f * x - g = 0
+        """
+        wavelength, f, g = self.prepare_fg(
+            times, wavelength, spectra, stellar, intensities, telluric
+        )
+
+        if self.regularization:
+            if self.regularization_weight is None:
+                # regweight = 200
+                regweight = self.best_lambda(f, g)
+                print("Regularization weight: ", regweight)
+            else:
+                regweight = self.regularization_weight
+        else:
+            regweight = 0
+
+        # Each observation will have a different wavelength grid
+        # in the planet restframe (since the planet moves quite fast)
+        # therefore we use each wavelength point from each observation
+        # individually, but we sort them by wavelength
+        # so that the gradient, is still only concerned about the immediate
+        # neighbours
+        # TODO: rv is (approx?) linear in time, so we could try to fit that as well
+        # at the cost of having to compute a new wavelength grid everytime
+        wavelength_shifted = self.shift_wavelength(wavelength, times, reverse=reverse)
+        x0 = self.least_squares(f, g, wavelength, wavelength_shifted, regweight)
+        wave = wavelength[0]
+
         # x0 = self.Tikhonov(f, g, regweight)
 
         # Normalize x0, each segment individually

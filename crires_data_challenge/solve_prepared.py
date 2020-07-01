@@ -55,7 +55,7 @@ def solve_prepared(
             planet,
             regularization_ratio=1,
             plot=False,
-            regularization_weight=1,
+            regularization_weight=10,
         )
     elif solver == "spline":
         solver = SplineSolver(detector, star, planet)
@@ -66,8 +66,11 @@ def solve_prepared(
             "Unrecognized solver option {solver} expected one of ['linear', 'spline', 'bayesian']"
         )
     spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
+    null = solver.solve(
+        times, wavelength, spectra, stellar, intensities, telluric, reverse=True
+    )
 
-    return spec
+    return spec, null
 
 
 if __name__ == "__main__":

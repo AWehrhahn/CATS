@@ -47,16 +47,28 @@ class SolverBase:
         area = orb.stellar_surface_covered_by_planet(times)
 
         model = (stellar - intensities * area[:, None]) * telluric
-        lvl = np.mean(np.nanmean(spectra, axis=1) / np.nanmean(model, axis=1))
+        idx = np.arange(len(times))
+        idx = np.concatenate((idx[:20], idx[-20:]))
+        lvl = np.mean(np.nanmean(spectra[idx], axis=1) / np.nanmean(model[idx], axis=1))
         model *= lvl
+
+        model = (stellar - intensities * area[:, None]) * telluric * lvl
+
+        # TODO: Check that mu calculation, matches the observed transit
+        # TODO: Why is the mu calculation wider than the observations?
+        # plt.plot(np.nanmean(spectra, axis=1))
+        # plt.plot(np.nanmean(model, axis=1))
+        # plt.show()
 
         func = lambda x: np.nanmean(spectra, axis=1) - np.nanmean(
             (stellar - intensities * np.abs(x[:, None])) * telluric * lvl, axis=1
         )
         res = least_squares(func, x0=area, method="lm")
         area = gaussian_filter1d(res.x, 1)
+        # area[:20] = 0
+        # area[-20:] = 0
 
-        # model = (stellar - intensities * area[:, None]) * telluric * lvl
+        model = (stellar - intensities * area[:, None]) * telluric * lvl
 
         # plt.plot(np.nanmean(spectra, axis=1))
         # plt.plot(np.nanmean(model, axis=1))
