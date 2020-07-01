@@ -85,8 +85,8 @@ def create_first_guess(
     star: Star,
     blaze: np.ndarray,
     linelist: str,
-    uncs: np.ndarray,
     detector,
+    uncs = None,
 ):
     print("Extracting stellar parameters...")
 
@@ -95,7 +95,8 @@ def create_first_guess(
     sme = SME_Structure()
     sme.wave = [wave.to_value(u.AA) for wave in spectrum.wavelength]
     sme.spec = [spec.to_value(1) for spec in spectrum.flux]
-    sme.uncs = [unc.to_value(1) for unc in uncs]
+    if spectrum.uncertainty is not None:
+        sme.uncs = [unc.array * unc.unit.to(1) for unc in spectrum.uncertainty]
 
     sme.teff = star.teff.to_value(u.K)
     sme.logg = star.logg.to_value(1)
@@ -184,9 +185,10 @@ def fit_observation(
 def first_guess(
     spectra: SpectrumArray, star: Star, blaze: np.ndarray, linelist: str, detector
 ):
-    spectrum, uncs = combine_observations(spectra, blaze)
+    spectrum = combine_observations(spectra)
+    spectrum = spectrum[0]
     sme = create_first_guess(
-        spectrum, star, blaze, linelist, uncs=uncs, detector=detector
+        spectrum, star, blaze, linelist, detector=detector
     )
 
     return sme

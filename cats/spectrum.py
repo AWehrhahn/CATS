@@ -362,7 +362,7 @@ class SpectrumList(Sequence):
 
     """
 
-    def __init__(self, flux, spectral_axis, **kwargs):
+    def __init__(self, flux, spectral_axis, uncertainty=None, **kwargs):
         super().__init__()
 
         # We actually just pass everything to each individual spectrum
@@ -370,8 +370,10 @@ class SpectrumList(Sequence):
         # This means we don't have to worry about setting the values later
         # But this also means that they could change if we are not careful
         self._data = []
-        for f, sa in zip(flux, spectral_axis):
-            spec = Spectrum1D(flux=f, spectral_axis=sa, **kwargs)
+        if uncertainty is None:
+            uncertainty = [None for _ in flux]
+        for f, sa, u in zip(flux, spectral_axis, uncertainty):
+            spec = Spectrum1D(flux=f, spectral_axis=sa, uncertainty=u, **kwargs)
             self._data += [spec]
 
     def __getitem__(self, key):
@@ -440,6 +442,10 @@ class SpectrumList(Sequence):
     @property
     def wavelength(self):
         return [s.wavelength for s in self]
+
+    @property
+    def uncertainty(self):
+        return [s.uncertainty for s in self]
 
     @property
     def meta(self):
@@ -634,6 +640,14 @@ class SpectrumArray(Sequence):
                 self.wavelength[i] = np.concatenate(spec.wavelength)
                 self.flux[i] = np.concatenate(spec.flux)
 
+            if spectra[0][0].uncertainty is not None:
+                uunit = spectra[0][0].uncertainty.unit
+                self.uncertainty = np.zeros((nspec, npix)) << uunit
+                for i, spec in enumerate(spectra):
+                    self.uncertainty[i] = np.concatenate(spec.uncertainty)
+            else:
+                self.uncertainty = None
+
             self.segments = np.zeros(nseg + 1, dtype=int)
             self.segments[1:] = spectra[0].shape[1]
             self.segments = np.cumsum(self.segments)
@@ -645,6 +659,7 @@ class SpectrumArray(Sequence):
             self.wavelength = kwargs.pop("spectral_axis")
             self.flux = kwargs.pop("flux")
             self.segments = kwargs.pop("segments")
+            self.uncertainty = kwargs.pop("uncertainty", None)
             self.meta = kwargs
         else:
             raise ValueError
@@ -655,11 +670,17 @@ class SpectrumArray(Sequence):
     def __getitem__(self, key):
         wave = self.wavelength[key]
         flux = self.flux[key]
+        if self.uncertainty is not None:
+            uncs = self.uncertainty[key]
+        else:
+            uncs = None
 
         spectra = []
         for left, right in zip(self.segments[:-1], self.segments[1:]):
             meta = self.meta.copy()
             meta["datetime"] = self.datetime[key]
+            if uncs is not None:
+                meta["uncertainty"] = uncs[left:right]
             spec = Spectrum1D(
                 flux=flux[left:right], spectral_axis=wave[left:right], **meta
             )
@@ -720,14 +741,21 @@ class SpectrumArray(Sequence):
         left, right = self.segments[seg : seg + 2]
         wave = self.wavelength[:, left:right]
         flux = self.flux[:, left:right]
+        if self.uncertainty is not None:
+            uncs = self.uncertainty[:, left:right]
+        else:
+            uncs = None
         specarr = SpectrumArray(
-            flux=flux, spectral_axis=wave, segments=[0, right-left], **self.meta
+            flux=flux,
+            spectral_axis=wave,
+            uncertainty=uncs,
+            segments=[0, right - left],
+            **self.meta,
         )
         return specarr
 
     def write(self, fname):
-        np.savez(
-            fname,
+        data = dict(
             wavelength=self.wavelength.value,
             flux=self.flux.value,
             meta=self.meta,
@@ -735,6 +763,12 @@ class SpectrumArray(Sequence):
             flux_unit=str(self.flux.unit),
             wave_unit=str(self.wavelength.unit),
         )
+
+        if self.uncertainty is not None:
+            data["uncertainty"] = self.uncertainty.value
+            data["uncertainty_unit"] = str(self.uncertainty.unit)
+
+        np.savez(fname, **data)
 
     @classmethod
     def read(cls, fname):
@@ -745,6 +779,12 @@ class SpectrumArray(Sequence):
         flux = data["flux"] << u.Unit(flux_unit)
         wave = data["wavelength"] << u.Unit(wave_unit)
         segments = data["segments"]
+
+        if "uncertainty" in data.keys():
+            uncs_unit = data["uncertainty_unit"][()]
+            uncs = data["uncertainty"] << u.Unit(uncs_unit)
+            meta["uncertainty"] = uncs
+
         self = cls(flux=flux, spectral_axis=wave, segments=segments, **meta)
         return self
 
@@ -752,6 +792,10 @@ class SpectrumArray(Sequence):
         for i in tqdm(range(len(self))):
             meta = self.meta.copy()
             meta["datetime"] = self.datetime[i]
+
+            if self.uncertainty is not None:
+                meta["uncertainty"] = self.uncertainty[i]
+
             spec = Spectrum1D(
                 flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
             )
@@ -764,8 +808,15 @@ class SpectrumArray(Sequence):
 
     def resample(self, wavelength, inplace=True):
         for i in tqdm(range(len(self))):
-            spec = Spectrum1D(flux=self.flux[i], spectral_axis=self.wavelength[i])
+            meta = {}
+            if self.uncertainty is not None:
+                meta["uncertainty"] = self.uncertainty[i]
+            spec = Spectrum1D(
+                flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
+            )
             spec = spec.resample(wavelength)
             self.wavelength[i] = wavelength
             self.flux[i] = spec.flux
+            if self.uncertainty is not None:
+                self.uncertainty[i] = spec.uncertainty
         return self
