@@ -53,9 +53,10 @@ def solve_prepared(
             detector,
             star,
             planet,
-            regularization_ratio=1,
+            regularization_ratio=1e-2,
             plot=False,
-            regularization_weight=10,
+            regularization_weight=None,
+            method="Tikhonov",
         )
     elif solver == "spline":
         solver = SplineSolver(detector, star, planet)
@@ -65,7 +66,9 @@ def solve_prepared(
         raise ValueError(
             "Unrecognized solver option {solver} expected one of ['linear', 'spline', 'bayesian']"
         )
+
     spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
+    solver.regularization_weight = spec.meta["regularization_weight"]
     null = solver.solve(
         times, wavelength, spectra, stellar, intensities, telluric, reverse=True
     )

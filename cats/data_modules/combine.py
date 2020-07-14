@@ -42,7 +42,7 @@ def combine_observations(spectra: SpectrumArray):
     # Arbitrarily choose the central grid as the common one
     print("Combine all observations")
     wavelength = spectra.wavelength[len(spectra) // 2]
-    spectra = spectra.resample(wavelength, inplace=True)
+    spectra = spectra.resample(wavelength, inplace=True, method="linear")
     # Detects ouliers based on the Median absolute deviation
     mask = detect_ouliers(spectra)
 

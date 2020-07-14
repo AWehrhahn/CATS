@@ -287,7 +287,7 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
-    def resample(self, grid, method="spline", **kwargs):
+    def resample(self, grid, method="linear", inplace=False, **kwargs):
         """
         Resample the current spectrum to a different wavelength grid
 
@@ -321,11 +321,17 @@ class Spectrum1D(specutils.Spectrum1D):
 
         spec = resampler(self, grid)
 
-        # Cast spec to Spectrum 1D class and set meta parameters
-        spec.meta = copy(self.meta)
-        spec.radial_velocity = self.radial_velocity
-        spec.with_velocity_convention(self.velocity_convention)
-        spec.__class__ = Spectrum1D
+        if inplace:
+            self._spectral_axis = spec._spectral_axis
+            self._data = spec._data
+            self._unit = spec._unit
+            self._uncertainty = spec._uncertainty
+        else:
+            # Cast spec to Spectrum 1D class and set meta parameters
+            spec.meta = copy(self.meta)
+            spec.radial_velocity = self.radial_velocity
+            spec.with_velocity_convention(self.velocity_convention)
+            spec.__class__ = Spectrum1D
 
         return spec
 
@@ -806,7 +812,7 @@ class SpectrumArray(Sequence):
         self.meta["reference_frame"] = target_frame
         return self
 
-    def resample(self, wavelength, inplace=True):
+    def resample(self, wavelength, **kwargs):
         for i in tqdm(range(len(self))):
             meta = {}
             if self.uncertainty is not None:
@@ -814,7 +820,7 @@ class SpectrumArray(Sequence):
             spec = Spectrum1D(
                 flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
             )
-            spec = spec.resample(wavelength)
+            spec = spec.resample(wavelength, **kwargs)
             self.wavelength[i] = wavelength
             self.flux[i] = spec.flux
             if self.uncertainty is not None:

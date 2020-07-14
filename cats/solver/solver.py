@@ -78,6 +78,13 @@ class SolverBase:
         # plt.imshow(img, aspect="auto")
         # plt.show()
 
+        # sort = np.argsort(times)
+        # i = np.arange(101)[sort][51]
+
+        # plt.plot(wavelength[i], model[i])
+        # plt.plot(wavelength[i], spectra[i])
+        # plt.show()
+
         f = (
             intensities
             * self.area_atmosphere

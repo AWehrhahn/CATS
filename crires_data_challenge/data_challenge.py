@@ -13,6 +13,9 @@ from tqdm import tqdm
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import least_squares
 
+from cats.data_modules.telluric_fit import TelluricFit
+from scipy.ndimage.morphology import binary_erosion, binary_dilation
+
 from cats.data_modules.stellar_db import StellarDb
 from cats.extractor.extract_stellar_parameters import (
     extract_stellar_parameters,
@@ -91,7 +94,7 @@ def collect_observations(files, additional_data):
 # Settings
 setting = "K/2/4"
 detectors = [1, 2, 3]
-orders = [7, 6, 5, 4, 3, 2]
+orders = [2, 3, 4, 5, 6, 7]
 # orders = [2, 3, 4, 5, 6, 7]
 detector = Crires(setting, detectors, orders=orders)
 wrange = detector.regions
@@ -104,8 +107,8 @@ star.vsini = 1.2 * (u.km / u.s)
 planet = star.planets["b"]
 
 # Data locations
-raw_dir = join(dirname(__file__), "HD209458_v3")
-medium_dir = join(dirname(__file__), "medium_v3")
+raw_dir = join(dirname(__file__), "HD209458_v4")
+medium_dir = join(dirname(__file__), "medium_v4")
 done_dir = join(dirname(__file__), "done")
 
 # Other data
@@ -124,6 +127,8 @@ times = spectra.datetime
 
 # 2: Extract Telluric information
 # TODO: determine tellurics
+# Fit the observations against the airmass, using a second order polynomial?
+# Assuming the water density is constant
 
 # 3: Create Tellurics
 fname = join(medium_dir, "telluric.npz")
@@ -194,6 +199,8 @@ else:
 
 
 # 6: Normalize observations
+# Also broadening is matched to the observation
+# telluric and stellar have independant broadening factors
 stellar_orig = deepcopy(stellar)
 telluric_orig = deepcopy(telluric)
 
@@ -219,6 +226,44 @@ for _ in range(3):
         gaussian_filter1d(stellar_orig.flux, abs(res.x[0].to_value(1))) << u.one
     )
 
+# Fit Telluric Spectrum
+
+
+def fit_tellurics(
+    normalized, telluric, star, observatory, skip_resample=True, degree=1
+):
+    times = normalized.datetime
+    t = TelluricFit(star, observatory, skip_resample=skip_resample, degree=degree)
+    coeff = t.fit(normalized)
+    airmass = t.calculate_airmass(times)
+    model = t.model(coeff, airmass)
+
+    mask = coeff[:, 0] > 0
+    mask = ~binary_erosion(~mask)
+    mask = ~binary_dilation(~mask, iterations=5)
+    # Use morphology to improve mask
+    for i in np.arange(coeff.shape[0])[mask]:
+        coeff[i] = np.polyfit(airmass, telluric.flux[:, i], 1)
+
+    model = t.model(coeff, t.calculate_airmass(times))
+    model = model << u.one
+
+    telluric = SpectrumArray(
+        flux=model,
+        spectral_axis=np.copy(spectra.wavelength),
+        segments=spectra.segments,
+        reference_frame="telescope",
+        datetime=times,
+        star=star,
+        observatory_location=observatory,
+    )
+    return telluric
+
+
+telluric = fit_tellurics(
+    normalized, telluric, star, observatory, skip_resample=True, degree=1
+)
+
 
 # 7: Determine Planet transit
 fname = join(medium_dir, "planet.yaml")
@@ -227,11 +272,11 @@ if not exists(fname) or False:
     p.save(fname)
 else:
     p = Planet.load(fname)
-    planet.t0 = p.t0
     # This is based on what we know about the model
-    planet.inc = 86.59 * u.deg
-    planet.ecc = 0 * u.one
-    planet.period = 3.52472 * u.day
+planet.t0 = p.t0
+planet.inc = 86.59 * u.deg
+planet.ecc = 0 * u.one
+planet.period = 3.52472 * u.day
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -258,7 +303,7 @@ plt.show()
 
 # # We use sme to estimate the limb darkening at each point
 # # But use the extracted stellar spectrum, to create the actual intensities
-# intensities = (intensities / stellar) * combined
+intensities_combined = (intensities / stellar) * combined
 
 
 # 9: Solve the equation system
@@ -283,6 +328,9 @@ for segment in tqdm(range(17)):
     print("Saving data...")
     spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
     null.write(join(done_dir, f"null_extracted_{segment}.fits"))
+
+    sflux = spec.flux - null.flux + 1
+    spec._data = sflux
 
     # print("Plotting results...")
     spec = spec.resample(wavelength[segment], "linear")

@@ -394,17 +394,38 @@ class LinearSolver(SolverBase):
         # neighbours
         # TODO: rv is (approx?) linear in time, so we could try to fit that as well
         # at the cost of having to compute a new wavelength grid everytime
-        wavelength_shifted = self.shift_wavelength(wavelength, times, reverse=reverse)
-        x0 = self.least_squares(f, g, wavelength, wavelength_shifted, regweight)
-        wave = wavelength[0]
+        # although the correlation might not be strong enough to restrain this properly
+        if self._method == "lsq":
+            wavelength_shifted = self.shift_wavelength(
+                wavelength, times, reverse=reverse
+            )
+            x0 = self.least_squares(f, g, wavelength, wavelength_shifted, regweight)
+            wave = wavelength[0]
+        elif self._method == "Tikhonov":
+            wave = []
+            for time, w in tqdm(zip(times, wavelength), total=len(times), leave=False):
+                rv = self.telescope_frame.to_frame(self.planet_frame, time)
+                beta = (rv / c).to_value(1)
+                beta *= -1 if reverse else 1
+                w = np.copy(w) * np.sqrt((1 + beta) / (1 - beta))
+                wave += [w]
+            wave = np.concatenate(wave)
+            f = f.ravel()
+            g = g.ravel()
+            idx = np.argsort(wave)
+            wave = wave[idx]
+            f, g = f[idx], g[idx]
 
-        # x0 = self.Tikhonov(f, g, regweight)
+            mask = np.isfinite(f) & np.isfinite(g)
+            mask &= (f != 0) & (g != 0)
+            wave = wave[mask]
+            f, g = f[mask], g[mask]
+            x0 = self.Tikhonov(f, g, regweight)
 
         # Normalize x0, each segment individually
-        diff = np.diff(wave)
-        idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
-
         if self.normalize:
+            diff = np.diff(wave)
+            idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
             for left, right in zip(idx[:-1], idx[1:]):
                 x0[left:right] -= np.nanpercentile(x0[left:right], 5)
                 x0[left:right] /= np.nanpercentile(x0[left:right], 90)
@@ -419,6 +440,7 @@ class LinearSolver(SolverBase):
             planet=self.planet,
             observatory_location=self.detector.observatory,
             datetime=times[0],
+            meta={"regularization_weight": regweight},
         )
 
         return spec
