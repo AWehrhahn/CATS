@@ -37,7 +37,7 @@ def combine_observations(spectra: SpectrumArray):
 
     # Shift to the same reference frame (barycentric)
     print("Shift observations to the barycentric restframe")
-    spectra = spectra.shift("barycentric", inplace=False)
+    spectra = spectra.shift("barycentric", inplace=True)
 
     # Arbitrarily choose the central grid as the common one
     print("Combine all observations")

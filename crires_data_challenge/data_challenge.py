@@ -57,7 +57,7 @@ def collect_observations(files, additional_data):
 
         spectra = []
         orders = list(range(wave.shape[1]))
-        for order in orders[::-1]:
+        for order in orders:
             for det in [1, 2, 3]:
                 w = wave[det - 1, order]
                 f = flux[det - 1, order]
@@ -89,12 +89,70 @@ def collect_observations(files, additional_data):
     return spectra
 
 
+def normalize(spectra, stellar, telluric, detector):
+    # Also broadening is matched to the observation
+    # telluric and stellar have independant broadening factors
+    sflux = stellar.flux
+    tflux = telluric.flux
+
+    for _ in range(3):
+        normalized = normalize_observation(spectra, stellar, telluric, detector)
+
+        tmp = sflux * tflux
+        mask = np.isfinite(tmp)
+        func = (
+            lambda s: gaussian_filter1d(telluric.flux[mask], abs(s[1]))
+            * gaussian_filter1d(stellar.flux[mask], abs(s[0]))
+            - normalized.flux[mask]
+        )
+        res = least_squares(func, x0=[1, 1])
+        stellar_broadening = abs(res.x[0].to_value(1))
+        telluric_broadening = abs(res.x[1].to_value(1))
+
+        detector.spectral_broadening = stellar_broadening
+        tflux = gaussian_filter1d(telluric.flux, telluric_broadening) << u.one
+        sflux = gaussian_filter1d(stellar.flux, stellar_broadening) << u.one
+
+    return normalized, detector, stellar_broadening, telluric_broadening
+
+
+def fit_tellurics(
+    normalized, telluric, star, observatory, skip_resample=True, degree=1
+):
+    times = normalized.datetime
+    t = TelluricFit(star, observatory, skip_resample=skip_resample, degree=degree)
+    coeff = t.fit(normalized)
+    airmass = t.calculate_airmass(times)
+    model = t.model(coeff, airmass)
+
+    mask = coeff[:, 0] > 0
+    mask = ~binary_erosion(~mask)
+    mask = ~binary_dilation(~mask, iterations=5)
+    # Use morphology to improve mask
+    for i in np.arange(coeff.shape[0])[mask]:
+        coeff[i] = np.polyfit(airmass, telluric.flux[:, i], 1)
+
+    model = t.model(coeff, t.calculate_airmass(times))
+    model = model << u.one
+
+    telluric = SpectrumArray(
+        flux=model,
+        spectral_axis=np.copy(spectra.wavelength),
+        segments=spectra.segments,
+        reference_frame="telescope",
+        datetime=times,
+        star=star,
+        observatory_location=observatory,
+    )
+    return telluric
+
+
 # TODO: barycentric velocity is given by the table, not from star
 
 # Settings
 setting = "K/2/4"
 detectors = [1, 2, 3]
-orders = [2, 3, 4, 5, 6, 7]
+orders = [7, 6, 5, 4, 3, 2]
 # orders = [2, 3, 4, 5, 6, 7]
 detector = Crires(setting, detectors, orders=orders)
 wrange = detector.regions
@@ -109,7 +167,7 @@ planet = star.planets["b"]
 # Data locations
 raw_dir = join(dirname(__file__), "HD209458_v4")
 medium_dir = join(dirname(__file__), "medium_v4")
-done_dir = join(dirname(__file__), "done")
+done_dir = join(dirname(__file__), "done_unnormalized")
 
 # Other data
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
@@ -199,70 +257,15 @@ else:
 
 
 # 6: Normalize observations
-# Also broadening is matched to the observation
-# telluric and stellar have independant broadening factors
-stellar_orig = deepcopy(stellar)
-telluric_orig = deepcopy(telluric)
-
-for _ in range(3):
-    normalized = normalize_observation(spectra, stellar, telluric, detector)
-    normalized.write(fname)
-
-    tmp = stellar.flux * telluric.flux
-    mask = np.isfinite(tmp)
-    func = (
-        lambda s: gaussian_filter1d(telluric_orig.flux[mask], abs(s[1]))
-        * gaussian_filter1d(stellar_orig.flux[mask], abs(s[0]))
-        - normalized.flux[mask]
-    )
-
-    res = least_squares(func, x0=[1, 1])
-    detector.spectral_broadening = res.x[0].to_value(1)
-
-    telluric.flux = (
-        gaussian_filter1d(telluric_orig.flux, abs(res.x[1].to_value(1))) << u.one
-    )
-    stellar.flux = (
-        gaussian_filter1d(stellar_orig.flux, abs(res.x[0].to_value(1))) << u.one
-    )
-
-# Fit Telluric Spectrum
-
-
-def fit_tellurics(
-    normalized, telluric, star, observatory, skip_resample=True, degree=1
-):
-    times = normalized.datetime
-    t = TelluricFit(star, observatory, skip_resample=skip_resample, degree=degree)
-    coeff = t.fit(normalized)
-    airmass = t.calculate_airmass(times)
-    model = t.model(coeff, airmass)
-
-    mask = coeff[:, 0] > 0
-    mask = ~binary_erosion(~mask)
-    mask = ~binary_dilation(~mask, iterations=5)
-    # Use morphology to improve mask
-    for i in np.arange(coeff.shape[0])[mask]:
-        coeff[i] = np.polyfit(airmass, telluric.flux[:, i], 1)
-
-    model = t.model(coeff, t.calculate_airmass(times))
-    model = model << u.one
-
-    telluric = SpectrumArray(
-        flux=model,
-        spectral_axis=np.copy(spectra.wavelength),
-        segments=spectra.segments,
-        reference_frame="telescope",
-        datetime=times,
-        star=star,
-        observatory_location=observatory,
-    )
-    return telluric
-
-
-telluric = fit_tellurics(
-    normalized, telluric, star, observatory, skip_resample=True, degree=1
+fname = join(medium_dir, "normalized.npz")
+normalized, detector, stellar_broadening, telluric_broadening = normalize(
+    spectra, stellar, telluric, detector
 )
+normalized.write(fname)
+
+detector.spectral_broadening = stellar_broadening
+telluric.flux = gaussian_filter1d(telluric.flux, telluric_broadening) << u.one
+stellar.flux = gaussian_filter1d(stellar.flux, stellar_broadening) << u.one
 
 
 # 7: Determine Planet transit
@@ -277,6 +280,12 @@ planet.t0 = p.t0
 planet.inc = 86.59 * u.deg
 planet.ecc = 0 * u.one
 planet.period = 3.52472 * u.day
+planet.radius = p.radius
+
+# Fit Telluric Spectrum
+telluric = fit_tellurics(
+    normalized, telluric, star, observatory, skip_resample=True, degree=1
+)
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -288,18 +297,18 @@ if not exists(fname) or False:
 else:
     intensities = SpectrumArray.read(fname)
 
-intensities.flux = gaussian_filter1d(intensities.flux, res.x[0].to_value(1)) << u.one
+intensities.flux = gaussian_filter1d(intensities.flux, stellar_broadening) << u.one
 
 # TODO: use the ratio from SME and the spectrum from combined
 # to create the intensities
 sort = np.argsort(times)
 i = np.arange(101)[sort][51]
-plt.plot(normalized.wavelength[i], normalized.flux[i])
-# plt.plot(combined.wavelength[i], combined.flux[i])
-plt.plot(stellar.wavelength[i], stellar.flux[i])
-plt.plot(intensities.wavelength[i], intensities.flux[i])
-plt.plot(telluric.wavelength[i], telluric.flux[i])
-plt.show()
+# plt.plot(normalized.wavelength[i], normalized.flux[i])
+# # plt.plot(combined.wavelength[i], combined.flux[i])
+# plt.plot(stellar.wavelength[i], stellar.flux[i])
+# plt.plot(intensities.wavelength[i], intensities.flux[i])
+# plt.plot(telluric.wavelength[i], telluric.flux[i])
+# plt.show()
 
 # # We use sme to estimate the limb darkening at each point
 # # But use the extracted stellar spectrum, to create the actual intensities
@@ -311,13 +320,14 @@ i = np.arange(101)[sort][51]
 wavelength = normalized[i].wavelength
 flux = normalized[i].flux
 planet_spectrum = load_planet()
+nseg = normalized.segments.shape[0] - 1
 
-for segment in tqdm(range(17)):
+for segment in tqdm(range(nseg)):
     spec, null = solve_prepared(
         normalized,
-        telluric,
-        stellar,
-        intensities,
+        telluric_space,
+        combined,
+        intensities_combined,
         detector,
         star,
         planet,
@@ -329,12 +339,11 @@ for segment in tqdm(range(17)):
     spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
     null.write(join(done_dir, f"null_extracted_{segment}.fits"))
 
-    sflux = spec.flux - null.flux + 1
-    spec._data = sflux
-
-    # print("Plotting results...")
-    spec = spec.resample(wavelength[segment], "linear")
-    null = null.resample(wavelength[segment], "linear")
+    print("Plotting results...")
+    spec._data = gaussian_filter1d(spec._data, nseg)
+    null._data = gaussian_filter1d(null._data, nseg)
+    spec = spec.resample(wavelength[segment], method="linear")
+    null = null.resample(wavelength[segment], method="linear")
 
     ps = planet_spectrum.resample(wavelength[segment], "linear")
 
@@ -365,5 +374,47 @@ for segment in tqdm(range(17)):
     # plt.show()
     plt.savefig(join(done_dir, f"null_spectrum_{segment}.png"))
     plt.clf()
+
+    # Shift null spectrum unto spec spectrum
+    sm = np.isfinite(spec.flux)
+    sx, sy = spec.wavelength[sm], spec.flux[sm]
+    nm = np.isfinite(null.flux)
+    nx, ny = null.wavelength[nm], null.flux[nm]
+
+    func = lambda x: (sy - np.interp(sx, nx * (1 - x / 3e5), ny)).value
+    res = least_squares(func, x0=[-65], method="lm")
+    rv = -res.x
+    null = null.resample(null.wavelength * (1 - rv / 3e5))
+
+    # Normalize to each other?
+    # m = np.isfinite(spec.flux) & np.isfinite(null.flux)
+    # sy, ny = spec.flux[m], null.flux[m]
+    # func = lambda x: sy - (ny - x[0]) * x[1]
+    # res = least_squares(func, x0=[0, 1], method="lm")
+    # null.flux -= res.x[0]
+    # null.flux *= res.x[1]
+
+    # Take the difference between the two to get the planet spectrum?
+    sflux = spec.flux - null.flux
+    magnification = -1 / np.nanmin(sflux)
+    # magnification = 2
+    sflux = 1 + magnification * (spec.flux - null.flux)
+
+    plt.plot(
+        wavelength[segment], flux[segment], label="normalized observation",
+    )
+    plt.plot(ps.wavelength, ps.flux, label="planet model")
+    plt.plot(spec.wavelength, sflux, label="extracted")
+    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+    plt.ylim(0, 2)
+    plt.ylabel("Flux, normalised")
+    plt.xlabel("Wavelength [Å]")
+    plt.legend()
+    # plt.show()
+    plt.savefig(join(done_dir, f"diff_spectrum_{segment}.png"))
+    plt.clf()
+
+    spec._data = sflux
+    spec.write(join(done_dir, f"diff_extracted_{segment}.fits"))
 
 pass

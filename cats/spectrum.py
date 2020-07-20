@@ -795,34 +795,42 @@ class SpectrumArray(Sequence):
         return self
 
     def shift(self, target_frame, inplace=True):
-        for i in tqdm(range(len(self))):
-            meta = self.meta.copy()
-            meta["datetime"] = self.datetime[i]
+        if not inplace:
+            spectra = deepcopy(self)
+        else:
+            spectra = self
 
-            if self.uncertainty is not None:
-                meta["uncertainty"] = self.uncertainty[i]
+        meta = self.meta.copy()
+        for i in tqdm(range(len(spectra))):
+            meta["datetime"] = spectra.datetime[i]
+            if spectra.uncertainty is not None:
+                meta["uncertainty"] = spectra.uncertainty[i]
 
             spec = Spectrum1D(
-                flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
+                flux=spectra.flux[i], spectral_axis=spectra.wavelength[i], **meta
             )
-            spec.shift(target_frame, inplace=inplace)
-            self.wavelength[i] = spec.wavelength
+            spec = spec.shift(target_frame, inplace=True)
             target_frame = spec.reference_frame
 
-        self.meta["reference_frame"] = target_frame
-        return self
+        spectra.meta["reference_frame"] = target_frame
+        return spectra
 
-    def resample(self, wavelength, **kwargs):
-        for i in tqdm(range(len(self))):
+    def resample(self, wavelength, inplace=True, **kwargs):
+        if not inplace:
+            spectra = deepcopy(self)
+        else:
+            spectra = self
+
+        for i in tqdm(range(len(spectra))):
             meta = {}
-            if self.uncertainty is not None:
-                meta["uncertainty"] = self.uncertainty[i]
+            if spectra.uncertainty is not None:
+                meta["uncertainty"] = spectra.uncertainty[i]
             spec = Spectrum1D(
-                flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
+                flux=spectra.flux[i], spectral_axis=spectra.wavelength[i], **meta
             )
-            spec = spec.resample(wavelength, **kwargs)
-            self.wavelength[i] = wavelength
-            self.flux[i] = spec.flux
-            if self.uncertainty is not None:
-                self.uncertainty[i] = spec.uncertainty
-        return self
+            spec = spec.resample(wavelength, inplace=True, **kwargs)
+            # spectra.wavelength[i] = wavelength
+            # spectra.flux[i] = spec.flux
+            # if spectra.uncertainty is not None:
+            #     spectra.uncertainty[i] = spec.uncertainty
+        return spectra

@@ -12,6 +12,7 @@ from scipy.optimize import fsolve, minimize_scalar
 from astropy.constants import c
 from astropy import units as u
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from .solver import SolverBase
 from .least_squares import least_squares
@@ -39,7 +40,7 @@ class LinearSolver(SolverBase):
         self.regularization_weight = regularization_weight
         self.plot = plot
         self.difference_accuracy = 8
-        self.normalize = True
+        self.normalize = False
 
     @property
     def method(self):
@@ -409,6 +410,12 @@ class LinearSolver(SolverBase):
                 beta *= -1 if reverse else 1
                 w = np.copy(w) * np.sqrt((1 + beta) / (1 - beta))
                 wave += [w]
+
+            # for i in [30, 51, 80]:
+            #     plt.plot(wave[i], g[i] / f[i])
+            # plt.title("Forward" if not reverse else "Reverse")
+            # plt.show()
+
             wave = np.concatenate(wave)
             f = f.ravel()
             g = g.ravel()

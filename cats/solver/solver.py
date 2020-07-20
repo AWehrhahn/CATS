@@ -45,35 +45,48 @@ class SolverBase:
 
         orb = Orbit(self.star, self.planet)
         area = orb.stellar_surface_covered_by_planet(times)
-
         model = (stellar - intensities * area[:, None]) * telluric
-        idx = np.arange(len(times))
-        idx = np.concatenate((idx[:20], idx[-20:]))
-        lvl = np.mean(np.nanmean(spectra[idx], axis=1) / np.nanmean(model[idx], axis=1))
-        model *= lvl
 
-        model = (stellar - intensities * area[:, None]) * telluric * lvl
+        # Out of transit mask
+        idx = area == 0
+
+        # Profile of the observations
+        time = times.mjd
+        profile = np.nanmean(spectra, axis=1)
+        model_profile = np.nanmean(model, axis=1)
+
+        x = np.arange(len(profile))
+        coeff = np.polyfit(x[idx], profile[idx], 5)
+        norm = np.polyval(coeff, x)
+
+        # plt.plot(profile)
+        # plt.plot(norm)
+        # plt.show()
+
+        coeff = np.polyfit(x[idx], model_profile[idx], 5)
+        model_norm = np.polyval(coeff, x)
+
+        # plt.plot(model_profile)
+        # plt.plot(model_norm)
+        # plt.show()
+
+        norm /= model_norm
 
         # TODO: Check that mu calculation, matches the observed transit
         # TODO: Why is the mu calculation wider than the observations?
-        # plt.plot(np.nanmean(spectra, axis=1))
-        # plt.plot(np.nanmean(model, axis=1))
-        # plt.show()
 
-        func = lambda x: np.nanmean(spectra, axis=1) - np.nanmean(
-            (stellar - intensities * np.abs(x[:, None])) * telluric * lvl, axis=1
+        func = lambda x: profile - np.nanmean(
+            (stellar - intensities * np.abs(x[:, None])) * telluric * norm[:, None],
+            axis=1,
         )
         res = least_squares(func, x0=area, method="lm")
         area = gaussian_filter1d(res.x, 1)
-        # area[:20] = 0
-        # area[-20:] = 0
 
-        model = (stellar - intensities * area[:, None]) * telluric * lvl
+        model = (stellar - intensities * area[:, None]) * telluric * norm[:, None]
 
         # plt.plot(np.nanmean(spectra, axis=1))
         # plt.plot(np.nanmean(model, axis=1))
         # plt.show()
-
         # img = spectra - model
         # plt.imshow(img, aspect="auto")
         # plt.show()
@@ -91,14 +104,20 @@ class SolverBase:
             / self.area_planet
             * area[:, None]
             * telluric
-            * lvl
+            * norm[:, None]
         )
-        g = spectra - (stellar - intensities * area[:, None]) * telluric * lvl
-        f, g = f.to_value(1), g.to_value(1)
+        g = spectra - (stellar - intensities * area[:, None]) * telluric * norm[:, None]
+        # f, g = f.to_value(1), g.to_value(1)
+
+        # Normalize again
+        # for i in tqdm(range(g.shape[1])):
+        #     coeff = np.polyfit(time, g[:, i], 2)
+        #     g[:, i] /= np.polyval(coeff, time)
+        #     g[:, i] -= np.nanmedian(g[:, i])
 
         return wavelength, f, g
 
     def solve(
         self, times, wavelength, spectra, stellar, intensities, telluric, **kwargs
     ):
-        pass
+        raise NotImplementedError

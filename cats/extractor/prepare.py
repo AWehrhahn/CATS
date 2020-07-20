@@ -22,7 +22,11 @@ def create_stellar(wrange, spectra: SpectrumArray, times, method="sme", **kwargs
     reference_frame = spectra.reference_frame
     result = []
     for i, time in tqdm(enumerate(times), total=len(times)):
-        wave = spectra[i].wavelength
+        wave = [
+            spectra.wavelength[i][low:top]
+            for low, top in zip(spectra.segments[:-1], spectra.segments[1:])
+        ]
+        # wave = spectra[i].wavelength
         spec = stellar.get(wrange, time)
         spec = spec.shift(reference_frame, inplace=True)
         spec = spec.resample(wave, method="linear")

@@ -53,9 +53,9 @@ def solve_prepared(
             detector,
             star,
             planet,
-            regularization_ratio=1e-2,
+            regularization_ratio=1e-3,
             plot=False,
-            regularization_weight=None,
+            regularization_weight=0.02,  # 0.01,
             method="Tikhonov",
         )
     elif solver == "spline":
