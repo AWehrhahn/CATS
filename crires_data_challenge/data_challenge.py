@@ -12,7 +12,11 @@ from exoorbit.bodies import Planet, Star
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import least_squares
+from scipy.interpolate import interp1d
+import astropy.constants as const
 
+
+import exoorbit
 from cats.data_modules.telluric_fit import TelluricFit
 from scipy.ndimage.morphology import binary_erosion, binary_dilation
 
@@ -31,7 +35,7 @@ from pysme.sme import SME_Structure
 
 from simulate_planet import simulate_planet
 from solve_prepared import solve_prepared
-from hitran_linelist import Hitran
+from hitran_linelist import Hitran, HitranSpectrum
 from planet_spectra import load_planet
 
 # from astroplan import download_IERS_A
@@ -164,10 +168,14 @@ star = sdb.get("HD209458")
 star.vsini = 1.2 * (u.km / u.s)
 planet = star.planets["b"]
 
+orbit = exoorbit.Orbit(star, planet)
+t = [orbit.first_contact(), orbit.fourth_contact()]
+rv = orbit.radial_velocity_planet(t)
+
 # Data locations
 raw_dir = join(dirname(__file__), "HD209458_v4")
 medium_dir = join(dirname(__file__), "medium_v4")
-done_dir = join(dirname(__file__), "done_unnormalized")
+done_dir = join(dirname(__file__), "done")
 
 # Other data
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
@@ -304,7 +312,7 @@ intensities.flux = gaussian_filter1d(intensities.flux, stellar_broadening) << u.
 sort = np.argsort(times)
 i = np.arange(101)[sort][51]
 # plt.plot(normalized.wavelength[i], normalized.flux[i])
-# # plt.plot(combined.wavelength[i], combined.flux[i])
+# plt.plot(combined.wavelength[i], combined.flux[i])
 # plt.plot(stellar.wavelength[i], stellar.flux[i])
 # plt.plot(intensities.wavelength[i], intensities.flux[i])
 # plt.plot(telluric.wavelength[i], telluric.flux[i])
@@ -321,6 +329,10 @@ wavelength = normalized[i].wavelength
 flux = normalized[i].flux
 planet_spectrum = load_planet()
 nseg = normalized.segments.shape[0] - 1
+
+hitspec = HitranSpectrum()
+hitspec.datetime = normalized.datetime[i]
+hitspec.shift(normalized.reference_frame)
 
 for segment in tqdm(range(nseg)):
     spec, null = solve_prepared(
@@ -340,51 +352,63 @@ for segment in tqdm(range(nseg)):
     null.write(join(done_dir, f"null_extracted_{segment}.fits"))
 
     print("Plotting results...")
-    spec._data = gaussian_filter1d(spec._data, nseg)
-    null._data = gaussian_filter1d(null._data, nseg)
-    spec = spec.resample(wavelength[segment], method="linear")
-    null = null.resample(wavelength[segment], method="linear")
+    # spec._data = gaussian_filter1d(spec._data, nseg)
+    # null._data = gaussian_filter1d(null._data, nseg)
+    # spec = spec.resample(wavelength[segment], method="linear")
+    # null = null.resample(wavelength[segment], method="linear")
 
-    ps = planet_spectrum.resample(wavelength[segment], "linear")
+    # plt.plot(
+    #     wavelength[segment], flux[segment], label="normalized observation",
+    # )
+    # plt.plot(ps.wavelength, ps.flux, label="planet model")
+    # plt.plot(spec.wavelength, spec.flux, label="extracted")
+    # plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+    # plt.ylim(0, 2)
+    # plt.ylabel("Flux, normalised")
+    # plt.xlabel("Wavelength [Å]")
+    # plt.legend()
+    # # plt.show()
+    # plt.savefig(join(done_dir, f"planet_spectrum_{segment}.png"))
+    # plt.clf()
 
-    plt.plot(
-        wavelength[segment], flux[segment], label="normalized observation",
-    )
-    plt.plot(ps.wavelength, ps.flux, label="planet model")
-    plt.plot(spec.wavelength, spec.flux, label="extracted")
-    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
-    plt.ylim(0, 2)
-    plt.ylabel("Flux, normalised")
-    plt.xlabel("Wavelength [Å]")
-    plt.legend()
-    # plt.show()
-    plt.savefig(join(done_dir, f"planet_spectrum_{segment}.png"))
-    plt.clf()
+    # plt.plot(
+    #     wavelength[segment], flux[segment], label="normalized observation",
+    # )
+    # plt.plot(ps.wavelength, ps.flux, label="planet model")
+    # plt.plot(null.wavelength, null.flux, label="extracted")
+    # plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+    # plt.ylim(0, 2)
+    # plt.ylabel("Flux, normalised")
+    # plt.xlabel("Wavelength [Å]")
+    # plt.legend()
+    # # plt.show()
+    # plt.savefig(join(done_dir, f"null_spectrum_{segment}.png"))
+    # plt.clf()
 
-    plt.plot(
-        wavelength[segment], flux[segment], label="normalized observation",
-    )
-    plt.plot(ps.wavelength, ps.flux, label="planet model")
-    plt.plot(null.wavelength, null.flux, label="extracted")
-    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
-    plt.ylim(0, 2)
-    plt.ylabel("Flux, normalised")
-    plt.xlabel("Wavelength [Å]")
-    plt.legend()
-    # plt.show()
-    plt.savefig(join(done_dir, f"null_spectrum_{segment}.png"))
-    plt.clf()
+    # spec._data = gaussian_filter1d(spec._data, nseg)
+    # null._data = gaussian_filter1d(null._data, nseg)
 
     # Shift null spectrum unto spec spectrum
-    sm = np.isfinite(spec.flux)
-    sx, sy = spec.wavelength[sm], spec.flux[sm]
-    nm = np.isfinite(null.flux)
-    nx, ny = null.wavelength[nm], null.flux[nm]
+    # sm = np.isfinite(spec.flux)
+    # sx, sy = spec.wavelength[sm].to_value("AA"), gaussian_filter1d(spec.flux[sm].to_value(1), nseg)
+    # nm = np.isfinite(null.flux)
+    # nx, ny = null.wavelength[nm].to_value("AA"), gaussian_filter1d(null.flux[nm].to_value(1), nseg)
+    # c_light = const.c.to_value("km/s")
 
-    func = lambda x: (sy - np.interp(sx, nx * (1 - x / 3e5), ny)).value
-    res = least_squares(func, x0=[-65], method="lm")
-    rv = -res.x
-    null = null.resample(null.wavelength * (1 - rv / 3e5))
+    # def func(x):
+    #     beta = x[0] / c_light
+    #     shifted = nx * np.sqrt((1 + beta) / (1 - beta))
+    #     ni = interp1d(shifted, (ny - x[1]) * x[2], kind="slinear", fill_value="extrapolate")(sx)
+    #     return gaussian_filter1d(sy - ni, nseg)
+
+    # ms, mn = np.median(sy), np.median(ny)
+    # res = least_squares(func, x0=[65., ms - mn, ms / mn], method="trf", loss="soft_l1")
+    # rv = res.x[0] << (u.km / u.s)
+
+    # null._data -= res.x[1]
+    # null._data *= res.x[2]
+    # null = null.shift("planet", rv=rv)
+    # null = null.resample(spec.wavelength)
 
     # Normalize to each other?
     # m = np.isfinite(spec.flux) & np.isfinite(null.flux)
@@ -395,16 +419,27 @@ for segment in tqdm(range(nseg)):
     # null.flux *= res.x[1]
 
     # Take the difference between the two to get the planet spectrum?
+    # null.wavelenth != spec.wavelnegth BUT the spectra are aligned?
     sflux = spec.flux - null.flux
-    magnification = -1 / np.nanmin(sflux)
-    # magnification = 2
-    sflux = 1 + magnification * (spec.flux - null.flux)
+    # sflux = gaussian_filter1d(sflux, nseg)
+    # sflux = np.interp(wavelength[segment], spec.wavelength, sflux)
+
+    magnification = -1 / np.nanpercentile(sflux, 1)
+    # magnification = 1
+    sflux = 1 + magnification * sflux
+    wave = spec.wavelength
 
     plt.plot(
         wavelength[segment], flux[segment], label="normalized observation",
     )
-    plt.plot(ps.wavelength, ps.flux, label="planet model")
-    plt.plot(spec.wavelength, sflux, label="extracted")
+    plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux, label="planet model")
+    plt.plot(wave, sflux, label="extracted")
+
+    # hw = hitran.wavelength
+    # wmin = wavelength[segment].min()
+    # wmax = wavelength[segment].max()
+    # plt.vlines(hw[(hw >= wmin) & (hw <= wmax)], 0, 2)
+
     plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
     plt.ylim(0, 2)
     plt.ylabel("Flux, normalised")

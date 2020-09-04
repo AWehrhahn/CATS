@@ -8,7 +8,8 @@ from numpy.linalg import norm
 from scipy.linalg import solve_banded, dft
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from scipy.optimize import fsolve, minimize_scalar
+from scipy.optimize import fsolve, minimize_scalar, minimize
+from scipy.special import binom
 from astropy.constants import c
 from astropy import units as u
 from tqdm import tqdm
@@ -39,7 +40,7 @@ class LinearSolver(SolverBase):
         self.regularization_ratio = regularization_ratio
         self.regularization_weight = regularization_weight
         self.plot = plot
-        self.difference_accuracy = 8
+        self.difference_accuracy = 2
         self.normalize = False
 
     @property
@@ -159,26 +160,18 @@ class LinearSolver(SolverBase):
             size = len(grid)
         else:
             size = int(grid)
-        if self.difference_accuracy == 2:
-            factors = [-1 / 2, 0.0, 1 / 2]
-        elif self.difference_accuracy == 4:
-            factors = [1 / 12, -2 / 3, 0.0, 2 / 3, -1 / 12]
-        elif self.difference_accuracy == 6:
-            factors = [-1 / 60, 3 / 20, -3 / 4, 0.0, 3 / 4, -3 / 20, 1 / 60]
-        elif self.difference_accuracy == 8:
-            factors = [
-                1 / 280,
-                -4 / 105,
-                1 / 5,
-                -4 / 5,
-                0.0,
-                4 / 5,
-                -1 / 5,
-                4 / 105,
-                -1 / 280,
-            ]
-        else:
-            raise ValueError
+
+        # https://en.wikipedia.org/wiki/Finite_difference
+        # n = self.difference_accuracy
+        # factors = [(-1)**i * binom(n, i) for i in range(n + 1)]
+
+        # factors = [1, -2, 1]        
+
+        # # first order
+        # factors = np.array([3, -32, 168, -672, 0, 672, -168, 32, -3]) / 840
+
+        # # Why second order factors?
+        factors = np.array([-9, 128, -1008, 8064, -14350, 8064, -1008, 128, -9]) / 5040
 
         nf = len(factors)
         offsets = np.arange(nf) - nf // 2
@@ -253,7 +246,7 @@ class LinearSolver(SolverBase):
             """ calculate points of the L-curve"""
             if self._method == "Tikhonov":
                 sol = self._Tikhonov(A, D, lamb, r)
-            if self._method == "Franklin":
+            elif self._method == "Franklin":
                 sol = spsolve(A + lamb * D, r)
 
             x = norm(A * sol - r, 2)
@@ -263,9 +256,14 @@ class LinearSolver(SolverBase):
         def func(lamb, ratio, A, D, r, angle=-np.pi / 4):
             """ get "goodness" value for a given lambda using L-parameter """
             progress.update(1)
-            x, y = get_point(lamb, A, D, r)
+            x, y = get_point(lamb[0], A, D, r)
             # scale and rotate point
             return -x * np.sin(angle) + y * ratio * np.cos(angle)
+
+        def rotate(x, y, angle):
+            i = x * np.cos(angle) + y * ratio * np.sin(angle)
+            j = -x * np.sin(angle) + y * ratio * np.cos(angle)
+            return i, j
 
         # reduce data, and filter nans
         b, r = f, g
@@ -286,41 +284,33 @@ class LinearSolver(SolverBase):
         # Calculate best lambda
         progress = tqdm(total=500)
         ratio = self.regularization_ratio
-        res = minimize_scalar(func, args=(ratio, A, D, r), method="brent")
+        angle = -np.pi / 4
+
+        # Just sample lots of points for a first guess
+        ls = np.geomspace(1, 1e6, 300)
+        tmp = [get_point(l, A, D, r) for l in tqdm(ls)]
+        x = np.array([t[0] for t in tmp])
+        y = np.array([t[1] for t in tmp])
+        x, y = rotate(x, y, angle)
+        i = np.argmin(y)
+        lamb = ls[i]
+
+        # Improve the guess with a minimum solver
+        res = minimize(func, x0=[lamb], args=(ratio, A, D, r), method="Nelder-Mead")
+        lamb = res.x[0]
         progress.close()
+
         if self.plot:
-            import matplotlib.pyplot as plt
-
-            ls = np.geomspace(1, 1e6, 300)
-            tmp = [get_point(l, A, D, r) for l in ls]
-            x = np.array([t[0] for t in tmp])
-            y = np.array([t[1] for t in tmp])
-
-            p1 = get_point(10, A, D, r)
-            p2 = get_point(1e6, A, D, r)
-            p3 = get_point(res.x, A, D, r)
-
-            def rotate(x, y, angle):
-                i = x * np.cos(angle) + y * ratio * np.sin(angle)
-                j = -x * np.sin(angle) + y * ratio * np.cos(angle)
-                return i, j
-
-            angle = -np.pi / 4
-            x, y = rotate(x, y, angle)
-            p1 = rotate(*p1, angle)
-            p2 = rotate(*p2, angle)
+            p3 = get_point(lamb, A, D, r)
             p3 = rotate(*p3, angle)
-
             plt.plot(x, y, "+")
-            plt.plot(p1[0], p1[1], "r+")
-            plt.plot(p2[0], p2[1], "g+")
-            plt.plot(p3[0], p3[1], "d")
+            plt.plot(p3[0], p3[1], "rd")
             plt.loglog()
             plt.xlabel(r"$||\mathrm{Residual}||_2$")
             plt.ylabel(str(ratio) + r"$ * ||\mathrm{first derivative}||_2$")
             plt.show()
 
-        return res.x
+        return lamb
 
     def least_squares(self, f, g, wavelength, wavelength_shifted, regweight):
         wave = wavelength[0]

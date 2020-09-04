@@ -60,10 +60,14 @@ class Spectrum1D(specutils.Spectrum1D):
         # One of "barycentric", "telescope", "planet", "star"
         reference_frame = kwargs.pop("reference_frame", "barycentric")
 
+        for other_key in ["regularization_weight"]:
+            if other_key in kwargs.keys():
+                meta[other_key] = kwargs.pop(other_key)
+
         # Obsolete keywords
         kwargs.pop("sky_location", None)
 
-        kwmeta = kwargs.get("meta", {}) if kwargs.get("meta") is not None else {}
+        kwmeta = kwargs.pop("meta", {})
         kwmeta.update(meta)
         kwargs["meta"] = kwmeta
 
