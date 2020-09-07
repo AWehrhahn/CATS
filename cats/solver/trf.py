@@ -100,7 +100,6 @@ from numpy.linalg import norm
 from scipy.linalg import svd, qr
 from scipy.sparse.linalg import lsmr
 from scipy.optimize import OptimizeResult
-from scipy._lib.six import string_types
 
 from scipy.optimize._lsq.common import (
     step_size_to_bound,
@@ -299,7 +298,7 @@ def trf_bounds(
 
     g = compute_grad(J, f)
 
-    jac_scale = isinstance(x_scale, string_types) and x_scale == "jac"
+    jac_scale = isinstance(x_scale, str) and x_scale == "jac"
     if jac_scale:
         scale, scale_inv = compute_jac_scale(J)
     else:
@@ -529,7 +528,7 @@ def trf_no_bounds(
 
     g = compute_grad(J, f)
 
-    jac_scale = isinstance(x_scale, string_types) and x_scale == "jac"
+    jac_scale = isinstance(x_scale, str) and x_scale == "jac"
     if jac_scale:
         scale, scale_inv = compute_jac_scale(J)
     else:
