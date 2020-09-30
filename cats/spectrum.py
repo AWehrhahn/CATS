@@ -278,7 +278,7 @@ class Spectrum1D(specutils.Spectrum1D):
         else:
             shifted = self.wavelength
         beta = rv / const.c
-        shifted *= np.sqrt((1 + beta) / (1 - beta))
+        shifted = shifted * np.sqrt((1 + beta) / (1 - beta))
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:
