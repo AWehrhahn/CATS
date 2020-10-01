@@ -23,7 +23,72 @@ from .simulator import detector
 logger = logging.getLogger(__name__)
 
 
-class Spectrum1D(specutils.Spectrum1D):
+class SpectrumBase:
+    reference_frame_values = ["barycentric", "telescope", "planet", "star"]
+
+    @property
+    def datetime(self):
+        return self.meta["datetime"]
+
+    @datetime.setter
+    def datetime(self, value):
+        if not isinstance(value, Time):
+            value = Time(value)
+        self.meta["datetime"] = value
+
+    @property
+    def reference_frame(self):
+        return self.meta["reference_frame"]
+
+    @reference_frame.setter
+    def reference_frame(self, value):
+        if (
+            not isinstance(value, rf.ReferenceFrame)
+            and value not in self.reference_frame_values
+        ):
+            raise ValueError(
+                f"Reference frame not understood."
+                f"Expected one of {self.reference_frame_values} but got {value}"
+            )
+        if value in self.reference_frame_values:
+            value = self.reference_frame_from_name(value)
+        self.meta["reference_frame"] = value
+
+    def reference_frame_from_name(self, frame):
+        frame = rf.reference_frame_from_name(
+            frame,
+            star=self.meta["star"],
+            planet=self.meta["planet"],
+            observatory=self.meta["observatory_location"],
+        )
+        return frame
+
+    @property
+    def star(self):
+        return self.meta["star"]
+
+    @star.setter
+    def star(self, value):
+        self.meta["star"] = value
+
+    @property
+    def planet(self):
+        return self.meta["planet"]
+
+    @planet.setter
+    def planet(self, value):
+        self.meta["planet"] = value
+
+    @property
+    def observatory_location(self):
+        return self.meta["observatory_location"]
+
+    @observatory_location.setter
+    def observatory_location(self, value):
+        self.meta["observatory_location"] = value
+
+
+class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
     """
     Extends the specutils Spectrum1D class
     with a few convenience functions useful for
@@ -31,8 +96,6 @@ class Spectrum1D(specutils.Spectrum1D):
     Most importently for resampling and shifting
     the spectrum to different wavelengths grids
     """
-
-    reference_frame_values = ["barycentric", "telescope", "planet", "star"]
 
     def __init__(self, *args, **kwargs):
         # Set default options (if not given)
@@ -97,46 +160,9 @@ class Spectrum1D(specutils.Spectrum1D):
         return other
 
     @property
-    def datetime(self):
-        return self.meta["datetime"]
-
-    @datetime.setter
-    def datetime(self, value):
-        if not isinstance(value, Time):
-            value = Time(value)
-        self.meta["datetime"] = value
-
-    @property
-    def reference_frame(self):
-        return self.meta["reference_frame"]
-
-    @property
     def regions(self):
         wmin, wmax = self.wavelength[[0, -1]]
         return specutils.SpectralRegion(wmin, wmax)
-
-    @reference_frame.setter
-    def reference_frame(self, value):
-        if (
-            not isinstance(value, rf.ReferenceFrame)
-            and value not in self.reference_frame_values
-        ):
-            raise ValueError(
-                f"Reference frame not understood."
-                f"Expected one of {self.reference_frame_values} but got {value}"
-            )
-        if value in self.reference_frame_values:
-            value = self.reference_frame_from_name(value)
-        self.meta["reference_frame"] = value
-
-    def reference_frame_from_name(self, frame):
-        frame = rf.reference_frame_from_name(
-            frame,
-            star=self.meta["star"],
-            planet=self.meta["planet"],
-            observatory=self.meta["observatory_location"],
-        )
-        return frame
 
     def _get_fits_hdu(self):
         wave = self.wavelength.to(u.AA)
@@ -326,10 +352,13 @@ class Spectrum1D(specutils.Spectrum1D):
         spec = resampler(self, grid)
 
         if inplace:
-            self._spectral_axis = spec._spectral_axis
-            self._data = spec._data
+            self._spectral_axis[:] = spec._spectral_axis
+            self._data[:] = spec._data
             self._unit = spec._unit
-            self._uncertainty = spec._uncertainty
+            if self._uncertainty is not None:
+                self._uncertainty[:] = spec._uncertainty
+            else:
+                self._uncertainty = spec._uncertainty
         else:
             # Cast spec to Spectrum 1D class and set meta parameters
             spec.meta = copy(self.meta)
@@ -341,21 +370,36 @@ class Spectrum1D(specutils.Spectrum1D):
 
     def extract_region(self, wrange):
         wave, flux = [], []
-        for wmin, wmax in wrange.subregions:
+
+        if hasattr(wrange, "subregions"):
+            wrange = wrange.subregions
+
+        for wr in wrange:
+            if hasattr(wr, "subregions"):
+                wr = wr.subregions[0]
+            wmin, wmax = wr
+
             mask = (self.wavelength >= wmin) & (self.wavelength <= wmax)
 
             wave += [self.wavelength[mask]]
-            flux += [self.flux[mask]]
+            flux += [self.flux[..., mask]]
 
         if len(wrange) == 1:
             spec = Spectrum1D(flux=flux[0], spectral_axis=wave[0], **self.meta)
         else:
-            spec = SpectrumList(flux=flux, spectral_axis=wave, **self.meta)
+            segments = np.zeros(len(wrange) + 1)
+            segments[1:] = np.cumsum([len(w) for w in wave])
+            flux = np.hstack(flux)
+            wave = np.concatenate(wave)
+            wave = np.tile(wave, (flux.shape[0], 1))
+            spec = SpectrumArray(
+                flux=flux, spectral_axis=wave, segments=segments, **self.meta
+            )
 
         return spec
 
 
-class SpectrumList(Sequence):
+class SpectrumList(Sequence, SpectrumBase):
     """
     Stores a list of Spectrum1D objects, with shared metadata
     This usually represents the different orders of the spectrum,
@@ -622,7 +666,7 @@ class SpectrumList(Sequence):
             return self
 
 
-class SpectrumArray(Sequence):
+class SpectrumArray(Sequence, SpectrumBase):
     """
     A Collection of Spectra with the same size,
     but possibly different wavelength axis
@@ -676,6 +720,10 @@ class SpectrumArray(Sequence):
 
     def __len__(self):
         return len(self.wavelength)
+
+    @property
+    def nseg(self):
+        return len(self.segments) - 1
 
     def __getitem__(self, key):
         wave = self.wavelength[key]
@@ -734,14 +782,6 @@ class SpectrumArray(Sequence):
 
     def __truediv__(self, other):
         return self.__operator__(other, op.truediv)
-
-    @property
-    def datetime(self):
-        return self.meta["datetime"]
-
-    @property
-    def reference_frame(self):
-        return self.meta["reference_frame"]
 
     @property
     def shape(self):
@@ -819,22 +859,29 @@ class SpectrumArray(Sequence):
         spectra.meta["reference_frame"] = target_frame
         return spectra
 
-    def resample(self, wavelength, inplace=True, **kwargs):
+    def resample(self, wavelength, inplace=False, **kwargs):
         if not inplace:
             spectra = deepcopy(self)
+            spectra.wavelength = np.copy(wavelength)
+            spectra.flux = (
+                np.zeros(wavelength.shape, dtype=spectra.flux.dtype)
+                << spectra.flux.unit
+            )
         else:
             spectra = self
 
-        for i in tqdm(range(len(spectra))):
+        if np.ndim(wavelength) == 1:
+            wavelength = [wavelength for i in range(len(self))]
+
+        for i in tqdm(range(len(self))):
             meta = {}
-            if spectra.uncertainty is not None:
-                meta["uncertainty"] = spectra.uncertainty[i]
+            if self.uncertainty is not None:
+                meta["uncertainty"] = self.uncertainty[i]
             spec = Spectrum1D(
-                flux=spectra.flux[i], spectral_axis=spectra.wavelength[i], **meta
+                flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
             )
-            spec = spec.resample(wavelength, inplace=True, **kwargs)
-            # spectra.wavelength[i] = wavelength
-            # spectra.flux[i] = spec.flux
-            # if spectra.uncertainty is not None:
-            #     spectra.uncertainty[i] = spec.uncertainty
+            spec = spec.resample(wavelength[i], inplace=inplace, **kwargs)
+            if not inplace:
+                spectra.flux[i] = spec.flux
+
         return spectra

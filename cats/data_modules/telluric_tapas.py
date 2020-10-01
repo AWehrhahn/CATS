@@ -13,8 +13,8 @@ from tqdm import tqdm
 import astropy.units as u
 
 import astroplan
-from cats.data_modules.datasource import DataSource
-from cats.spectrum import Spectrum1D, SpectrumArray
+from .datasource import DataSource
+from ..spectrum import Spectrum1D, SpectrumArray
 
 
 def load_tellurics(files):
@@ -32,7 +32,7 @@ def load_tellurics(files):
     tell = [None for _ in telfil]
     sort = np.argsort(airmass)
     airmass, ang = airmass[sort], ang[sort]
-    for i in tqdm(range(len(airmass))):
+    for i in tqdm(range(len(airmass)), leave=False):
         # Pandas is faster at parsing tables than numpy
         buff = pd.read_table(
             telfil[sort[i]],
@@ -45,8 +45,6 @@ def load_tellurics(files):
         tell[i] = buff.values
     # Combine all the data in the end
     tell = np.stack(tell)
-
-    print(ang)
     return tell, airmass, ang
 
 
@@ -140,10 +138,3 @@ class TapasTellurics(DataSource):
         spectra.reference_frame = "telescope"
 
         return spectra
-
-
-# tapas = TapasTelluric(None, None)
-# tapas.get()
-# plt.plot(wavew, tellwi((1.5, wavew)))
-# plt.show()
-# pass
