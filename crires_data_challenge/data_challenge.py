@@ -1,4 +1,5 @@
 from glob import glob
+import os
 from os.path import basename, dirname, exists, join
 from copy import deepcopy
 
@@ -30,6 +31,7 @@ from cats.extractor.extract_transit_parameters import extract_transit_parameters
 from cats.extractor.normalize_observation import normalize_observation
 from cats.extractor.prepare import create_intensities, create_stellar, create_telluric
 from cats.simulator.detector import Crires
+
 from cats.spectrum import Spectrum1D, SpectrumArray, SpectrumList
 from pysme.sme import SME_Structure
 
@@ -38,9 +40,29 @@ from solve_prepared import solve_prepared
 from hitran_linelist import Hitran, HitranSpectrum
 from planet_spectra import load_planet
 
-# from astroplan import download_IERS_A
+from tellurics.tellurics import TapasTellurics
 
-# download_IERS_A()
+
+import warnings
+from astroplan.utils import (
+    download_IERS_A,
+    _get_IERS_A_table,
+)
+
+# Make sure we have an up to date IERS_A table
+needs_download = False
+try:
+    with warnings.catch_warnings(record=True) as warn:
+        _get_IERS_A_table()
+        if len(warn) != 0:
+            # Table is out of date
+            needs_download = True
+except OSError:
+    # Table is not cached
+    needs_download = True
+
+if needs_download:
+    download_IERS_A()
 
 
 def collect_observations(files, additional_data):
@@ -185,8 +207,12 @@ rv = orbit.radial_velocity_planet(t)
 
 # Data locations
 raw_dir = join(dirname(__file__), "HD209458_v4")
-medium_dir = join(dirname(__file__), "medium_v4")
+medium_dir = join(dirname(__file__), "medium")
 done_dir = join(dirname(__file__), "done")
+
+for d in [medium_dir, done_dir]:
+    os.makedirs(d, exist_ok=True)
+
 
 # Other data
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
@@ -216,6 +242,18 @@ if not exists(fname) or True:
     telluric.write(fname)
 else:
     telluric = SpectrumArray.read(fname)
+
+fname = join(medium_dir, "telluric_tapas.npz")
+if not exists(fname) or True:
+    telluric_tapas = create_telluric(
+        wrange, spectra, star, observatory, times, source="tapas"
+    )
+    # telluric_tapas = TapasTellurics(star, observatory)
+    # telluric_tapas = telluric_tapas.get(detector.regions, spectra.datetime)
+    # telluric_tapas = telluric_tapas.resample(spectra.wavelength, inplace=False)
+    telluric_tapas.write(fname)
+else:
+    telluric_tapas = SpectrumArray.read(fname)
 
 fname = join(medium_dir, "telluric_space.npz")
 if not exists(fname) or False:

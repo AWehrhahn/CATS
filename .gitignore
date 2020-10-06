@@ -10,8 +10,6 @@ examples/noise_5/
 examples/stellar.html
 examples/*.sme
 
-data/
-*.fits
 *.npy
 
 *.html
