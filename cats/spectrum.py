@@ -747,6 +747,10 @@ class SpectrumArray(Sequence):
     def shape(self):
         return self.wavelength.shape
 
+    @property
+    def nseg(self):
+        return len(self.segments) - 1
+
     def get_segment(self, seg):
         left, right = self.segments[seg : seg + 2]
         wave = self.wavelength[:, left:right]
