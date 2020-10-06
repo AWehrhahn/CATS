@@ -4,6 +4,11 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 from tqdm import tqdm
 
+from scipy.optimize import least_squares, minimize
+from scipy.sparse import diags
+import matplotlib.pyplot as plt
+from scipy.interpolate import UnivariateSpline
+
 from .datasource import DataSource
 
 
@@ -19,6 +24,20 @@ class TelluricFit(DataSource):
 
         self.degree = degree
         self.skip_resample = skip_resample
+
+    def polyfit(self, x, y):
+        coeff = np.polyfit(x, y, self.degree)
+        # res = least_squares(lambda p: np.polyval(p, x) - y, x0=coeff, method="trf", loss="soft_l1")
+        # coeff = res.x
+        return coeff
+
+    def spline_fit(self, coeff, s=1):
+        p = np.arange(coeff.shape[0])
+        for i in tqdm(range(coeff.shape[1])):
+            weights = ~np.isnan(coeff[:, i])
+            coeff[:, i][~weights] = 0
+            coeff[:, i] = UnivariateSpline(p, coeff[:, i], s=s, w=weights)(p)
+        return coeff
 
     def fit(self, spectra):
         times = spectra.datetime
@@ -38,7 +57,9 @@ class TelluricFit(DataSource):
         # Fit data
         coeff = np.zeros((flux.shape[1], self.degree + 1))
         for i in tqdm(range(flux.shape[1])):
-            coeff[i] = np.polyfit(airmass, flux[:, i], self.degree)
+            coeff[i] = self.polyfit(airmass, flux[:, i].value)
+
+        # coeff = self.spline_fit(coeff)
 
         return coeff
 
