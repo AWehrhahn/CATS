@@ -106,9 +106,7 @@ def create_first_guess(
     sme.abund = "solar"
     sme.linelist = ValdFile(linelist)
 
-    vturb = round_to_nearest(sme.vturb, [1, 2, 5])
-    atmosphere = f"marcs2012s_t{vturb:1.1f}.sav"
-    sme.atmo.source = atmosphere
+    sme.atmo.source = "marcs"
     sme.atmo.method = "grid"
 
     nlte = None

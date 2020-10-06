@@ -52,7 +52,7 @@ class SmeBase(DataSource):
             vturb = self.star.vturb.to_value(u.km / u.s)
             # round to nearest option
             vturb = round_to_nearest(vturb, [1, 2, 5])
-            self.atmosphere = f"marcs2012s_t{vturb:1.1f}.sav"
+            self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
 
     def synthesize(self, wrange, mu=None, intensities=False):
         sme = SME_Structure()
