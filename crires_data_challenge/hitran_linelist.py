@@ -35,6 +35,9 @@ class HitranSpectrum(Spectrum1D):
         flux -= np.min(flux)
         flux = 1 - flux ** 2
 
+        flux -= np.min(flux)
+        flux /= np.max(flux)
+
         flux = flux << u.one
 
         super().__init__(
