@@ -98,9 +98,18 @@ def normalize(spectra, stellar, telluric, detector):
     # telluric and stellar have independant broadening factors
     sflux = stellar.flux
     tflux = telluric.flux
+    stellar_broadening = 1
+    telluric_broadening = 1
 
-    for _ in range(3):
-        normalized = normalize_observation(spectra, stellar, telluric, detector)
+    for _ in tqdm(range(3), leave=False, desc="Iteration"):
+        normalized = normalize_observation(
+            spectra,
+            stellar,
+            telluric,
+            detector,
+            stellar_broadening,
+            telluric_broadening,
+        )
 
         tmp = sflux * tflux
         mask = np.isfinite(tmp)
@@ -127,16 +136,17 @@ def fit_tellurics(
     t = TelluricFit(star, observatory, skip_resample=skip_resample, degree=degree)
     coeff = t.fit(normalized)
     airmass = t.calculate_airmass(times)
-    model = t.model(coeff, airmass)
 
     mask = coeff[:, 0] > 0
-    mask = ~binary_erosion(~mask)
-    mask = ~binary_dilation(~mask, iterations=5)
+    # mask = ~binary_erosion(~mask)
+    # mask = ~binary_dilation(~mask, iterations=5)
     # Use morphology to improve mask
     for i in np.arange(coeff.shape[0])[mask]:
         coeff[i] = np.polyfit(airmass, telluric.flux[:, i], 1)
 
-    model = t.model(coeff, t.calculate_airmass(times))
+    coeff = t.spline_fit(coeff, s=1)
+    model = t.model(coeff, airmass)
+    model = np.clip(model, 0, 1)
     model = model << u.one
 
     telluric = SpectrumArray(
@@ -166,6 +176,7 @@ observatory = detector.observatory
 sdb = StellarDb()
 star = sdb.get("HD209458")
 star.vsini = 1.2 * (u.km / u.s)
+star.monh = 0 * u.one
 planet = star.planets["b"]
 
 orbit = exoorbit.Orbit(star, planet)
@@ -182,6 +193,7 @@ linelist = join(dirname(__file__), "crires_k_2_4.lin")
 additional_data = join(raw_dir, "HD209458_additional_data.csv")
 
 # 1: Collect observations
+print("Collect observations")
 fname = join(medium_dir, "spectra.npz")
 if not exists(fname) or False:
     files = join(raw_dir, "*.fits")
@@ -197,8 +209,9 @@ times = spectra.datetime
 # Assuming the water density is constant
 
 # 3: Create Tellurics
+print("Create telluric guess")
 fname = join(medium_dir, "telluric.npz")
-if not exists(fname) or False:
+if not exists(fname) or True:
     telluric = create_telluric(wrange, spectra, star, observatory, times)
     telluric.write(fname)
 else:
@@ -214,6 +227,7 @@ else:
     telluric_space = SpectrumArray.read(fname)
 
 # 4: Extract stellar parameters
+print("Determine stellar parameters")
 fname = join(medium_dir, "first_guess.sme")
 if not exists(fname) or False:
     sme = first_guess(spectra, star, detector.blaze, linelist, detector)
@@ -237,7 +251,9 @@ else:
 # From info about the star
 star.radial_velocity = -14.743 * (u.km / u.s)
 
+
 # 5: Create stellar spectra
+print("Calculate stellar spectra")
 fname = join(medium_dir, "stellar.npz")
 if not exists(fname) or False:
     stellar = create_stellar(
@@ -265,11 +281,27 @@ else:
 
 
 # 6: Normalize observations
+# TODO: This needs work, as it does not do what we want it to do
+# It appears to remove the planet signal, unfortunately
+print("Normalize observations")
 fname = join(medium_dir, "normalized.npz")
-normalized, detector, stellar_broadening, telluric_broadening = normalize(
-    spectra, stellar, telluric, detector
-)
-normalized.write(fname)
+fname2 = join(medium_dir, "broadening_values.npz")
+if not exists(fname) or not exists(fname2) or False:
+    normalized, detector, stellar_broadening, telluric_broadening = normalize(
+        spectra, stellar, telluric, detector
+    )
+    normalized.write(fname)
+    np.savez(
+        fname2,
+        stellar_broadening=stellar_broadening,
+        telluric_broadening=telluric_broadening,
+    )
+else:
+    normalized = SpectrumArray.read(fname)
+    data = np.load(fname2)
+    stellar_broadening = data["stellar_broadening"]
+    telluric_broadening = data["telluric_broadening"]
+
 
 detector.spectral_broadening = stellar_broadening
 telluric.flux = gaussian_filter1d(telluric.flux, telluric_broadening) << u.one
@@ -277,6 +309,7 @@ stellar.flux = gaussian_filter1d(stellar.flux, stellar_broadening) << u.one
 
 
 # 7: Determine Planet transit
+print("Determine the planet transit parameters")
 fname = join(medium_dir, "planet.yaml")
 if not exists(fname) or False:
     p = extract_transit_parameters(spectra, telluric, star, planet)
@@ -291,15 +324,15 @@ planet.period = 3.52472 * u.day
 planet.radius = p.radius
 
 # Fit Telluric Spectrum
-telluric = fit_tellurics(
-    normalized, telluric, star, observatory, skip_resample=True, degree=1
-)
+# telluric = fit_tellurics(
+#     normalized, telluric, star, observatory, skip_resample=True, degree=1
+# )
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
 if not exists(fname) or False:
     intensities = create_intensities(
-        wrange, normalized, star, planet, observatory, times, linelist
+        wrange, spectra, star, planet, observatory, times, linelist
     )
     intensities.write(fname)
 else:
@@ -328,48 +361,45 @@ i = np.arange(101)[sort][51]
 wavelength = normalized[i].wavelength
 flux = normalized[i].flux
 planet_spectrum = load_planet()
-nseg = normalized.segments.shape[0] - 1
+nseg = normalized.nseg
 
 hitspec = HitranSpectrum()
 hitspec.datetime = normalized.datetime[i]
 hitspec.shift(normalized.reference_frame)
 
-for segment in tqdm(range(nseg)):
-    spec, null = solve_prepared(
-        normalized,
-        telluric_space,
-        combined,
-        intensities_combined,
-        detector,
-        star,
-        planet,
-        seg=segment,
-        solver="linear",
-    )
+spec, null = solve_prepared(
+    normalized, telluric, stellar, intensities, detector, star, planet, solver="linear",
+)
 
-    print("Saving data...")
-    spec.write(join(done_dir, f"planet_extracted_{segment}.fits"))
-    null.write(join(done_dir, f"null_extracted_{segment}.fits"))
+print("Saving data...")
+spec.write(join(done_dir, f"planet_extracted.fits"))
+null.write(join(done_dir, f"null_extracted.fits"))
 
+# TODO: put everything into one big extraction
+for seg in tqdm(range(nseg)):
     print("Plotting results...")
     # spec._data = gaussian_filter1d(spec._data, nseg)
     # null._data = gaussian_filter1d(null._data, nseg)
     # spec = spec.resample(wavelength[segment], method="linear")
     # null = null.resample(wavelength[segment], method="linear")
 
-    # plt.plot(
-    #     wavelength[segment], flux[segment], label="normalized observation",
-    # )
-    # plt.plot(ps.wavelength, ps.flux, label="planet model")
-    # plt.plot(spec.wavelength, spec.flux, label="extracted")
-    # plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
-    # plt.ylim(0, 2)
-    # plt.ylabel("Flux, normalised")
-    # plt.xlabel("Wavelength [Å]")
-    # plt.legend()
+    plt.plot(
+        wavelength[seg], flux[seg], label="normalized observation",
+    )
+    plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux, label="planet model")
+    plt.plot(
+        spec.wavelength,
+        (spec.flux - spec.flux.min()) / (spec.flux - spec.flux.min()).max(),
+        label="extracted",
+    )
+    plt.xlim(wavelength[seg][0].value, wavelength[seg][-1].value)
+    plt.ylim(0, 2)
+    plt.ylabel("Flux, normalised")
+    plt.xlabel("Wavelength [Å]")
+    plt.legend()
     # # plt.show()
-    # plt.savefig(join(done_dir, f"planet_spectrum_{segment}.png"))
-    # plt.clf()
+    plt.savefig(join(done_dir, f"planet_spectrum_{seg}.png"))
+    plt.clf()
 
     # plt.plot(
     #     wavelength[segment], flux[segment], label="normalized observation",
@@ -430,7 +460,7 @@ for segment in tqdm(range(nseg)):
     wave = spec.wavelength
 
     plt.plot(
-        wavelength[segment], flux[segment], label="normalized observation",
+        wavelength[seg], flux[seg], label="normalized observation",
     )
     plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux, label="planet model")
     plt.plot(wave, sflux, label="extracted")
@@ -440,16 +470,16 @@ for segment in tqdm(range(nseg)):
     # wmax = wavelength[segment].max()
     # plt.vlines(hw[(hw >= wmin) & (hw <= wmax)], 0, 2)
 
-    plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
+    plt.xlim(wavelength[seg][0].value, wavelength[seg][-1].value)
     plt.ylim(0, 2)
     plt.ylabel("Flux, normalised")
     plt.xlabel("Wavelength [Å]")
     plt.legend()
     # plt.show()
-    plt.savefig(join(done_dir, f"diff_spectrum_{segment}.png"))
+    plt.savefig(join(done_dir, f"diff_spectrum_{seg}.png"))
     plt.clf()
 
     spec._data = sflux
-    spec.write(join(done_dir, f"diff_extracted_{segment}.fits"))
+    spec.write(join(done_dir, f"diff_extracted_{seg}.fits"))
 
 pass
