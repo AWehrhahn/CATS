@@ -48,6 +48,9 @@ from astroplan.utils import (
     download_IERS_A,
     _get_IERS_A_table,
 )
+from astropy.utils.data import conf
+
+conf.remote_timeout = 100.0
 
 # Make sure we have an up to date IERS_A table
 needs_download = False
@@ -237,14 +240,14 @@ times = spectra.datetime
 # 3: Create Tellurics
 print("Create telluric guess")
 fname = join(medium_dir, "telluric.npz")
-if not exists(fname) or True:
+if not exists(fname) or False:
     telluric = create_telluric(wrange, spectra, star, observatory, times)
     telluric.write(fname)
 else:
     telluric = SpectrumArray.read(fname)
 
 fname = join(medium_dir, "telluric_tapas.npz")
-if not exists(fname) or True:
+if not exists(fname) or False:
     telluric_tapas = create_telluric(
         wrange, spectra, star, observatory, times, source="tapas"
     )
@@ -301,22 +304,6 @@ if not exists(fname) or False:
 else:
     stellar = SpectrumArray.read(fname)
 
-fname = join(medium_dir, "stellar_combined.npz")
-if not exists(fname) or False:
-    combined = create_stellar(
-        wrange,
-        spectra,
-        times,
-        method="combine",
-        mask=sme.mask_cont,
-        telluric=telluric,
-        detector=detector,
-        stellar=stellar,
-    )
-    combined.write(fname)
-else:
-    combined = SpectrumArray.read(fname)
-
 
 # 6: Normalize observations
 # TODO: This needs work, as it does not do what we want it to do
@@ -345,6 +332,26 @@ detector.spectral_broadening = stellar_broadening
 telluric.flux = gaussian_filter1d(telluric.flux, telluric_broadening) << u.one
 stellar.flux = gaussian_filter1d(stellar.flux, stellar_broadening) << u.one
 
+# Create combined observations
+fname = join(medium_dir, "stellar_combined.npz")
+fname2 = join(medium_dir, "telluric_combined.npz")
+
+if not exists(fname) or not exists(fname2) or False:
+    stellar_combined, telluric_combined = create_stellar(
+        wrange,
+        normalized,
+        times,
+        method="combine",
+        mask=sme.mask_cont,
+        telluric=telluric,
+        detector=detector,
+        stellar=stellar,
+    )
+    stellar_combined.write(fname)
+    telluric_combined.write(fname2)
+else:
+    stellar_combined = SpectrumArray.read(fname)
+    telluric_combined = SpectrumArray.read(fname2)
 
 # 7: Determine Planet transit
 print("Determine the planet transit parameters")
@@ -391,7 +398,7 @@ i = np.arange(101)[sort][51]
 
 # # We use sme to estimate the limb darkening at each point
 # # But use the extracted stellar spectrum, to create the actual intensities
-intensities_combined = (intensities / stellar) * combined
+intensities_combined = (intensities / stellar) * stellar_combined
 
 
 # 9: Solve the equation system
@@ -406,7 +413,14 @@ hitspec.datetime = normalized.datetime[i]
 hitspec.shift(normalized.reference_frame)
 
 spec, null = solve_prepared(
-    normalized, telluric, stellar, intensities, detector, star, planet, solver="linear",
+    normalized,
+    telluric_combined,
+    stellar_combined,
+    intensities_combined,
+    detector,
+    star,
+    planet,
+    solver="linear",
 )
 
 print("Saving data...")

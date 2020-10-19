@@ -49,10 +49,11 @@ class SmeBase(DataSource):
         self.normalize = normalize
 
         if self.atmosphere == "marcs":
-            vturb = self.star.vturb.to_value(u.km / u.s)
-            # round to nearest option
-            vturb = round_to_nearest(vturb, [1, 2, 5])
-            self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
+            self.atmosphere = "marcs2014.sav"
+            # vturb = self.star.vturb.to_value(u.km / u.s)
+            # # round to nearest option
+            # vturb = round_to_nearest(vturb, [1, 2, 5])
+            # self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
 
     def synthesize(self, wrange, mu=None, intensities=False):
         sme = SME_Structure()
@@ -180,7 +181,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
         for i in tqdm(range(len(times))):
             time = times[i]
             dp = d[i] + steps * r
-            mu = np.sqrt(1 - dp**2 / R**2)
+            mu = np.sqrt(1 - dp ** 2 / R ** 2)
             mu = mu[np.isfinite(mu)]
 
             if len(mu) != 0:
@@ -193,9 +194,7 @@ class SmeIntensities(SmeBase, StellarIntensities):
                 regions = [
                     [wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)] for wr in wrange
                 ]
-                wave = [
-                    np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions
-                ]
+                wave = [np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions]
                 if self.normalize:
                     flux = [np.zeros(100) << u.one for _ in wrange]
                 else:

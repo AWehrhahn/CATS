@@ -45,44 +45,54 @@ class SolverBase:
 
         orb = Orbit(self.star, self.planet)
         area = orb.stellar_surface_covered_by_planet(times)
-        model = (stellar - intensities * area[:, None]) * telluric
+        # model = (stellar - intensities * area[:, None]) * telluric
+        model = stellar * telluric
+
 
         # Out of transit mask
         idx = area == 0
 
-        # Profile of the observations
+        # Profile of the observationsq
         time = times.mjd
         profile = np.nanmean(spectra, axis=1)
         model_profile = np.nanmean(model, axis=1)
 
-        x = np.arange(len(profile))
-        coeff = np.polyfit(x[idx], profile[idx], 5)
-        norm = np.polyval(coeff, x)
+        norm = profile / model_profile
 
-        # plt.plot(profile)
-        # plt.plot(norm)
-        # plt.show()
+        # x = np.arange(len(profile))
+        # coeff = np.polyfit(x[idx], profile[idx], 5)
+        # norm = np.polyval(coeff, x)
 
-        coeff = np.polyfit(x[idx], model_profile[idx], 5)
-        model_norm = np.polyval(coeff, x)
+        # # plt.plot(profile)
+        # # plt.plot(norm)
+        # # plt.show()
 
-        # plt.plot(model_profile)
-        # plt.plot(model_norm)
-        # plt.show()
+        # coeff = np.polyfit(x[idx], model_profile[idx], 5)
+        # model_norm = np.polyval(coeff, x)
 
-        norm /= model_norm
+        # # plt.plot(model_profile)
+        # # plt.plot(model_norm)
+        # # plt.show()
+
+        # norm /= model_norm
 
         # TODO: Check that mu calculation, matches the observed transit
         # TODO: Why is the mu calculation wider than the observations?
 
-        func = lambda x: profile - np.nanmean(
-            (stellar - intensities * np.abs(x[:, None])) * telluric * norm[:, None],
-            axis=1,
-        )
-        res = least_squares(func, x0=area, method="lm")
-        area = gaussian_filter1d(res.x, 1)
+        # func = lambda x: profile - np.nanmean(
+        #     (stellar - intensities * np.abs(x[:, None])) * telluric * norm[:, None],
+        #     axis=1,
+        # )
+        # func = lambda x: profile - np.nanmean(
+        #     (stellar - intensities * np.abs(x[:, None])) * telluric * norm[:, None],
+        #     axis=1,
+        # )
+        # res = least_squares(func, x0=area, method="lm")
+        # area = gaussian_filter1d(res.x, 1)
 
-        model = (stellar - intensities * area[:, None]) * telluric * norm[:, None]
+        # model = (stellar - intensities * area[:, None]) * telluric * norm[:, None]
+        model = stellar * telluric * norm[:, None]
+
 
         # plt.plot(np.nanmean(spectra, axis=1))
         # plt.plot(np.nanmean(model, axis=1))
@@ -106,7 +116,9 @@ class SolverBase:
             * telluric
             * norm[:, None]
         )
-        g = spectra - (stellar - intensities * area[:, None]) * telluric * norm[:, None]
+        # g = spectra - (stellar - intensities * area[:, None]) * telluric * norm[:, None]
+        g = spectra - stellar * telluric * norm[:, None]
+
         # f, g = f.to_value(1), g.to_value(1)
 
         # Normalize again

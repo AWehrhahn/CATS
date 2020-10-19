@@ -55,7 +55,7 @@ def solve_prepared(
             star,
             planet,
             regularization_ratio=1,
-            plot=False,
+            plot=True,
             regularization_weight=None,  # 0.01,
             method="Tikhonov",
         )

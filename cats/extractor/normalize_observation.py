@@ -211,22 +211,27 @@ def normalize_observation(
     #     xf /= np.polyval(coeff, x)
     #     spectra.flux[:, left:right] *= xf[:, None]
 
-    x = np.arange(spectra.shape[0])
-    y = np.nanmean(spectra.flux.to_value(1), axis=1)
-    yf = np.polyval(np.polyfit(x, y, 5), x) / np.max(y)
-    spectra.flux /= yf[:, None]
+    # This removes the telluric signal variation?
+    # Like the curve, but do we want that?
+    # I don't think so
+    # x = np.arange(spectra.shape[0])
+    # y = np.nanmean(spectra.flux.to_value(1), axis=1)
+    # yf = np.polyval(np.polyfit(x, y, 5), x) / np.max(y)
+    # spectra.flux /= yf[:, None]
 
-    # TODO: where did the planet transit go?
-    xf = np.nansum(sold.flux.to_value(1), axis=1) / yf
-    xf /= np.nanpercentile(xf, 99)
+    # The planet transit is normalized away
+    # This reinserts it, which is going to be difficult in real data
+    # as we have variations in the seeing, exposure time, etc.
+    # xf = np.nansum(sold.flux.to_value(1), axis=1) / yf
+    # xf /= np.nanpercentile(xf, 99)
 
-    mask = np.full(len(x), True)
-    mask[15:-15] = False
+    # mask = np.full(len(x), True)
+    # mask[15:-15] = False
 
-    coeff = np.polyfit(x[mask], xf[mask], 3)
-    xf /= np.polyval(coeff, x)
+    # coeff = np.polyfit(x[mask], xf[mask], 3)
+    # xf /= np.polyval(coeff, x)
 
-    spectra.flux *= xf[:, None]
+    # spectra.flux *= xf[:, None]
 
     # Plot again
     # vmin, vmax = np.nanpercentile(spectra.flux.to_value(1), (5, 95))

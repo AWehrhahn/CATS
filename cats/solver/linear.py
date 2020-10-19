@@ -165,7 +165,7 @@ class LinearSolver(SolverBase):
         # n = self.difference_accuracy
         # factors = [(-1)**i * binom(n, i) for i in range(n + 1)]
 
-        # factors = [1, -2, 1]        
+        # factors = [1, -2, 1]
 
         # # first order
         # factors = np.array([3, -32, 168, -672, 0, 672, -168, 32, -3]) / 840
@@ -258,7 +258,8 @@ class LinearSolver(SolverBase):
             progress.update(1)
             x, y = get_point(lamb[0], A, D, r)
             # scale and rotate point
-            return -x * np.sin(angle) + y * ratio * np.cos(angle)
+            _, j = rotate(x, y, angle)
+            return j
 
         def rotate(x, y, angle):
             i = x * np.cos(angle) + y * ratio * np.sin(angle)
@@ -291,6 +292,9 @@ class LinearSolver(SolverBase):
         tmp = [get_point(l, A, D, r) for l in tqdm(ls)]
         x = np.array([t[0] for t in tmp])
         y = np.array([t[1] for t in tmp])
+
+        xp, yp = np.copy(x), np.copy(y)
+
         x, y = rotate(x, y, angle)
         i = np.argmin(y)
         lamb = ls[i]
@@ -302,12 +306,11 @@ class LinearSolver(SolverBase):
 
         if self.plot:
             p3 = get_point(lamb, A, D, r)
-            p3 = rotate(*p3, angle)
-            plt.plot(x, y, "+")
+            plt.plot(xp, yp, "+")
             plt.plot(p3[0], p3[1], "rd")
-            plt.loglog()
-            plt.xlabel(r"$||\mathrm{Residual}||_2$")
-            plt.ylabel(str(ratio) + r"$ * ||\mathrm{first derivative}||_2$")
+            # plt.loglog()
+            plt.xlabel(r"$||A x - b||_2$")
+            plt.ylabel(r"$||D x||_2$")
             plt.show()
 
         return lamb

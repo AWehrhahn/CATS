@@ -16,6 +16,8 @@ from astropy import coordinates as coords
 from astropy.io import fits
 from astropy.time import Time
 
+import astroplan
+
 from . import reference_frame as rf
 from .data_modules.stellar_db import StellarDb
 from .simulator import detector
@@ -86,6 +88,14 @@ class SpectrumBase:
     @observatory_location.setter
     def observatory_location(self, value):
         self.meta["observatory_location"] = value
+
+    @property
+    def airmass(self):
+        target = astroplan.FixedTarget(name=self.star.name, coord=self.star.coordinates)
+        observer = astroplan.Observer(self.observatory_location)
+        altaz = observer.altaz(self.datetime, target)
+        airmass = altaz.secz.value
+        return airmass
 
 
 class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
@@ -287,6 +297,9 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
             the shifted spectrum structure
         """
 
+        # TODO: optimize in case that the target frame == reference frame
+        # TODO: so we don't have to waste time on that
+
         # TODO: conversion to/from star/planet requires info about the star/planet
         # TODO: don't forget to use the radial velocity as well (?)
         try:
@@ -356,7 +369,7 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
             self._data[:] = spec._data
             self._unit = spec._unit
             if self._uncertainty is not None:
-                self._uncertainty[:] = spec._uncertainty
+                self._uncertainty = spec._uncertainty
             else:
                 self._uncertainty = spec._uncertainty
         else:
@@ -819,7 +832,7 @@ class SpectrumArray(Sequence, SpectrumBase):
         )
 
         if self.uncertainty is not None:
-            data["uncertainty"] = self.uncertainty.value
+            data["uncertainty"] = self.uncertainty.array
             data["uncertainty_unit"] = str(self.uncertainty.unit)
 
         np.savez(fname, **data)

@@ -17,6 +17,7 @@ def create_stellar(wrange, spectra: SpectrumArray, times, method="sme", **kwargs
         stellar = SmeStellar(**kwargs, normalize=True)
     elif method == "combine":
         stellar = CombineStellar(spectra, **kwargs)
+        return stellar.combined, stellar.telluric
     else:
         raise ValueError
 
@@ -32,6 +33,8 @@ def create_stellar(wrange, spectra: SpectrumArray, times, method="sme", **kwargs
         spec = spec.shift(reference_frame, inplace=True)
         spec = spec.resample(wave, method="linear")
         result += [spec]
+
+    
     result = SpectrumArray(result)
     return result
 
