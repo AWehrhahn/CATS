@@ -16,7 +16,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from .solver import SolverBase
-from .least_squares import least_squares
+from ..least_squares import least_squares
 
 from ..reference_frame import TelescopeFrame, PlanetFrame
 from ..spectrum import Spectrum1D

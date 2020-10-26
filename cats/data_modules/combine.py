@@ -2,14 +2,17 @@ import numpy as np
 from astropy import units as u
 import matplotlib.pyplot as plt
 from copy import deepcopy
-from scipy.optimize import curve_fit, least_squares
+from scipy.optimize import curve_fit
 from scipy.ndimage.filters import gaussian_filter1d
+from scipy.interpolate import RegularGridInterpolator
 
 from astropy.nddata import StdDevUncertainty
 import astroplan
 
 from tqdm import tqdm
 from astropy.constants import c
+
+from ..least_squares.least_squares import least_squares
 
 
 from .datasource import DataSource
@@ -89,50 +92,100 @@ def combine_observations(spectra: SpectrumArray):
     # )
 
     def plotfunc(airmass, t0, t1, f, fp, g):
-        tell = t0 + t1 * airmass
+        tell = t0 + t1 * airmass[:, None]
         tell = np.clip(tell, 0, 1)
         stel = f + g * (fp - f)  # np.diff(f, append=2 * f[-1] - f[-2])
         obs = tell * stel
         return obs
 
     def fitfunc(param):
-        # progress.update(1)
         t0 = 1
-        t1, f, fp = param
-        # n = r - l
-        # t0 = param[:n]
-        # t1 = param[n : 2 * n]
-        # f = param[2 * n :]
-        # fp = np.roll(f, -1)
-        model = plotfunc(airmass, t0, t1, f, fp, g[:, i])
-        resid = model - yflux[:, i]
-        # regularization = np.abs(f - fp)
+        n = param.size // 2
+        t1 = param[:n]
+        f = param[n:]
+        fp = np.roll(f, -1)
+        model = plotfunc(airmass, t0, t1, f, fp, g[:, l:r])
+        resid = model - yflux[:, l:r]
         return resid.ravel()
+
+    def regularization(param):
+        n = param.size // 2
+        t1 = param[:n]
+        f = param[n:]
+        d1 = np.gradient(t1)
+        d2 = np.gradient(f)
+        reg = np.concatenate((d1, d2))
+        return reg ** 2
 
     t0 = np.ones_like(coeff[:, 1])
     t1 = coeff[:, 0] / coeff[:, 1]
     t1[(t1 > 0.1) | (t1 < -2)] = -2
     f = np.copy(coeff[:, 1])
 
-    for k in tqdm(range(2)):
+    for k in tqdm(range(1)):
         for l, r in tqdm(
             zip(spectra.segments[:-1], spectra.segments[1:]),
             total=spectra.nseg,
             leave=False,
         ):
+            n = r - l
+
+            # Smooth first guess
+            mu = gaussian_filter1d(t1[l:r], 1)
+            var = gaussian_filter1d((t1[l:r] - mu) ** 2, 11)
+            sig = np.sqrt(var) * 80 + 0.5
+            sig = np.nan_to_num(sig)
+            smax = int(np.ceil(np.nanmax(sig))) + 1
+            points = [t1[l:r]] + [gaussian_filter1d(t1[l:r], i) for i in range(1, smax)]
+            smooth = RegularGridInterpolator((np.arange(smax), np.arange(n)), points)(
+                (sig, np.arange(n))
+            )
+            t1[l:r] = smooth
+
+            # plt.plot(t1[l:r])
+            # plt.plot(f[l:r])
+            # plt.show()
+
+            fold = np.copy(f[l:r])
+            told = np.copy(t1[l:r])
+
             # Bounds for the optimisation
-            lower, upper = [-2, 0, 0], [0, 1, 1]
-            for i in tqdm(range(l, r - 1), leave=False):
-                x0 = [t1[i], f[i], f[i + 1]]
-                x0 = np.nan_to_num(x0)
-                x0 = np.clip(x0, lower, upper)
-                res = least_squares(fitfunc, x0, method="trf", bounds=[lower, upper])
-                t0[i] = 1
-                t1[i], f[i] = res.x[0], res.x[1]
+            bounds = np.zeros((2, 2 * n))
+            bounds[0, :n], bounds[0, n:] = -2, 0
+            bounds[1, :n], bounds[1, n:] = 0, 1
+            x0 = np.concatenate((t1[l:r], f[l:r]))
+            x0 = np.clip(x0, bounds[0], bounds[1])
+
+            res = least_squares(
+                fitfunc,
+                x0,
+                method="trf",
+                bounds=bounds,
+                max_nfev=200,
+                tr_solver="lsmr",
+                tr_options={"atol": 1e-2, "btol": 1e-2},
+                jac_sparsity="auto",
+                regularization=regularization,
+                r_scale=0.2,
+                verbose=2,
+                diff_step=0.01,
+            )
+            t0[l:r] = 1
+            t1[l:r] = res.x[:n]
+            f[l:r] = res.x[n:]
+
+            # lower, upper = [-2, 0, 0], [0, 1, 1]
+            # for i in tqdm(range(l, r - 1), leave=False):
+            #     x0 = [t1[i], f[i], f[i + 1]]
+            #     x0 = np.nan_to_num(x0)
+            #     x0 = np.clip(x0, lower, upper)
+            #     res = least_squares(fitfunc, x0, method="trf", bounds=[lower, upper])
+            #     t0[i] = 1
+            #     t1[i], f[i] = res.x[0], res.x[1]
 
             # t0[l:r] = gaussian_filter1d(t0[l:r], 0.5)
-            t1[l:r] = gaussian_filter1d(t1[l:r], 0.5)
-            f[l:r] = gaussian_filter1d(f[l:r], 0.5)
+            # t1[l:r] = gaussian_filter1d(t1[l:r], 0.5)
+            # f[l:r] = gaussian_filter1d(f[l:r], 0.5)
 
         total = 0
         for i in range(len(spectra)):
@@ -146,16 +199,18 @@ def combine_observations(spectra: SpectrumArray):
     tell = np.clip(tell, 0, 1)
     tell = tell << spectra.flux.unit
 
+    # i = 10
+    # plt.plot(wavelength, yflux[i], label="observation")
+    # plt.plot(
+    #     wavelength,
+    #     plotfunc(airmass[i], t0, t1, f, np.roll(f, -1), g[i]),
+    #     label="combined",
+    # )
+    # plt.plot(wavelength, tell[i], label="telluric")
+    # plt.plot(wavelength, f, label="stellar")
+    # plt.legend()
+    # plt.show()
 
-    i = 10
-    plt.plot(wavelength, yflux[i], label="observation")
-    plt.plot(wavelength, plotfunc(airmass[i], t0, t1, f, np.roll(f, -1), g[i]), label="combined")
-    plt.plot(wavelength, tell[i], label="telluric")
-    plt.plot(wavelength, f, label="stellar")
-    plt.legend()
-    plt.show()
-
-    
     flux = np.tile(f, (len(spectra), 1))
     flux = flux << spectra.flux.unit
     wave = np.tile(wavelength, (len(spectra), 1)) << spectra.wavelength.unit
@@ -176,15 +231,15 @@ def combine_observations(spectra: SpectrumArray):
     )
 
     tell = SpectrumArray(
-        flux = tell,
+        flux=tell,
         spectral_axis=wave,
         uncertainty=uncs,
         segments=spectra.segments,
-        datetime =spectra.datetime,
+        datetime=spectra.datetime,
         star=spectra.star,
         planet=spectra.planet,
         observatory_location=spectra.observatory_location,
-        reference_frame="telescope"
+        reference_frame="telescope",
     )
 
     # print("Shift observations to the telescope restframe")
@@ -192,8 +247,7 @@ def combine_observations(spectra: SpectrumArray):
 
     # spec = spec.shift("telescope", inplace=True)
     spec = spec.resample(spectra.wavelength, method="linear", inplace=True)
-    tell = spec.resample(spectra.wavelength, method="linear", inplace=True)
-
+    tell = tell.resample(spectra.wavelength, method="linear", inplace=True)
 
     return spec, tell
 

@@ -410,35 +410,67 @@ nseg = normalized.nseg
 
 hitspec = HitranSpectrum()
 hitspec.datetime = normalized.datetime[i]
-hitspec.shift(normalized.reference_frame)
+hitspec = hitspec.shift(normalized.reference_frame)
 
-spec, null = solve_prepared(
-    normalized,
-    telluric_combined,
-    stellar_combined,
-    intensities_combined,
-    detector,
-    star,
-    planet,
-    solver="linear",
+import spectres
+
+hflux = spectres.spectres(
+    normalized.wavelength[i].to_value("AA")[::10],
+    hitspec.wavelength.to_value("AA"),
+    hitspec.flux.to_value(1),
 )
 
-print("Saving data...")
-spec.write(join(done_dir, f"planet_extracted.fits"))
-null.write(join(done_dir, f"null_extracted.fits"))
+hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux << u.one)
+
+# hitspec = hitspec.resample(normalized.wavelength[i], method="flux_conserving")
+
+# spec, null = solve_prepared(
+#     normalized,
+#     telluric_combined,
+#     stellar_combined,
+#     intensities_combined,
+#     detector,
+#     star,
+#     planet,
+#     solver="linear",
+# )
+
+# print("Saving data...")
+# spec.write(join(done_dir, f"planet_extracted.fits"))
+# null.write(join(done_dir, f"null_extracted.fits"))
 
 # TODO: put everything into one big extraction
-for seg in tqdm(range(nseg)):
+for seg in tqdm([16]):  # range(nseg)):
     print("Plotting results...")
     # spec._data = gaussian_filter1d(spec._data, nseg)
     # null._data = gaussian_filter1d(null._data, nseg)
     # spec = spec.resample(wavelength[segment], method="linear")
     # null = null.resample(wavelength[segment], method="linear")
 
+    spec, null = solve_prepared(
+        normalized,
+        telluric_combined,
+        stellar_combined,
+        intensities,
+        detector,
+        star,
+        planet,
+        solver="linear",
+        seg=seg,
+    )
+
+    print("Saving data...")
+    spec.write(join(done_dir, f"planet_extracted_{seg}.fits"))
+    null.write(join(done_dir, f"null_extracted_{seg}.fits"))
+
     plt.plot(
         wavelength[seg], flux[seg], label="normalized observation",
     )
-    plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux, label="planet model")
+    plt.plot(
+        hitspec.wavelength.to_value("AA"),
+        hitspec.flux.to_value(1),
+        label="planet model",
+    )
     plt.plot(
         spec.wavelength,
         (spec.flux - spec.flux.min()) / (spec.flux - spec.flux.min()).max(),
@@ -446,6 +478,7 @@ for seg in tqdm(range(nseg)):
     )
     plt.xlim(wavelength[seg][0].value, wavelength[seg][-1].value)
     plt.ylim(0, 2)
+    plt.title(f"Regularization weight: {spec.meta['regularization_weight']}")
     plt.ylabel("Flux, normalised")
     plt.xlabel("Wavelength [Å]")
     plt.legend()

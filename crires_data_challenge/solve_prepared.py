@@ -36,10 +36,10 @@ def solve_prepared(
     # for noise 0:  1
     # for noise 1%: 23
     print("Solving the problem...")
-    # spectra = spectra.get_segment(seg)
-    # telluric = telluric.get_segment(seg)
-    # stellar = stellar.get_segment(seg)
-    # intensities = intensities.get_segment(seg)
+    spectra = spectra.get_segment(seg)
+    telluric = telluric.get_segment(seg)
+    stellar = stellar.get_segment(seg)
+    intensities = intensities.get_segment(seg)
 
     times = spectra.datetime
     wavelength = spectra.wavelength.to_value(u.AA)
@@ -55,8 +55,8 @@ def solve_prepared(
             star,
             planet,
             regularization_ratio=1,
-            plot=True,
-            regularization_weight=None,  # 0.01,
+            plot=False,
+            regularization_weight=100,  # 0.01,
             method="Tikhonov",
         )
     elif solver == "spline":

@@ -11,220 +11,27 @@ from scipy.sparse.linalg import LinearOperator
 from scipy.optimize import _minpack, OptimizeResult
 from scipy.optimize._numdiff import approx_derivative, group_columns
 
-from .trf import trf
 from scipy.optimize._lsq.dogbox import dogbox
 from scipy.optimize._lsq.common import EPS, in_bounds, make_strictly_feasible
 
+from scipy.optimize._lsq.least_squares import (
+    TERMINATION_MESSAGES,
+    FROM_MINPACK_TO_COMMON,
+    call_minpack,
+    prepare_bounds,
+    check_tolerance,
+    check_x_scale,
+    check_jac_sparsity,
+    huber,
+    soft_l1,
+    cauchy,
+    arctan,
+)
 
-TERMINATION_MESSAGES = {
-    -1: "Improper input parameters status returned from `leastsq`",
-    0: "The maximum number of function evaluations is exceeded.",
-    1: "`gtol` termination condition is satisfied.",
-    2: "`ftol` termination condition is satisfied.",
-    3: "`xtol` termination condition is satisfied.",
-    4: "Both `ftol` and `xtol` termination conditions are satisfied.",
-}
-
-
-FROM_MINPACK_TO_COMMON = {
-    0: -1,  # Improper input parameters from MINPACK.
-    1: 2,
-    2: 3,
-    3: 4,
-    4: 1,
-    5: 0
-    # There are 6, 7, 8 for too small tolerance parameters,
-    # but we guard against it by checking ftol, xtol, gtol beforehand.
-}
-
-
-def call_minpack(fun, x0, jac, ftol, xtol, gtol, max_nfev, x_scale, diff_step):
-    n = x0.size
-
-    if diff_step is None:
-        epsfcn = EPS
-    else:
-        epsfcn = diff_step ** 2
-
-    # Compute MINPACK's `diag`, which is inverse of our `x_scale` and
-    # ``x_scale='jac'`` corresponds to ``diag=None``.
-    if isinstance(x_scale, str) and x_scale == "jac":
-        diag = None
-    else:
-        diag = 1 / x_scale
-
-    full_output = True
-    col_deriv = False
-    factor = 100.0
-
-    if jac is None:
-        if max_nfev is None:
-            # n squared to account for Jacobian evaluations.
-            max_nfev = 100 * n * (n + 1)
-        x, info, status = _minpack._lmdif(
-            fun, x0, (), full_output, ftol, xtol, gtol, max_nfev, epsfcn, factor, diag
-        )
-    else:
-        if max_nfev is None:
-            max_nfev = 100 * n
-        x, info, status = _minpack._lmder(
-            fun,
-            jac,
-            x0,
-            (),
-            full_output,
-            col_deriv,
-            ftol,
-            xtol,
-            gtol,
-            max_nfev,
-            factor,
-            diag,
-        )
-
-    f = info["fvec"]
-
-    if callable(jac):
-        J = jac(x)
-    else:
-        J = np.atleast_2d(approx_derivative(fun, x))
-
-    cost = 0.5 * np.dot(f, f)
-    g = J.T.dot(f)
-    g_norm = norm(g, ord=np.inf)
-
-    nfev = info["nfev"]
-    njev = info.get("njev", None)
-
-    status = FROM_MINPACK_TO_COMMON[status]
-    active_mask = np.zeros_like(x0, dtype=int)
-
-    return OptimizeResult(
-        x=x,
-        cost=cost,
-        fun=f,
-        jac=J,
-        grad=g,
-        optimality=g_norm,
-        active_mask=active_mask,
-        nfev=nfev,
-        njev=njev,
-        status=status,
-    )
-
-
-def prepare_bounds(bounds, n):
-    lb, ub = [np.asarray(b, dtype=float) for b in bounds]
-    if lb.ndim == 0:
-        lb = np.resize(lb, n)
-
-    if ub.ndim == 0:
-        ub = np.resize(ub, n)
-
-    return lb, ub
-
-
-def check_tolerance(ftol, xtol, gtol):
-    def check(tol, name):
-        if tol is None:
-            tol = 0
-        elif tol < EPS:
-            warn(
-                "Setting `{}` below the machine epsilon ({:.2e}) effectively "
-                "disables the corresponding termination condition.".format(name, EPS)
-            )
-        return tol
-
-    ftol = check(ftol, "ftol")
-    xtol = check(xtol, "xtol")
-    gtol = check(gtol, "gtol")
-
-    if ftol < EPS and xtol < EPS and gtol < EPS:
-        raise ValueError(
-            "At least one of the tolerances must be higher than "
-            "machine epsilon ({:.2e}).".format(EPS)
-        )
-
-    return ftol, xtol, gtol
-
-
-def check_x_scale(x_scale, x0):
-    if isinstance(x_scale, str) and x_scale == "jac":
-        return x_scale
-
-    try:
-        x_scale = np.asarray(x_scale, dtype=float)
-        valid = np.all(np.isfinite(x_scale)) and np.all(x_scale > 0)
-    except (ValueError, TypeError):
-        valid = False
-
-    if not valid:
-        raise ValueError(
-            "`x_scale` must be 'jac' or array_like with " "positive numbers."
-        )
-
-    if x_scale.ndim == 0:
-        x_scale = np.resize(x_scale, x0.shape)
-
-    if x_scale.shape != x0.shape:
-        raise ValueError("Inconsistent shapes between `x_scale` and `x0`.")
-
-    return x_scale
-
-
-def check_jac_sparsity(jac_sparsity, m, n):
-    if jac_sparsity is None:
-        return None
-
-    if not issparse(jac_sparsity):
-        jac_sparsity = np.atleast_2d(jac_sparsity)
-
-    if jac_sparsity.shape != (m, n):
-        raise ValueError("`jac_sparsity` has wrong shape.")
-
-    return jac_sparsity, group_columns(jac_sparsity)
+from .trf import trf
 
 
 # Loss functions.
-
-
-def huber(z, rho, cost_only):
-    mask = z <= 1
-    rho[0, mask] = z[mask]
-    rho[0, ~mask] = 2 * z[~mask] ** 0.5 - 1
-    if cost_only:
-        return
-    rho[1, mask] = 1
-    rho[1, ~mask] = z[~mask] ** -0.5
-    rho[2, mask] = 0
-    rho[2, ~mask] = -0.5 * z[~mask] ** -1.5
-
-
-def soft_l1(z, rho, cost_only):
-    t = 1 + z
-    rho[0] = 2 * (t ** 0.5 - 1)
-    if cost_only:
-        return
-    rho[1] = t ** -0.5
-    rho[2] = -0.5 * t ** -1.5
-
-
-def cauchy(z, rho, cost_only):
-    rho[0] = np.log1p(z)
-    if cost_only:
-        return
-    t = 1 + z
-    rho[1] = 1 / t
-    rho[2] = -1 / t ** 2
-
-
-def arctan(z, rho, cost_only):
-    rho[0] = np.arctan(z)
-    if cost_only:
-        return
-    t = 1 + z ** 2
-    rho[1] = 1 / t
-    rho[2] = -2 * z / t ** 2
 
 
 def linear(z, rho, cost_only):
@@ -235,16 +42,32 @@ def linear(z, rho, cost_only):
     rho[2] = 1
 
 
+def linear_regression(x):
+    return x ** 2
+
+
+def delta_regression(x):
+    x0 = (x[0] - x[1],)
+    xi = 2 * x[1:-1] - x[:-2] - x[2:]
+    xn = (x[-1] - x[-2],)
+    reg = np.concatenate((x0, xi, xn))
+    return reg ** 2
+
+
 IMPLEMENTED_LOSSES = dict(
     linear=linear, huber=huber, soft_l1=soft_l1, cauchy=cauchy, arctan=arctan
 )
 
 
-IMPLEMENTED_REGRESSIONS = {None: lambda x: 0}
+IMPLEMENTED_REGULARIZATIONS = {
+    None: lambda x: 0,
+    "linear": linear_regression,
+    "delta": delta_regression,
+}
 
 
-def construct_loss_function(m, n, loss, regression, f_scale, r_scale):
-    if loss == "linear" and regression is None:
+def construct_loss_function(m, n, loss, regularization, f_scale, r_scale):
+    if loss == "linear" and regularization is None:
         return None
 
     if not callable(loss):
@@ -271,20 +94,20 @@ def construct_loss_function(m, n, loss, regression, f_scale, r_scale):
             rho[2] /= f_scale ** 2
             return rho
 
-    if regression is not None:
-        if not callable(regression):
-            regression = IMPLEMENTED_REGRESSIONS[regression]
+    if regularization is not None:
+        if not callable(regularization):
+            regularization = IMPLEMENTED_REGULARIZATIONS[regularization]
 
         def regr_function(f, x, cost_only=False):
             rho = loss_function(f, cost_only=cost_only)
-            reg = regression(x)
+            reg = regularization(x)
             if cost_only:
                 return rho + r_scale ** 2 * np.sum(reg)
-            rho[0] += r_scale ** 2 * np.sum(reg)
+            rho[0] += r_scale ** 2 * np.sum(reg) / m
             return rho
 
     else:
-        regr_function = lambda f, x, cost_only: loss_function(f, cost_only)
+        regr_function = lambda f, x, cost_only: loss_function(f, cost_only=cost_only)
 
     return regr_function
 
@@ -300,7 +123,7 @@ def least_squares(
     gtol=1e-8,
     x_scale=1.0,
     loss="linear",
-    regression=None,
+    regularization=None,
     f_scale=1.0,
     r_scale=1.0,
     diff_step=None,
@@ -829,11 +652,20 @@ def least_squares(
             "`loss` must be one of {0} or a callable.".format(IMPLEMENTED_LOSSES.keys())
         )
 
+    if regularization not in IMPLEMENTED_REGULARIZATIONS and not callable(
+        regularization
+    ):
+        raise ValueError(
+            "`regularization` must be one of {0} or a callable.".format(
+                IMPLEMENTED_REGULARIZATIONS.keys()
+            )
+        )
+
     if method == "lm" and loss != "linear":
         raise ValueError("method='lm' supports only 'linear' loss function.")
 
-    if method == "lm" and regression is not None:
-        raise ValueError("method='lm' does not support regression.")
+    if method == "lm" and regularization is not None:
+        raise ValueError("method='lm' does not support regularization.")
 
     if verbose not in [0, 1, 2]:
         raise ValueError("`verbose` must be in [0, 1, 2].")
@@ -898,7 +730,9 @@ def least_squares(
             "residuals is less than the number of variables."
         )
 
-    loss_function = construct_loss_function(m, n, loss, regression, f_scale, r_scale)
+    loss_function = construct_loss_function(
+        m, n, loss, regularization, f_scale, r_scale
+    )
     if callable(loss):
         rho = loss_function(f0, x0)
         if rho.shape != (3, m):
@@ -947,8 +781,6 @@ def least_squares(
                     "tr_solver='exact' is incompatible " "with `jac_sparsity`."
                 )
 
-            jac_sparsity = check_jac_sparsity(jac_sparsity, m, n)
-
             def jac_wrapped(x, f):
                 J = approx_derivative(
                     fun,
@@ -966,6 +798,12 @@ def least_squares(
 
                 return J
 
+            if jac_sparsity == "auto":
+                jac_sparsity = None
+                J0 = jac_wrapped(x0, f0)
+                jac_sparsity = J0 != 0
+
+            jac_sparsity = check_jac_sparsity(jac_sparsity, m, n)
             J0 = jac_wrapped(x0, f0)
 
     if J0 is not None:
