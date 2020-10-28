@@ -188,7 +188,10 @@ def normalize_observation(
             # plt.show()
 
             xs = wave[left:right] - x0
-            spectra.flux[j, left:right] *= np.polyval(popt, xs)
+            value = np.polyval(popt, xs)
+            spectra.flux[j, left:right] *= value
+            if spectra.uncertainty is not None:
+                spectra.uncertainty.array[j, left:right] *= value
 
     # Remove airmass signal
     # TODO: this should be the time, not the obs number

@@ -15,6 +15,7 @@ import specutils.manipulation as specman
 from astropy import coordinates as coords
 from astropy.io import fits
 from astropy.time import Time
+from astropy.nddata import StdDevUncertainty
 
 import astroplan
 
@@ -711,7 +712,10 @@ class SpectrumArray(Sequence, SpectrumBase):
                 uunit = spectra[0][0].uncertainty.unit
                 self.uncertainty = np.zeros((nspec, npix)) << uunit
                 for i, spec in enumerate(spectra):
-                    self.uncertainty[i] = np.concatenate(spec.uncertainty)
+                    self.uncertainty[i] = np.concatenate(
+                        [unc.array for unc in spec.uncertainty]
+                    )
+                self.uncertainty = StdDevUncertainty(self.uncertainty)
             else:
                 self.uncertainty = None
 
@@ -806,6 +810,7 @@ class SpectrumArray(Sequence, SpectrumBase):
 
     def get_segment(self, seg):
         left, right = self.segments[seg : seg + 2]
+        left, right = int(left), int(right)
         wave = self.wavelength[:, left:right]
         flux = self.flux[:, left:right]
         if self.uncertainty is not None:
@@ -850,6 +855,7 @@ class SpectrumArray(Sequence, SpectrumBase):
         if "uncertainty" in data.keys():
             uncs_unit = data["uncertainty_unit"][()]
             uncs = data["uncertainty"] << u.Unit(uncs_unit)
+            uncs = StdDevUncertainty(uncs)
             meta["uncertainty"] = uncs
 
         self = cls(flux=flux, spectral_axis=wave, segments=segments, **meta)
@@ -884,6 +890,7 @@ class SpectrumArray(Sequence, SpectrumBase):
                 np.zeros(wavelength.shape, dtype=spectra.flux.dtype)
                 << spectra.flux.unit
             )
+            spectra.segments = [0, len(wavelength)]
         else:
             spectra = self
 

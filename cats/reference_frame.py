@@ -24,7 +24,7 @@ class ReferenceFrame:
             radial velocity
         """
         # This and from barycentric are just inverse to each other
-        return -self.to_barycentric(datetime)
+        return -1 * self.to_barycentric(datetime)
 
     def to_barycentric(self, datetime):
         """
@@ -90,10 +90,9 @@ class TelescopeFrame(ReferenceFrame):
 
     # @lru_cache(128)
     def to_barycentric(self, datetime):
-        self.sky.location = self.observatory
-        self.sky.obstime = datetime
-
-        correction = self.sky.radial_velocity_correction()
+        correction = self.sky.radial_velocity_correction(
+            kind="barycentric", obstime=datetime, location=self.observatory
+        )
         return correction
 
 

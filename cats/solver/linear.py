@@ -10,6 +10,7 @@ from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve, minimize_scalar, minimize
 from scipy.special import binom
+from scipy.sparse import csc_matrix, lil_matrix
 from astropy.constants import c
 from astropy import units as u
 from tqdm import tqdm
@@ -97,18 +98,18 @@ class LinearSolver(SolverBase):
         return solve_banded((1, 1), ab, g)
 
     def _Tikhonov(self, A, D, l, g):
-        return spsolve(A ** 2 + l ** 2 * D.T * D, A * g)
+        return spsolve(A.T * A + l ** 2 * D.T * D, A.T * g)
 
-    def Tikhonov(self, f, g, l, spacing=None):
-        """Solve f * x = g, with Tikhonov regularization parameter l
+    def Tikhonov(self, A, b, l, spacing=None):
+        """Solve A * x = b, with Tikhonov regularization parameter l
 
         Solve the equation diag(f) + l**2 * diag(f).I * D.T * D = g
         where D is the difference operator matrix, and diag the diagonal matrix
 
         Parameters:
         ----------
-        f : np.ndarray
-        g : np.ndarray
+        A : np.ndarray, or sparse matrix
+        b : np.ndarray
         l : float
             Tikhonov regularization parameter
         Returns
@@ -117,19 +118,15 @@ class LinearSolver(SolverBase):
             x
         """
 
-        f = np.asarray(f)
-        g = np.asarray(g)
-
         # Create the matrix A (and its inverse)
         if spacing is None:
-            n = np.arange(len(f))
+            n = A.shape[1]
             D = self.gradient_matrix(n)
         else:
             D = self.gradient_matrix(spacing)
-        A = diags(f, 0)
 
         # Solve the equation
-        sol = self._Tikhonov(A, D, l, g)
+        sol = self._Tikhonov(A, D, l, b)
         return sol
 
     def difference_matrix_2(self, spacing):
@@ -165,17 +162,18 @@ class LinearSolver(SolverBase):
         # n = self.difference_accuracy
         # factors = [(-1)**i * binom(n, i) for i in range(n + 1)]
 
-        # factors = [1, -2, 1]
+        factors = [-1, 2, -1]
 
-        # # first order
+        # first order
         # factors = np.array([3, -32, 168, -672, 0, 672, -168, 32, -3]) / 840
 
-        # # Why second order factors?
-        factors = np.array([-9, 128, -1008, 8064, -14350, 8064, -1008, 128, -9]) / 5040
+        # Why second order factors?
+        # factors = np.array([-9, 128, -1008, 8064, -14350, 8064, -1008, 128, -9]) / 5040
 
         nf = len(factors)
         offsets = np.arange(nf) - nf // 2
         columns = [np.full(size - abs(j), f) for j, f in zip(offsets, factors)]
+        columns[1][0] = columns[1][-1] = 1
         grad = diags(columns, offsets=offsets)
         return grad
 
@@ -214,7 +212,7 @@ class LinearSolver(SolverBase):
         lamb = np.abs(lamb[0])
         return lamb
 
-    def best_lambda(self, f, g, spacing=None):
+    def best_lambda(self, f, g, wavelength, times):
         """Use the L-curve algorithm to find the best regularization parameter lambda
 
         http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -266,21 +264,9 @@ class LinearSolver(SolverBase):
             j = -x * np.sin(angle) + y * ratio * np.cos(angle)
             return i, j
 
-        # reduce data, and filter nans
-        b, r = f, g
-        mask = np.isfinite(b) & np.isfinite(r)
-        b, r = b[mask], r[mask]
-
         # prepare matrices
-        if spacing is not None:
-            D = self.gradient_matrix(spacing)
-        else:
-            spacing = np.arange(len(b))
-            D = self.gradient_matrix(spacing)
-
-        # D = __fourier_matrix__(len(b))
-        A = diags(b, offsets=0)
-        A.I = diags(1 / b, 0)
+        w0, A, g = self.prepare_tikhonov(f, g, wavelength, times, reverse=False)
+        D = self.gradient_matrix(len(w0))
 
         # Calculate best lambda
         progress = tqdm(total=500)
@@ -289,7 +275,7 @@ class LinearSolver(SolverBase):
 
         # Just sample lots of points for a first guess
         ls = np.geomspace(1, 1e6, 300)
-        tmp = [get_point(l, A, D, r) for l in tqdm(ls)]
+        tmp = [get_point(l, A, D, g) for l in tqdm(ls)]
         x = np.array([t[0] for t in tmp])
         y = np.array([t[1] for t in tmp])
 
@@ -300,12 +286,12 @@ class LinearSolver(SolverBase):
         lamb = ls[i]
 
         # Improve the guess with a minimum solver
-        res = minimize(func, x0=[lamb], args=(ratio, A, D, r), method="Nelder-Mead")
+        res = minimize(func, x0=[lamb], args=(ratio, A, D, g), method="Nelder-Mead")
         lamb = res.x[0]
         progress.close()
 
         if self.plot:
-            p3 = get_point(lamb, A, D, r)
+            p3 = get_point(lamb, A, D, g)
             plt.plot(xp, yp, "+")
             plt.plot(p3[0], p3[1], "rd")
             # plt.loglog()
@@ -350,14 +336,63 @@ class LinearSolver(SolverBase):
         x0 = res.x
         return x0
 
-    def shift_wavelength(self, wavelength, times, reverse=False):
-        wavelength_shifted = np.copy(wavelength)
-        for i, time in tqdm(enumerate(times), total=len(times), leave=False):
-            rv = self.telescope_frame.to_frame(self.planet_frame, time)
-            beta = (rv / c).to_value(1)
-            beta *= -1 if reverse else 1
-            wavelength_shifted[i] *= np.sqrt((1 + beta) / (1 - beta))
-        return wavelength_shifted
+    def create_projection_matrix(self, wavelength_reference, wavelength_data):
+        w0 = wavelength_reference
+        proj = lil_matrix((wavelength_data.size, w0.size))
+        digits = np.digitize(wavelength_data, w0)
+        for i, (d, w) in tqdm(
+            enumerate(zip(digits, wavelength_data)), total=digits.size, leave=False
+        ):
+            tmp = (w - w0[d - 1]) / (w0[d] - w0[d - 1])
+            proj[i, d - 1] = 1 - tmp
+            proj[i, d] = tmp
+        proj = proj.tocsc()
+        return proj
+
+    def shift_wavelength(self, wavelength, times, reverse=False, copy=False):
+        if copy:
+            wavelength = np.copy(wavelength)
+        rv = self.telescope_frame.to_frame(self.planet_frame, times)
+        beta = (rv / c).to_value(1)
+        beta *= -1 if reverse else 1
+        wavelength *= np.sqrt((1 + beta) / (1 - beta))[:, None]
+        return wavelength
+
+    def prepare_tikhonov(self, f, g, wavelength, times, reverse=False):
+        wavelength = self.shift_wavelength(
+            wavelength, times, reverse=reverse, copy=True
+        )
+
+        # The middle observation is used as the arbitrary wavelength grid
+        # idx = np.argsort(times)[len(times) // 2]
+        # Factor 1.5 since we cover a larger wavelength range
+        w0 = []
+        diff = np.diff(wavelength[0])
+        idx = np.where(diff > 100 * np.median(diff))[0] + 1
+        idx = [0, *idx, len(wavelength[0]) - 1]
+        for left, right in zip(idx[:-1], idx[1:]):
+            w = wavelength[:, left:right]
+            w = np.geomspace(w.min(), w.max() + 0.1, num=(right - left) + 1)
+            w0 += [w]
+        w0 = np.concatenate(w0)
+
+        # Sort by wavelength
+        wave = wavelength.ravel()
+        f, g = f.ravel(), g.ravel()
+        idx = np.argsort(wave)
+        wave = wave[idx]
+        f, g = f[idx], g[idx]
+
+        # Remove Inf and NaN values
+        mask = np.isfinite(f) & np.isfinite(g)
+        # mask &= (f != 0) & (g != 0)
+        wave = wave[mask]
+        f, g = f[mask], g[mask]
+
+        # Setup linear interpolation scheme
+        proj = self.create_projection_matrix(w0, wave)
+        A = diags(f, 0) * proj
+        return w0, A, g
 
     def solve(
         self, times, wavelength, spectra, stellar, intensities, telluric, reverse=False
@@ -373,7 +408,7 @@ class LinearSolver(SolverBase):
         if self.regularization:
             if self.regularization_weight is None:
                 # regweight = 200
-                regweight = self.best_lambda(f, g)
+                regweight = self.best_lambda(f, g, wavelength, times)
                 print("Regularization weight: ", regweight)
             else:
                 regweight = self.regularization_weight
@@ -396,31 +431,9 @@ class LinearSolver(SolverBase):
             x0 = self.least_squares(f, g, wavelength, wavelength_shifted, regweight)
             wave = wavelength[0]
         elif self._method == "Tikhonov":
-            wave = []
-            for time, w in tqdm(zip(times, wavelength), total=len(times), leave=False):
-                rv = self.telescope_frame.to_frame(self.planet_frame, time)
-                beta = (rv / c).to_value(1)
-                beta *= -1 if reverse else 1
-                w = np.copy(w) * np.sqrt((1 + beta) / (1 - beta))
-                wave += [w]
-
-            # for i in [30, 51, 80]:
-            #     plt.plot(wave[i], g[i] / f[i])
-            # plt.title("Forward" if not reverse else "Reverse")
-            # plt.show()
-
-            wave = np.concatenate(wave)
-            f = f.ravel()
-            g = g.ravel()
-            idx = np.argsort(wave)
-            wave = wave[idx]
-            f, g = f[idx], g[idx]
-
-            mask = np.isfinite(f) & np.isfinite(g)
-            mask &= (f != 0) & (g != 0)
-            wave = wave[mask]
-            f, g = f[mask], g[mask]
-            x0 = self.Tikhonov(f, g, regweight)
+            # Run Tikhonov
+            w0, A, g = self.prepare_tikhonov(f, g, wavelength, times, reverse=reverse)
+            x0 = self.Tikhonov(A, g, regweight)
 
         # Normalize x0, each segment individually
         if self.normalize:
@@ -432,7 +445,7 @@ class LinearSolver(SolverBase):
 
         spec = Spectrum1D(
             flux=x0 << u.one,
-            spectral_axis=wave << u.AA,
+            spectral_axis=w0 << u.AA,
             source="Linear solver",
             description="recovered planet transmission spectrum",
             reference_frame="planet",

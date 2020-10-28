@@ -16,6 +16,8 @@ from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
 import astropy.constants as const
 
+from astropy.nddata import StdDevUncertainty
+
 
 import exoorbit
 from cats.data_modules.telluric_fit import TelluricFit
@@ -93,9 +95,13 @@ def collect_observations(files, additional_data):
                 if np.all(np.isnan(w)) or np.all(np.isnan(f)):
                     continue
 
+                # We just assume shot noise, no read out noise etc
+                unc = np.sqrt(np.abs(f))
+                unc = StdDevUncertainty(unc)
                 spec = Spectrum1D(
                     flux=f,
                     spectral_axis=w,
+                    uncertainty=unc,
                     source="CRIRES+ Data Challenge 1",
                     star=star,
                     planet=planet,
@@ -400,6 +406,29 @@ i = np.arange(101)[sort][51]
 # # But use the extracted stellar spectrum, to create the actual intensities
 intensities_combined = (intensities / stellar) * stellar_combined
 
+# TODO: How would SysRem help us?
+# It removes the trend from the airmass, but then we can't use the tellurics anymore
+# Unless we figure out the airmass that is being used by all the observations?
+from cats.pysysrem.sysrem import sysrem
+
+normalized_sysrem = deepcopy(normalized)
+corrected_flux = sysrem(normalized, num_errors=2, iterations=100)
+normalized_sysrem.flux = corrected_flux << normalized.flux.unit
+
+# vmin, vmax = np.nanpercentile(corrected_flux, (5, 95))
+# plt.imshow(corrected_flux, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
+# plt.show()
+
+# TODO: calculate the planet size from this plot
+# plt.plot(np.median(corrected_flux, axis=1))
+# plt.show()
+
+
+# telluric_corrected_flux = sysrem(telluric_combined.flux.to_value(1))
+# telluric_combined.flux = telluric_corrected_flux << telluric_combined.flux.unit
+
+# stellar_corrected_flux = sysrem(stellar_combined.flux.to_value(1))
+# stellar_combined.flux = stellar_corrected_flux << stellar_combined.flux.unit
 
 # 9: Solve the equation system
 i = np.arange(101)[sort][51]
@@ -428,7 +457,7 @@ hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux <<
 #     normalized,
 #     telluric_combined,
 #     stellar_combined,
-#     intensities_combined,
+#     intensities,
 #     detector,
 #     star,
 #     planet,
@@ -440,7 +469,7 @@ hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux <<
 # null.write(join(done_dir, f"null_extracted.fits"))
 
 # TODO: put everything into one big extraction
-for seg in tqdm([16]):  # range(nseg)):
+for seg in tqdm(range(nseg)):
     print("Plotting results...")
     # spec._data = gaussian_filter1d(spec._data, nseg)
     # null._data = gaussian_filter1d(null._data, nseg)
@@ -448,8 +477,8 @@ for seg in tqdm([16]):  # range(nseg)):
     # null = null.resample(wavelength[segment], method="linear")
 
     spec, null = solve_prepared(
-        normalized,
-        telluric_combined,
+        normalized_sysrem,
+        telluric,
         stellar_combined,
         intensities,
         detector,

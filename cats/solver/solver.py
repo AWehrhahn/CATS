@@ -45,26 +45,36 @@ class SolverBase:
 
         orb = Orbit(self.star, self.planet)
         area = orb.stellar_surface_covered_by_planet(times)
-        model = stellar * telluric
+        # model = stellar * telluric
 
-        # Normalize the profile of the observations
-        profile = np.nanmean(spectra, axis=1)
-        model_profile = np.nanmean(model, axis=1)
-        norm = profile / model_profile
+        # # Normalize the profile of the observations
+        # profile = np.nanmean(spectra, axis=1)
+        # model_profile = np.nanmean(model, axis=1)
+        # norm = profile / model_profile
 
-        model = stellar * telluric * norm[:, None]
-        diff = spectra - model
+        # # Normalize the spectrum
+        # model = stellar * telluric * norm[:, None]
+        # profile = np.median(spectra, axis=0)
+        # model_profile = np.median(model, axis=0)
+
+        # nm = np.nanmedian(profile / model_profile)
+        # norm *= nm
+
+        # model = stellar * telluric * norm[:, None]
+        # diff = spectra - model
+
+        # model = np.nanmedian(spectra, axis=0)
 
         f = -(
             np.nan_to_num(intensities)
             * self.area_atmosphere
             / self.area_planet
             * area[:, None]
-            * telluric
-            * norm[:, None]
+            * np.nan_to_num(telluric, nan=1)
+            # * norm[:, None]
         )
         # g = spectra - (stellar - intensities * area[:, None]) * telluric * norm[:, None]
-        g = spectra - stellar * telluric * norm[:, None]
+        g = spectra
 
         return wavelength, f, g
 

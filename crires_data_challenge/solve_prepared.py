@@ -56,7 +56,7 @@ def solve_prepared(
             planet,
             regularization_ratio=1,
             plot=False,
-            regularization_weight=100,  # 0.01,
+            regularization_weight=1,  # 0.01,
             method="Tikhonov",
         )
     elif solver == "spline":

@@ -1,5 +1,6 @@
 from os.path import dirname, join
 
+import numpy as np
 from tqdm import tqdm
 
 from ..data_modules.sme import SmeStellar, SmeIntensities
@@ -34,7 +35,6 @@ def create_stellar(wrange, spectra: SpectrumArray, times, method="sme", **kwargs
         spec = spec.resample(wave, method="linear")
         result += [spec]
 
-    
     result = SpectrumArray(result)
     return result
 
@@ -72,4 +72,5 @@ def create_telluric(wrange, spectra, star, observatory, times, source="model"):
     if spec.reference_frame != reference_frame:
         spec = spec.shift(reference_frame, inplace=True)
     spec = spec.resample(spectra.wavelength, inplace=False, method="linear")
+    spec.segments = np.copy(spectra.segments)
     return spec

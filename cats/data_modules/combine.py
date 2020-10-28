@@ -146,14 +146,15 @@ def combine_observations(spectra: SpectrumArray):
             # plt.plot(f[l:r])
             # plt.show()
 
-            fold = np.copy(f[l:r])
-            told = np.copy(t1[l:r])
+            # fold = np.copy(f[l:r])
+            # told = np.copy(t1[l:r])
 
             # Bounds for the optimisation
             bounds = np.zeros((2, 2 * n))
             bounds[0, :n], bounds[0, n:] = -2, 0
             bounds[1, :n], bounds[1, n:] = 0, 1
             x0 = np.concatenate((t1[l:r], f[l:r]))
+            x0 = np.nan_to_num(x0)
             x0 = np.clip(x0, bounds[0], bounds[1])
 
             res = least_squares(
@@ -187,12 +188,12 @@ def combine_observations(spectra: SpectrumArray):
             # t1[l:r] = gaussian_filter1d(t1[l:r], 0.5)
             # f[l:r] = gaussian_filter1d(f[l:r], 0.5)
 
-        total = 0
-        for i in range(len(spectra)):
-            total += np.sum(
-                (plotfunc(airmass[i], t0, t1, f, np.roll(f, -1), g[i]) - yflux[i]) ** 2
-            )
-        print(total)
+        # total = 0
+        # for i in range(len(spectra)):
+        #     total += np.sum(
+        #         (plotfunc(airmass[i], t0, t1, f, np.roll(f, -1), g[i]) - yflux[i]) ** 2
+        #     )
+        # print(total)
 
     # TODO: t0 should be 1 in theory, however it is not in practice because ?
     tell = t0 + t1 * airmass[:, None]
@@ -211,7 +212,8 @@ def combine_observations(spectra: SpectrumArray):
     # plt.legend()
     # plt.show()
 
-    flux = np.tile(f, (len(spectra), 1))
+    flux = f + g * (np.roll(f, -1, axis=0) - f)
+    # flux = np.tile(f, (len(spectra), 1))
     flux = flux << spectra.flux.unit
     wave = np.tile(wavelength, (len(spectra), 1)) << spectra.wavelength.unit
     uncs = np.nanstd(flux, axis=0)
