@@ -17,7 +17,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from .solver import SolverBase
-from ..least_squares import least_squares
+from ..least_squares.least_squares import least_squares
 
 from ..reference_frame import TelescopeFrame, PlanetFrame
 from ..spectrum import Spectrum1D
@@ -327,7 +327,7 @@ class LinearSolver(SolverBase):
             x0=np.ones(n),
             method="trf",
             verbose=2,
-            regression=regression,
+            regularization=regression,
             r_scale=regweight,
             args=[p],
             tr_solver="lsmr",
@@ -349,23 +349,22 @@ class LinearSolver(SolverBase):
         proj = proj.tocsc()
         return proj
 
-    def shift_wavelength(self, wavelength, times, reverse=False, copy=False):
+    def shift_wavelength(self, wavelength, times, reverse=False, copy=False, rv=None):
         if copy:
             wavelength = np.copy(wavelength)
-        rv = self.telescope_frame.to_frame(self.planet_frame, times)
+        if rv is None:
+            rv = self.telescope_frame.to_frame(self.planet_frame, times)
         beta = (rv / c).to_value(1)
         beta *= -1 if reverse else 1
         wavelength *= np.sqrt((1 + beta) / (1 - beta))[:, None]
         return wavelength
 
-    def prepare_tikhonov(self, f, g, wavelength, times, reverse=False):
+    def prepare_tikhonov(self, f, g, wavelength, times, reverse=False, rv=None):
         wavelength = self.shift_wavelength(
-            wavelength, times, reverse=reverse, copy=True
+            wavelength, times, reverse=reverse, copy=True, rv=rv
         )
 
-        # The middle observation is used as the arbitrary wavelength grid
-        # idx = np.argsort(times)[len(times) // 2]
-        # Factor 1.5 since we cover a larger wavelength range
+        # Make our own wavelength grid
         w0 = []
         diff = np.diff(wavelength[0])
         idx = np.where(diff > 100 * np.median(diff))[0] + 1
@@ -395,7 +394,15 @@ class LinearSolver(SolverBase):
         return w0, A, g
 
     def solve(
-        self, times, wavelength, spectra, stellar, intensities, telluric, reverse=False
+        self,
+        times,
+        wavelength,
+        spectra,
+        stellar,
+        intensities,
+        telluric,
+        reverse=False,
+        rv=None,
     ):
         """
         Find the least-squares solution to the linear equation
@@ -432,7 +439,9 @@ class LinearSolver(SolverBase):
             wave = wavelength[0]
         elif self._method == "Tikhonov":
             # Run Tikhonov
-            w0, A, g = self.prepare_tikhonov(f, g, wavelength, times, reverse=reverse)
+            w0, A, g = self.prepare_tikhonov(
+                f, g, wavelength, times, reverse=reverse, rv=rv
+            )
             x0 = self.Tikhonov(A, g, regweight)
 
         # Normalize x0, each segment individually

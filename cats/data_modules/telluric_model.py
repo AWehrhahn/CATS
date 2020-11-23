@@ -96,8 +96,16 @@ class TelluricModel(DataSource):
         #     self.points, self.spectra.T, "linear", fill_value="extrapolate"
         # )(airmass)
 
+        if not hasattr(airmass, "__len__"):
+            airmass = [
+                airmass,
+            ]
+
         flux = RegularGridInterpolator((self.points,), self.spectra)(airmass)
         flux = np.clip(flux, 0, 1)
+
+        if len(airmass) == 1:
+            flux = flux[0]
 
         wave = self.wavelength
         flux = flux << u.one

@@ -31,15 +31,16 @@ def solve_prepared(
     planet,
     seg=5,
     solver="linear",
+    rv=None,
 ):
     # regweight:
     # for noise 0:  1
     # for noise 1%: 23
     print("Solving the problem...")
-    spectra = spectra.get_segment(seg)
-    telluric = telluric.get_segment(seg)
-    stellar = stellar.get_segment(seg)
-    intensities = intensities.get_segment(seg)
+    # spectra = spectra.get_segment(seg)
+    # telluric = telluric.get_segment(seg)
+    # stellar = stellar.get_segment(seg)
+    # intensities = intensities.get_segment(seg)
 
     times = spectra.datetime
     wavelength = spectra.wavelength.to_value(u.AA)
@@ -56,7 +57,7 @@ def solve_prepared(
             planet,
             regularization_ratio=1,
             plot=False,
-            regularization_weight=1,  # 0.01,
+            regularization_weight=0.05,  # 0.01,
             method="Tikhonov",
         )
     elif solver == "spline":
@@ -68,7 +69,9 @@ def solve_prepared(
             "Unrecognized solver option {solver} expected one of ['linear', 'spline', 'bayesian']"
         )
 
-    spec = solver.solve(times, wavelength, spectra, stellar, intensities, telluric)
+    spec = solver.solve(
+        times, wavelength, spectra, stellar, intensities, telluric, rv=rv
+    )
     solver.regularization_weight = spec.meta["regularization_weight"]
     null = solver.solve(
         times, wavelength, spectra, stellar, intensities, telluric, reverse=True

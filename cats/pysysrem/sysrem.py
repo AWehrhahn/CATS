@@ -12,45 +12,55 @@ import astropy.io.ascii as at
 import numpy as np
 from tqdm import tqdm
 
+from ..spectrum import SpectrumBase
+
 from . import source_lc
 
 # Set the output print options:
 # np.set_printoptions(threshold=np.nan, precision=6)
 
 
-def generate_matrix(spectra):
+def generate_matrix(spectra, errors=None):
 
-    print("generating residuals matrix")
+    # print("generating residuals matrix")
     epoch_dim, stars_dim = spectra.shape
     # Calculate the median along the epoch axis
-    flux = spectra.flux.to_value(1)
-    median_list = np.median(flux, axis=0)
+    if isinstance(spectra, SpectrumBase):
+        flux = spectra.flux.to_value(1)
+        if errors is None and spectra.uncertainty is not None:
+            errors = spectra.uncertainty.array
+    else:
+        flux = spectra
+
+    median_list = np.nanmedian(flux, axis=0)
     # Calculate residuals from the ORIGINAL light curve
     residuals = (flux - median_list).T
     # For the data points with quality flags != 0,
     # set the errors to a large value
-    if spectra.uncertainty is not None:
-        errors = spectra.uncertainty.array.T
-    else:
+
+    if errors is None:
         errors = np.sqrt(np.abs(flux)).T
-    print("finished matrix")
+    else:
+        errors = errors.T
+
+    # print("finished matrix")
 
     return residuals, errors, median_list, flux
 
 
-def sysrem(input_star_list, num_errors=5, iterations=10):
+def sysrem(input_star_list, num_errors=5, iterations=10, errors=None):
 
-    residuals, errors, median_list, star_list = generate_matrix(input_star_list)
+    residuals, errors, median_list, star_list = generate_matrix(input_star_list, errors)
     stars_dim, epoch_dim = residuals.shape
 
-    print("starting sysrem")
+    # print("starting sysrem")
 
     # This medians.txt file is a 2D list with the first column being the medians
     # of stars' magnitudes at different epochs (the good ones) and their
     # standard deviations, so that they can be plotted against the results after
     # errors are taken out below.
     for n in tqdm(
-        range(num_errors), desc="Removing Systematic #"
+        range(num_errors), desc="Removing Systematic #", leave=False
     ):  # The number of linear systematics to remove
         c = np.zeros(stars_dim)
         a = np.ones(epoch_dim)

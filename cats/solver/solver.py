@@ -8,6 +8,8 @@ from scipy.sparse import diags
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import interp1d
 
+from ..pysysrem.sysrem import sysrem
+
 from exoorbit.orbit import Orbit
 from ..least_squares.least_squares import least_squares
 from ..reference_frame import PlanetFrame, TelescopeFrame
@@ -45,14 +47,14 @@ class SolverBase:
 
         orb = Orbit(self.star, self.planet)
         area = orb.stellar_surface_covered_by_planet(times)
-        # model = stellar * telluric
+        model = stellar * telluric
 
-        # # Normalize the profile of the observations
-        # profile = np.nanmean(spectra, axis=1)
-        # model_profile = np.nanmean(model, axis=1)
-        # norm = profile / model_profile
+        # Normalize the profile of the observations
+        profile = np.nanmean(spectra, axis=1)
+        model_profile = np.nanmean(model, axis=1)
+        norm = profile / model_profile
 
-        # # Normalize the spectrum
+        # Normalize the spectrum
         # model = stellar * telluric * norm[:, None]
         # profile = np.median(spectra, axis=0)
         # model_profile = np.median(model, axis=0)
@@ -71,10 +73,16 @@ class SolverBase:
             / self.area_planet
             * area[:, None]
             * np.nan_to_num(telluric, nan=1)
-            # * norm[:, None]
+            * norm[:, None]
         )
-        # g = spectra - (stellar - intensities * area[:, None]) * telluric * norm[:, None]
-        g = spectra
+        g = spectra - stellar * telluric * norm[:, None]
+        g = sysrem(g, 5)
+
+        # norm = np.nanstd(g, axis=0)
+        # f /= norm
+        # g /= norm
+
+        f = f.to_value(1)
 
         return wavelength, f, g
 

@@ -183,9 +183,26 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
         wave = fits.Column(
             name="wavelength", array=wave.value, format="D", coord_unit=wave_unit
         )
-        flux = fits.Column(
-            name="flux", array=flux.value, format="D", coord_unit=flux_unit
-        )
+
+        if flux.ndim == 1:
+            flux = fits.Column(
+                name="flux", array=flux.value, format="D", coord_unit=flux_unit,
+            )
+        elif flux.ndim == 2:
+            flux = fits.Column(
+                name="flux",
+                array=flux.value.T,
+                format=f"{flux.shape[0]}D",
+                coord_unit=flux_unit,
+            )
+        else:
+            flux = fits.Column(
+                name="flux",
+                array=flux.value.T,
+                format=f"{flux.shape[0]}D",
+                dim=flux.shape[1:],
+                coord_unit=flux_unit,
+            )
 
         header = {
             "SOURCE": self.meta["source"],
@@ -231,6 +248,9 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
         wave = data["wavelength"] << wunit
         flux = data["flux"] << funit
 
+        if flux.ndim >= 2:
+            flux = flux.T
+
         meta["source"] = header["SOURCE"]
         meta["description"] = header["DESCR"]
         meta["citation"] = header["CITATION"]
@@ -238,17 +258,24 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
         meta["reference_frame"] = header["REFFRAME"]
 
         sdb = StellarDb()
+        star = None
         if "STAR" in header:
             star = header["STAR"]
-            star = sdb.get(star)
-            meta["star"] = star
+            try:
+                star = sdb.get(star)
+                meta["star"] = star
+            except AttributeError:
+                # TODO: warning, or empty star or something
+                star = None
+                pass
         if "PLANET" in header:
             planet = header["PLANET"]
-            planet = star.planets[planet]
-            meta["planet"] = planet
+            if star is not None:
+                planet = star.planets[planet]
+                meta["planet"] = planet
         if "OBSNAME" in header:
             meta["observatory_location"] = header["OBSNAME"]
-        elif "OBSLON" in header:
+        elif "OBSLON" in header and "OBSLAT" in header and "OBSALT" in header:
             meta["observatory_location"] = (
                 header["OBSLON"],
                 header["OBSLAT"],
@@ -257,7 +284,8 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
         if "RA" in header and "DEC" in header:
             ra = coords.Angle(header["RA"], "hourangle")
             dec = header["DEC"] * u.deg
-            meta["star"].coordinates = coords.SkyCoord(ra, dec)
+            if "star" in meta.keys():
+                meta["star"].coordinates = coords.SkyCoord(ra, dec)
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 
@@ -270,7 +298,7 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
     @staticmethod
     def read(fname):
         hdulist = fits.open(fname)
-        spec = Spectrum1D._read_fits_hdu(hdulist[0])
+        spec = Spectrum1D._read_fits_hdu(hdulist[1])
         return spec
 
     def shift(self, target_frame, inplace=False, rv=None):
@@ -317,8 +345,8 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
             shifted = np.copy(self.wavelength)
         else:
             shifted = self.wavelength
-        beta = rv / const.c
-        shifted = shifted * np.sqrt((1 + beta) / (1 - beta))
+        beta = (rv / const.c).to_value(1)
+        shifted *= np.sqrt((1 + beta) / (1 - beta))
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:
@@ -861,14 +889,22 @@ class SpectrumArray(Sequence, SpectrumBase):
         self = cls(flux=flux, spectral_axis=wave, segments=segments, **meta)
         return self
 
-    def shift(self, target_frame, inplace=True):
+    def shift(self, target_frame, inplace=True, rv=None):
         if not inplace:
             spectra = deepcopy(self)
         else:
             spectra = self
 
+        try:
+            target_frame = self.reference_frame_from_name(target_frame)
+        except ValueError:
+            pass
+
+        if rv is None:
+            rv = self.reference_frame.to_frame(target_frame, self.datetime)
+
         meta = self.meta.copy()
-        for i in tqdm(range(len(spectra))):
+        for i in tqdm(range(len(spectra)), leave=False):
             meta["datetime"] = spectra.datetime[i]
             if spectra.uncertainty is not None:
                 meta["uncertainty"] = spectra.uncertainty[i]
@@ -876,28 +912,33 @@ class SpectrumArray(Sequence, SpectrumBase):
             spec = Spectrum1D(
                 flux=spectra.flux[i], spectral_axis=spectra.wavelength[i], **meta
             )
-            spec = spec.shift(target_frame, inplace=True)
+            spec = spec.shift(target_frame, rv=rv[i], inplace=True)
+            spectra.wavelength[i] = spec.wavelength
             target_frame = spec.reference_frame
 
         spectra.meta["reference_frame"] = target_frame
         return spectra
 
     def resample(self, wavelength, inplace=False, **kwargs):
+        n_spectra = self.flux.shape[0]
+
+        if np.ndim(wavelength) == 1:
+            wavelength = np.tile(wavelength, (n_spectra, 1))
+
+        n_wave_points = wavelength.shape[1]
+
         if not inplace:
             spectra = deepcopy(self)
             spectra.wavelength = np.copy(wavelength)
             spectra.flux = (
-                np.zeros(wavelength.shape, dtype=spectra.flux.dtype)
+                np.zeros((n_spectra, n_wave_points), dtype=spectra.flux.dtype)
                 << spectra.flux.unit
             )
             spectra.segments = [0, len(wavelength)]
         else:
             spectra = self
 
-        if np.ndim(wavelength) == 1:
-            wavelength = [wavelength for i in range(len(self))]
-
-        for i in tqdm(range(len(self))):
+        for i in tqdm(range(len(self)), leave=False):
             meta = {}
             if self.uncertainty is not None:
                 meta["uncertainty"] = self.uncertainty[i]
@@ -907,5 +948,6 @@ class SpectrumArray(Sequence, SpectrumBase):
             spec = spec.resample(wavelength[i], inplace=inplace, **kwargs)
             if not inplace:
                 spectra.flux[i] = spec.flux
+            spectra.wavelength[i] = wavelength[i]
 
         return spectra

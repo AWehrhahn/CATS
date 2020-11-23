@@ -27,16 +27,19 @@ class HitranSpectrum(Spectrum1D):
             fname, skiprows=1, header=None, names=["wavelength", "flux"], sep="\s+"
         )
         wavelength = df["wavelength"].values << u.Unit("cm")
+        wavelength = wavelength.to("AA")
         flux = df["flux"].values
+
         # flux = gaussian_filter1d(flux, 20)
         # flux -= np.min(flux)
         # flux /= np.max(flux)
-        flux = np.sqrt(1 - flux)
-        flux -= np.min(flux)
-        flux = 1 - flux ** 2
 
-        flux -= np.min(flux)
-        flux /= np.max(flux)
+        # flux = np.sqrt(1 - flux)
+        # flux -= np.min(flux)
+        # flux = 1 - flux ** 2
+
+        # flux -= np.min(flux)
+        # flux /= np.max(flux)
 
         flux = flux << u.one
 
@@ -50,4 +53,5 @@ if __name__ == "__main__":
 
     hitspec = HitranSpectrum()
     plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux)
+    plt.xscale("log")
     plt.show()

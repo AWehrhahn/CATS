@@ -3,6 +3,10 @@ import os
 from os.path import basename, dirname, exists, join
 from copy import deepcopy
 
+import plotly.offline as py
+import plotly.graph_objs as go
+from plotly.io import write_image
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,15 +19,16 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import least_squares
 from scipy.interpolate import interp1d
 import astropy.constants as const
+from scipy.signal import find_peaks
 
 from astropy.nddata import StdDevUncertainty
-
 
 import exoorbit
 from cats.data_modules.telluric_fit import TelluricFit
 from scipy.ndimage.morphology import binary_erosion, binary_dilation
 
 from cats.data_modules.stellar_db import StellarDb
+from cats.data_modules.telluric_model import TelluricModel
 from cats.extractor.extract_stellar_parameters import (
     extract_stellar_parameters,
     first_guess,
@@ -41,6 +46,7 @@ from simulate_planet import simulate_planet
 from solve_prepared import solve_prepared
 from hitran_linelist import Hitran, HitranSpectrum
 from planet_spectra import load_planet
+from radtrans import radtrans
 
 from tellurics.tellurics import TapasTellurics
 
@@ -296,6 +302,7 @@ else:
     star = Star.load(fname)
 
 # From info about the star
+star.name = "HD209458"
 star.radial_velocity = -14.743 * (u.km / u.s)
 
 
@@ -406,18 +413,241 @@ i = np.arange(101)[sort][51]
 # # But use the extracted stellar spectrum, to create the actual intensities
 intensities_combined = (intensities / stellar) * stellar_combined
 
+
+# TODO: is this wavelength scale in air or in vacuum????
+# It's the same as telluric, so it should be in air!
+# but CRIRES is in vacuum!
+fname = join(medium_dir, "reference_petitRADTRANS.fits")
+if not exists(fname) or False:
+    # Use planet model as reference
+    # TODO: use petitRadtrans Code to create the reference spectrum
+    # Currently we use the input spectrum!!!
+    # ref = HitranSpectrum()
+    wmin = 1 * u.um
+    wmax = 3 * u.um
+    ref = radtrans([wmin, wmax], star, planet)
+    print("Done with PetitRadtrans")
+    ref.write(fname)
+else:
+    ref = Spectrum1D.read(fname)
+
+# from cats.utils import air2vac, vac2air
+
+from specutils.utils.wcs_utils import vac_to_air, air_to_vac
+
+# Rescaled to 0 to 1
+f = np.sqrt(1 - ref.flux)
+f -= f.min()
+f /= f.max()
+f = 1 - f ** 2
+
+ref = Spectrum1D(spectral_axis=ref.wavelength, flux=f, reference_frame="barycentric")
+
+fname = join(medium_dir, "reference_telluric.fits")
+if not exists(fname) or False:
+    # # Use airmass 2 spectrum as reference
+    tmodel = TelluricModel(star, observatory)
+    ref_tell = tmodel.interpolate_spectra(2)
+    ref_tell.write(fname)
+else:
+    ref_tell = Spectrum1D.read(fname)
+
+# ref_tell = Spectrum1D(flux=telluric.flux[50], spectral_axis=telluric.wavelength[50])
+# ref_tell.flux[:] = ref_tell.flux * stellar.flux[50]
+# # Scale telluric spectrum to the same scale as the model flux
+# rmin = ref.flux.min()
+# rmax = ref.flux.max()
+# ref_tell.flux[:] = ref_tell.flux * (rmax - rmin) + rmin
+# ref = ref_tell
+
+rv_range = 100
+rv_points = 201
+
+fname = join(medium_dir, "corr_reference.npz")
+if not exists(fname) or False:
+    ref.star = star
+    ref.observatory_location = observatory
+    ref.datetime = spectra.datetime[50]
+    ref_wave = np.copy(spectra.wavelength[50])
+    reference = np.zeros((rv_points, ref_wave.size))
+
+    rv = np.linspace(-rv_range, rv_range, num=rv_points)
+    rv = rv << (u.km / u.s)
+
+    for i in tqdm(range(rv_points)):
+        tmp = ref.shift("barycentric", rv=rv[i], inplace=False)
+        tmp = tmp.resample(ref_wave, inplace=False, method="linear")
+        reference[i] = np.nan_to_num(tmp.flux.to_value(1))
+
+    reference = reference << u.one
+    reference = Spectrum1D(
+        spectral_axis=ref_wave, flux=reference, datetime=spectra.datetime[50]
+    )
+    reference.write(fname)
+else:
+    reference = Spectrum1D.read(fname)
+
+# We are only looking at the difference between the median and the observation
+# Thus additional absorption would result in a negative signal at points of large absorption
+reference.flux[:] -= 1
+
+# Add absorption for fun
+# for i in range(20, 80):
+#     normalized.flux[i] -= 1e-3 * reference.flux[-12 + i]
+
 # TODO: How would SysRem help us?
 # It removes the trend from the airmass, but then we can't use the tellurics anymore
 # Unless we figure out the airmass that is being used by all the observations?
 from cats.pysysrem.sysrem import sysrem
 
-normalized_sysrem = deepcopy(normalized)
-corrected_flux = sysrem(normalized, num_errors=2, iterations=100)
-normalized_sysrem.flux = corrected_flux << normalized.flux.unit
+
+fname = join(medium_dir, "correlation.npz")
+if not exists(fname) or False:
+    # # Mask strong telluric absorbtion (and nan values)
+    # mask = telluric.flux.to_value(1) >= 0.1
+    # # but not nans at the side?
+    # # TODO: have tellurics without nans at the border
+    # mask |= np.isnan(telluric.flux.to_value(1))
+    # mask = mask[:90]
+    # mask |= np.any(mask, axis=0)
+
+    # flux = normalized.shift("barycentric", inplace=False)
+    # flux = flux.resample(spectra.wavelength[50], inplace=True)
+    flux = normalized.flux.to_value(1)
+    flux = flux[:90]
+    unc = spectra.uncertainty.array[:90]
+
+    correlation = {}
+    for n in tqdm(range(3), desc="Sysrem N"):
+        corrected_flux = sysrem(flux, num_errors=n, iterations=10, errors=unc)
+        # Mask strong tellurics
+        # corrected_flux[~mask] = np.nan
+        # corrected_flux -= gaussian_filter1d(corrected_flux, 20, axis=1)
+        std = np.nanstd(corrected_flux, axis=0)
+        std[std == 0] = 1
+        corrected_flux /= std
+        # corrected_flux += np.median(normalized.flux.to_value(1), axis=0)
+        # normalized_sysrem.flux = corrected_flux << normalized.flux.unit
+
+        # Observations 90 to 101 have weird stuff
+        corr = np.zeros((90, rv_points))
+        for i in tqdm(range(90), leave=False, desc="Observation"):
+            for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
+                for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
+                    m = np.isnan(corrected_flux[i, left:right])
+                    m |= np.isnan(reference.flux[j, left:right].to_value(1))
+                    m = ~m
+                    # Cross correlate!
+                    corr[i, j] += np.correlate(
+                        corrected_flux[i, left:right][m],
+                        reference.flux[j, left:right][m].to_value(1),
+                        "valid",
+                    )
+                    # Normalize to the number of data points used
+                    corr[i, j] *= m.size / np.count_nonzero(m)
+
+        correlation[f"{n}"] = np.copy(corr)
+        for i in tqdm(range(5), leave=False, desc="Sysrem on Cross Correlation"):
+            correlation[f"{n}.{i}"] = sysrem(np.copy(corr), i)
+
+    # Save the results
+    np.savez(fname, **correlation)
+else:
+    correlation = np.load(fname)
+
+
+n, i = 2, 4
+corr = correlation[f"{n}.{i}"]
+# vmin, vmax = np.nanpercentile(correlation[f"{n}.{i}"], (5, 95))
+# plt.imshow(correlation[f"{n}.{i}"], aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
+# plt.title(f"N Sysrem: {n}")
+# plt.xticks(
+#     np.linspace(0, rv_points, 21), labels=np.linspace(-rv_range, rv_range, 21),
+# )
+# plt.xlabel("v [km/s]")
+# plt.ylabel("n observation")
+# plt.show()
+
+tmp = np.copy(corr)
+tmp -= gaussian_filter1d(corr, 20, axis=0)
+tmp -= gaussian_filter1d(corr, 20, axis=1)
+tmp -= np.nanmedian(tmp)
+corr = tmp
+
+# Fit the detected cross correlation signal with a model
+# TODO: find decent initial values on your own
+# TODO: maybe use MCMC?
+n_obs = spectra.shape[0]
+A = np.nanpercentile(corr, 99)
+# This starting value is very important!!!
+# v_sys = star.radial_velocity.to_value("km/s")
+v_sys = -35  # Star radial velocity + barycentric correction
+v_planet = 30 / 60
+sig = 2
+lower, upper = 20, 80
+x0 = [v_sys, v_planet, sig, A]
+x = np.linspace(-rv_range, rv_range + 1, rv_points)
+
+
+def gaussian(x, A, mu, sig):
+    return A * np.exp(-np.power(x - mu, 2.0) / (2 * np.power(sig, 2.0)))
+
+
+def model_func(x0):
+    mu, shear, sig, A = x0
+    model = np.zeros_like(corr)
+    for i in range(lower, upper):
+        mu_prime = mu + shear * (i - n_obs // 2)
+        model[i] = gaussian(x, A, mu_prime, sig)
+    return model
+
+
+def fitfunc(x0):
+    model = model_func(x0)
+    resid = model - corr
+    return resid.ravel()
+
+
+res = least_squares(
+    fitfunc,
+    x0=x0,
+    loss="soft_l1",
+    bounds=[[-rv_range, 0, 1, 1], [rv_range, 2, 5, 200]],
+    x_scale="jac",
+    ftol=None,
+)
+model = model_func(res.x)
+v_sys = res.x[0] << (u.km / u.s)
+v_planet = res.x[1] * (np.arange(n_obs) - n_obs // 2)
+v_planet = v_sys + (v_planet << (u.km / u.s))
+
+# ax1 = plt.subplot(2, 1, 1)
+# plt.imshow(corr, aspect="auto", origin="lower")
+# plt.subplot(212, sharex=ax1)
+# plt.imshow(model, aspect="auto", origin="lower")
+# plt.show()
+
+# tmp = np.copy(corr)
+# tmp -= gaussian_filter1d(corr, 20, axis=0)
+# tmp -= gaussian_filter1d(corr, 20, axis=1)
+
+# ax1 = plt.subplot(2, 1, 1)
+# vmin, vmax = np.nanpercentile(corr, (5, 95))
+# plt.imshow(corr, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
+# plt.subplot(212, sharex=ax1)
+# vmin, vmax = np.nanpercentile(tmp, (5, 95))
+# plt.imshow(tmp, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
+# plt.show()
 
 # vmin, vmax = np.nanpercentile(corrected_flux, (5, 95))
 # plt.imshow(corrected_flux, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
 # plt.show()
+
+# Shifting the observations and stacking them doesn't work (as expected?)
+# normalized_sysrem = deepcopy(normalized)
+# normalized_sysrem.flux[:] = sysrem(normalized_sysrem, 1)
+# normalized_sysrem.flux[:] /= np.nanstd(normalized_sysrem.flux, axis=0)
+
 
 # TODO: calculate the planet size from this plot
 # plt.plot(np.median(corrected_flux, axis=1))
@@ -437,32 +667,39 @@ flux = normalized[i].flux
 planet_spectrum = load_planet()
 nseg = normalized.nseg
 
-hitspec = HitranSpectrum()
-hitspec.datetime = normalized.datetime[i]
-hitspec = hitspec.shift(normalized.reference_frame)
+# hitspec = HitranSpectrum()
+# hitspec.datetime = normalized.datetime[i]
+# hitspec = hitspec.shift(normalized.reference_frame)
 
-import spectres
+# import spectres
 
-hflux = spectres.spectres(
-    normalized.wavelength[i].to_value("AA")[::10],
-    hitspec.wavelength.to_value("AA"),
-    hitspec.flux.to_value(1),
-)
+# hflux = spectres.spectres(
+#     normalized.wavelength[i].to_value("AA")[::10],
+#     hitspec.wavelength.to_value("AA"),
+#     hitspec.flux.to_value(1),
+# )
+# hflux -= np.nanmin(hflux)
+# hflux /= np.nanmax(hflux)
 
-hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux << u.one)
+# hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux << u.one)
+# hitspec = ref.shift("telescope", rv=-v_sys)
+# hitspec = hitspec.resample(spectra.wavelength[50])
 
+hitspec = ref.shift("barycentric", rv=v_sys, inplace=False)
 # hitspec = hitspec.resample(normalized.wavelength[i], method="flux_conserving")
 
-# spec, null = solve_prepared(
-#     normalized,
-#     telluric_combined,
-#     stellar_combined,
-#     intensities,
-#     detector,
-#     star,
-#     planet,
-#     solver="linear",
-# )
+
+spec_all, null_all = solve_prepared(
+    normalized,
+    telluric_combined,
+    stellar_combined,
+    intensities,
+    detector,
+    star,
+    planet,
+    solver="linear",
+    rv=v_planet,
+)
 
 # print("Saving data...")
 # spec.write(join(done_dir, f"planet_extracted.fits"))
@@ -476,124 +713,118 @@ for seg in tqdm(range(nseg)):
     # spec = spec.resample(wavelength[segment], method="linear")
     # null = null.resample(wavelength[segment], method="linear")
 
-    spec, null = solve_prepared(
-        normalized_sysrem,
-        telluric,
-        stellar_combined,
-        intensities,
-        detector,
-        star,
-        planet,
-        solver="linear",
-        seg=seg,
-    )
+    # spec, null = solve_prepared(
+    #     normalized,
+    #     telluric_combined,
+    #     stellar_combined,
+    #     intensities,
+    #     detector,
+    #     star,
+    #     planet,
+    #     solver="linear",
+    #     seg=seg,
+    #     rv=v_planet,
+    # )
+    lower, upper = spectra.segments[seg:seg+2]
+    spec, null = spec_all[lower:upper], null_all[lower:upper]
+
+    spec.star = null.star = star
+    spec.planet = null.planet = planet
+    spec.observatory_location = null.observatory_location = observatory
+    spe.datetime = null.datetime = spectra.datetime[50]
 
     print("Saving data...")
     spec.write(join(done_dir, f"planet_extracted_{seg}.fits"))
     null.write(join(done_dir, f"null_extracted_{seg}.fits"))
 
-    plt.plot(
-        wavelength[seg], flux[seg], label="normalized observation",
-    )
-    plt.plot(
-        hitspec.wavelength.to_value("AA"),
-        hitspec.flux.to_value(1),
-        label="planet model",
-    )
-    plt.plot(
-        spec.wavelength,
-        (spec.flux - spec.flux.min()) / (spec.flux - spec.flux.min()).max(),
-        label="extracted",
-    )
-    plt.xlim(wavelength[seg][0].value, wavelength[seg][-1].value)
-    plt.ylim(0, 2)
-    plt.title(f"Regularization weight: {spec.meta['regularization_weight']}")
-    plt.ylabel("Flux, normalised")
-    plt.xlabel("Wavelength [Å]")
-    plt.legend()
-    # # plt.show()
-    plt.savefig(join(done_dir, f"planet_spectrum_{seg}.png"))
-    plt.clf()
-
-    # plt.plot(
-    #     wavelength[segment], flux[segment], label="normalized observation",
-    # )
-    # plt.plot(ps.wavelength, ps.flux, label="planet model")
-    # plt.plot(null.wavelength, null.flux, label="extracted")
-    # plt.xlim(wavelength[segment][0].value, wavelength[segment][-1].value)
-    # plt.ylim(0, 2)
-    # plt.ylabel("Flux, normalised")
-    # plt.xlabel("Wavelength [Å]")
-    # plt.legend()
-    # # plt.show()
-    # plt.savefig(join(done_dir, f"null_spectrum_{segment}.png"))
-    # plt.clf()
-
-    # spec._data = gaussian_filter1d(spec._data, nseg)
-    # null._data = gaussian_filter1d(null._data, nseg)
+    spec.flux[:40] = spec.flux[-60:] = np.nan
+    null.flux[:40] = null.flux[-60:] = np.nan
 
     # Shift null spectrum unto spec spectrum
-    # sm = np.isfinite(spec.flux)
-    # sx, sy = spec.wavelength[sm].to_value("AA"), gaussian_filter1d(spec.flux[sm].to_value(1), nseg)
-    # nm = np.isfinite(null.flux)
-    # nx, ny = null.wavelength[nm].to_value("AA"), gaussian_filter1d(null.flux[nm].to_value(1), nseg)
-    # c_light = const.c.to_value("km/s")
+    sm = np.isfinite(spec.flux)
+    sx, sy = (
+        spec.wavelength[sm].to_value("AA"),
+        gaussian_filter1d(spec.flux[sm].to_value(1), nseg),
+    )
+    nm = np.isfinite(null.flux)
+    nx, ny = (
+        null.wavelength[nm].to_value("AA"),
+        gaussian_filter1d(null.flux[nm].to_value(1), nseg),
+    )
+    c_light = const.c.to_value("km/s")
 
-    # def func(x):
-    #     beta = x[0] / c_light
-    #     shifted = nx * np.sqrt((1 + beta) / (1 - beta))
-    #     ni = interp1d(shifted, (ny - x[1]) * x[2], kind="slinear", fill_value="extrapolate")(sx)
-    #     return gaussian_filter1d(sy - ni, nseg)
+    def func(x):
+        beta = x[0] / c_light
+        shifted = nx * np.sqrt((1 + beta) / (1 - beta))
+        ni = interp1d(
+            shifted, (ny - x[1]) * x[2], kind="slinear", fill_value="extrapolate"
+        )(sx)
+        return gaussian_filter1d(sy - ni, nseg)
 
-    # ms, mn = np.median(sy), np.median(ny)
-    # res = least_squares(func, x0=[65., ms - mn, ms / mn], method="trf", loss="soft_l1")
-    # rv = res.x[0] << (u.km / u.s)
+    ms, mn = np.median(sy), np.median(ny)
+    res = least_squares(func, x0=[65.0, ms - mn, ms / mn], method="trf", loss="soft_l1")
+    rv = res.x[0] << (u.km / u.s)
 
-    # null._data -= res.x[1]
-    # null._data *= res.x[2]
-    # null = null.shift("planet", rv=rv)
-    # null = null.resample(spec.wavelength)
+    null._data -= res.x[1]
+    null._data *= res.x[2]
+    null = null.shift("planet", rv=rv)
+    null = null.resample(spec.wavelength)
 
-    # Normalize to each other?
-    # m = np.isfinite(spec.flux) & np.isfinite(null.flux)
-    # sy, ny = spec.flux[m], null.flux[m]
-    # func = lambda x: sy - (ny - x[0]) * x[1]
-    # res = least_squares(func, x0=[0, 1], method="lm")
-    # null.flux -= res.x[0]
-    # null.flux *= res.x[1]
+    sflux = spec.flux - np.nanpercentile(spec.flux, 5)
+    sflux /= np.nanpercentile(sflux, 95)
+    nflux = null.flux - np.nanpercentile(null.flux, 5)
+    nflux /= np.nanpercentile(null.flux, 95)
+
+    hspec = hitspec.resample(wavelength[seg], inplace=False)
+    hspec.flux[:] -= np.nanmin(hspec.flux)
+    hspec.flux[:] /= np.nanmax(hspec.flux)
+
+    # Plot plotly
+    data = [
+        {
+            "x": wavelength[seg].to_value("AA"),
+            "y": flux[seg].to_value(1),
+            "name": "normalized observation",
+        },
+        {
+            "x": wavelength[seg].to_value("AA"),
+            "y": hspec.flux.to_value(1),
+            "name": "planet model",
+        },
+        {
+            "x": spec.wavelength.to_value("AA"),
+            "y": sflux.to_value(1),
+            "name": "extracted",
+        },
+        {
+            "x": null.wavelength.to_value("AA"),
+            "y": nflux.to_value(1),
+            "name": "extracted (reverse rv)",
+        },
+    ]
 
     # Take the difference between the two to get the planet spectrum?
     # null.wavelenth != spec.wavelnegth BUT the spectra are aligned?
     sflux = spec.flux - null.flux
-    # sflux = gaussian_filter1d(sflux, nseg)
-    # sflux = np.interp(wavelength[segment], spec.wavelength, sflux)
-
     magnification = -1 / np.nanpercentile(sflux, 1)
-    # magnification = 1
     sflux = 1 + magnification * sflux
     wave = spec.wavelength
 
-    plt.plot(
-        wavelength[seg], flux[seg], label="normalized observation",
-    )
-    plt.plot(hitspec.wavelength.to_value("AA"), hitspec.flux, label="planet model")
-    plt.plot(wave, sflux, label="extracted")
+    data += [
+        {
+            "x": wave.to_value("AA"),
+            "y": sflux.to_value(1),
+            "name": "extracted_difference",
+        }
+    ]
 
-    # hw = hitran.wavelength
-    # wmin = wavelength[segment].min()
-    # wmax = wavelength[segment].max()
-    # plt.vlines(hw[(hw >= wmin) & (hw <= wmax)], 0, 2)
-
-    plt.xlim(wavelength[seg][0].value, wavelength[seg][-1].value)
-    plt.ylim(0, 2)
-    plt.ylabel("Flux, normalised")
-    plt.xlabel("Wavelength [Å]")
-    plt.legend()
-    # plt.show()
-    plt.savefig(join(done_dir, f"diff_spectrum_{seg}.png"))
-    plt.clf()
-
-    spec._data = sflux
-    spec.write(join(done_dir, f"diff_extracted_{seg}.fits"))
-
+    wran = [wavelength[seg][0].to_value("AA"), wavelength[seg][-1].to_value("AA")]
+    layout = {
+        "title": f"Segment: {seg}; Regularization weight: {spec.meta['regularization_weight']}",
+        "xaxis": {"title": "Wavelength [Å]", "range": wran},
+        "yaxis": {"title": "Flux, normalised", "range": [0, 2]},
+    }
+    fname = join(done_dir, f"planet_spectrum_{seg}.html")
+    fig = go.Figure(data, layout)
+    py.plot(fig, filename=fname, auto_open=False)
 pass
