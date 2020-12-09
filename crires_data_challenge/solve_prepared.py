@@ -32,15 +32,19 @@ def solve_prepared(
     seg=5,
     solver="linear",
     rv=None,
+    regularization_ratio=1,
+    regularization_weight=None,
+    n_sysrem=None,
+    area=None,
 ):
     # regweight:
     # for noise 0:  1
     # for noise 1%: 23
-    print("Solving the problem...")
-    # spectra = spectra.get_segment(seg)
-    # telluric = telluric.get_segment(seg)
-    # stellar = stellar.get_segment(seg)
-    # intensities = intensities.get_segment(seg)
+    # print("Solving the problem...")
+    spectra = spectra.get_segment(seg)
+    telluric = telluric.get_segment(seg)
+    stellar = stellar.get_segment(seg)
+    intensities = intensities.get_segment(seg)
 
     times = spectra.datetime
     wavelength = spectra.wavelength.to_value(u.AA)
@@ -55,10 +59,11 @@ def solve_prepared(
             detector,
             star,
             planet,
-            regularization_ratio=1,
+            regularization_ratio=regularization_ratio,
             plot=False,
-            regularization_weight=0.05,  # 0.01,
+            regularization_weight=regularization_weight,  # 0.01,
             method="Tikhonov",
+            n_sysrem=n_sysrem,
         )
     elif solver == "spline":
         solver = SplineSolver(detector, star, planet)
@@ -70,7 +75,7 @@ def solve_prepared(
         )
 
     spec = solver.solve(
-        times, wavelength, spectra, stellar, intensities, telluric, rv=rv
+        times, wavelength, spectra, stellar, intensities, telluric, rv=rv, area=area
     )
     solver.regularization_weight = spec.meta["regularization_weight"]
     null = solver.solve(

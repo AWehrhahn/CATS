@@ -15,7 +15,7 @@ def radtrans(wrange, star, planet):
     # Initialize atmosphere
     # including the elements in the atmosphere
     atmosphere = Radtrans(
-        line_species=["H2O", "H2", "CH4"],
+        line_species=["H2O"],
         # line_species=["H2O", "CO_all_iso", "CH4", "CO2", "Na", "K"],
         rayleigh_species=["H2", "He"],
         continuum_opacities=["H2-H2", "H2-He"],

@@ -16,10 +16,11 @@ from ..reference_frame import PlanetFrame, TelescopeFrame
 
 
 class SolverBase:
-    def __init__(self, detector, star, planet, **kwargs):
+    def __init__(self, detector, star, planet, n_sysrem=None, **kwargs):
         self.star = star
         self.planet = planet
         self.detector = detector
+        self.n_sysrem = n_sysrem
 
         # Determine Planet Size
         if star is not None and planet is not None:
@@ -39,14 +40,18 @@ class SolverBase:
         if star is not None and planet is not None:
             self.planet_frame = PlanetFrame(star, planet)
 
-    def prepare_fg(self, times, wavelength, spectra, stellar, intensities, telluric):
+    def prepare_fg(
+        self, times, wavelength, spectra, stellar, intensities, telluric, area=None
+    ):
         """
         Find the least-squares solution to the linear equation
         f * x - g = 0
         """
 
-        orb = Orbit(self.star, self.planet)
-        area = orb.stellar_surface_covered_by_planet(times)
+        if area is None:
+            orb = Orbit(self.star, self.planet)
+            area = orb.stellar_surface_covered_by_planet(times)
+
         model = stellar * telluric
 
         # Normalize the profile of the observations
@@ -67,22 +72,51 @@ class SolverBase:
 
         # model = np.nanmedian(spectra, axis=0)
 
-        f = -(
-            np.nan_to_num(intensities)
-            * self.area_atmosphere
-            / self.area_planet
-            * area[:, None]
-            * np.nan_to_num(telluric, nan=1)
-            * norm[:, None]
-        )
-        g = spectra - stellar * telluric * norm[:, None]
-        g = sysrem(g, 5)
+        # f = -(
+        #     # np.nan_to_num(intensities) *
+        #     self.area_atmosphere
+        #     / self.area_planet
+        #     * area[:, None]
+        #     # * np.nan_to_num(telluric, nan=1)
+        #     * norm[:, None]
+        # )
+        # f = np.nan_to_num(intensities) * np.nan_to_num(telluric, nan=1) * norm[:, None]
+        area *= self.area_atmosphere / self.area_planet
+        f = -np.nan_to_num(intensities, nan=1) * area[:, None]
+        if hasattr(f, "to_value"):
+            f = f.to_value(1)
+
+        # g = spectra - stellar * telluric * norm[:, None]
+        # if self.n_sysrem is not None:
+        #     g = sysrem(g, self.n_sysrem)
+
+        g = spectra
+        if self.n_sysrem is not None:
+            # Use SVD directly instead of Sysrem
+            g = sysrem(spectra, self.n_sysrem)
+            # u, s, vh = np.linalg.svd(spectra, full_matrices=False)
+            # s[: self.n_sysrem] = 0
+            # s[80:] = 0
+            # ic = (u * s) @ vh
+            # g = ic
+        else:
+            # g = spectra - stellar * telluric * norm[:, None]
+            gen = np.random.default_rng()
+            tmp = sysrem(spectra, 5)
+            g = gen.normal(
+                loc=np.nanmean(tmp), scale=np.nanstd(tmp), size=spectra.shape
+            )
+            # g *= np.nanstd()  # std of random is 1 (in theory)
 
         # norm = np.nanstd(g, axis=0)
         # f /= norm
         # g /= norm
 
-        f = f.to_value(1)
+        plt.imshow(g, aspect="auto", origin="lower")
+        plt.xlabel("Wavelength")
+        plt.ylabel("Time")
+        plt.title(f"N_Sysrem: {self.n_sysrem}")
+        plt.savefig(f"spectra_sysrem_{self.n_sysrem}.png")
 
         return wavelength, f, g
 

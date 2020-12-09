@@ -26,6 +26,7 @@ from astropy.nddata import StdDevUncertainty
 import exoorbit
 from cats.data_modules.telluric_fit import TelluricFit
 from scipy.ndimage.morphology import binary_erosion, binary_dilation
+from cats.pysysrem.sysrem import sysrem
 
 from cats.data_modules.stellar_db import StellarDb
 from cats.data_modules.telluric_model import TelluricModel
@@ -498,7 +499,6 @@ reference.flux[:] -= 1
 # TODO: How would SysRem help us?
 # It removes the trend from the airmass, but then we can't use the tellurics anymore
 # Unless we figure out the airmass that is being used by all the observations?
-from cats.pysysrem.sysrem import sysrem
 
 
 fname = join(medium_dir, "correlation.npz")
@@ -518,8 +518,14 @@ if not exists(fname) or False:
     unc = spectra.uncertainty.array[:90]
 
     correlation = {}
-    for n in tqdm(range(3), desc="Sysrem N"):
-        corrected_flux = sysrem(flux, num_errors=n, iterations=10, errors=unc)
+    for n in tqdm(range(101), desc="Sysrem N"):
+        corrected_flux = sysrem(flux, num_errors=n, errors=unc)
+
+        # u, s, vh = np.linalg.svd(flux, full_matrices=False)
+        # s[:n] = 0
+        # # s[80:] = 0  # Empirically determined
+        # corrected_flux = (u * s) @ vh
+
         # Mask strong tellurics
         # corrected_flux[~mask] = np.nan
         # corrected_flux -= gaussian_filter1d(corrected_flux, 20, axis=1)
@@ -547,11 +553,12 @@ if not exists(fname) or False:
                     corr[i, j] *= m.size / np.count_nonzero(m)
 
         correlation[f"{n}"] = np.copy(corr)
-        for i in tqdm(range(5), leave=False, desc="Sysrem on Cross Correlation"):
+        for i in tqdm(range(10), leave=False, desc="Sysrem on Cross Correlation"):
             correlation[f"{n}.{i}"] = sysrem(np.copy(corr), i)
 
     # Save the results
     np.savez(fname, **correlation)
+    print(f"Saved cross-correlation to: {fname}")
 else:
     correlation = np.load(fname)
 
@@ -619,7 +626,9 @@ res = least_squares(
 model = model_func(res.x)
 v_sys = res.x[0] << (u.km / u.s)
 v_planet = res.x[1] * (np.arange(n_obs) - n_obs // 2)
-v_planet = v_sys + (v_planet << (u.km / u.s))
+# v_planet = -(v_sys + (v_planet << (u.km / u.s)))
+v_planet = -v_planet << (u.km / u.s)
+
 
 # ax1 = plt.subplot(2, 1, 1)
 # plt.imshow(corr, aspect="auto", origin="lower")
@@ -685,146 +694,192 @@ nseg = normalized.nseg
 # hitspec = ref.shift("telescope", rv=-v_sys)
 # hitspec = hitspec.resample(spectra.wavelength[50])
 
-hitspec = ref.shift("barycentric", rv=v_sys, inplace=False)
+hitspec = ref  # .shift("barycentric", rv=v_sys, inplace=False)
 # hitspec = hitspec.resample(normalized.wavelength[i], method="flux_conserving")
 
 
-spec_all, null_all = solve_prepared(
-    normalized,
-    telluric_combined,
-    stellar_combined,
-    intensities,
-    detector,
-    star,
-    planet,
-    solver="linear",
-    rv=v_planet,
-)
+# spec_all, null_all = solve_prepared(
+#     normalized,
+#     telluric_combined,
+#     stellar_combined,
+#     intensities,
+#     detector,
+#     star,
+#     planet,
+#     solver="linear",
+#     rv=v_planet,
+# )
 
 # print("Saving data...")
 # spec.write(join(done_dir, f"planet_extracted.fits"))
 # null.write(join(done_dir, f"null_extracted.fits"))
 
+# lower, upper = spectra.segments[seg : seg + 2]
+# spec, null = spec_all[lower:upper], null_all[lower:upper]
+
+# spec.star = null.star = star
+# spec.planet = null.planet = planet
+# spec.observatory_location = null.observatory_location = observatory
+# spec.datetime = null.datetime = spectra.datetime[50]
+
+seg = 13
+
+hspec = hitspec.resample(wavelength[seg], inplace=False)
+hspec.flux[:] = gaussian_filter1d(hspec.flux, 1)
+hspec.flux[:] -= np.nanmin(hspec.flux)
+hspec.flux[:] /= np.nanmax(hspec.flux)
+
+
+data = [
+    {
+        "x": wavelength[seg].to_value("AA"),
+        "y": flux[seg].to_value(1),
+        "name": "normalized observation",
+    },
+    {
+        "x": wavelength[seg].to_value("AA"),
+        "y": hspec.flux.to_value(1),
+        "name": "planet model",
+    },
+]
+visible = [-1, -1]
+sysrems = [10]
+
 # TODO: put everything into one big extraction
-for seg in tqdm(range(nseg)):
-    print("Plotting results...")
-    # spec._data = gaussian_filter1d(spec._data, nseg)
-    # null._data = gaussian_filter1d(null._data, nseg)
-    # spec = spec.resample(wavelength[segment], method="linear")
-    # null = null.resample(wavelength[segment], method="linear")
+# for seg in tqdm(range(nseg)):
+# 10000000
+for regularization_weight in tqdm([100], desc="Regularization Weight"):
+    d = []
+    for n_sysrem in tqdm(sysrems, desc="N Sysrem"):
 
-    # spec, null = solve_prepared(
-    #     normalized,
-    #     telluric_combined,
-    #     stellar_combined,
-    #     intensities,
-    #     detector,
-    #     star,
-    #     planet,
-    #     solver="linear",
-    #     seg=seg,
-    #     rv=v_planet,
-    # )
-    lower, upper = spectra.segments[seg:seg+2]
-    spec, null = spec_all[lower:upper], null_all[lower:upper]
+        # TODO:
+        # For this dataset we can fit the lightcurve directly
+        # since all observations are the same, but in reallity that will be tricky
+        # So we should make sure that:
+        #   orb = Orbit(self.star, self.planet)
+        #   area = orb.stellar_surface_covered_by_planet(times)
+        # Works similarly well
 
-    spec.star = null.star = star
-    spec.planet = null.planet = planet
-    spec.observatory_location = null.observatory_location = observatory
-    spe.datetime = null.datetime = spectra.datetime[50]
+        # TODO: some of the area we calculate here should be explained by limb darkening
 
-    print("Saving data...")
-    spec.write(join(done_dir, f"planet_extracted_{seg}.fits"))
-    null.write(join(done_dir, f"null_extracted_{seg}.fits"))
+        limits = 15, 85
+        f = spectra.flux.to_value(1)
+        y = np.nanmean(f, axis=1)
+        x = np.arange(len(y))
 
-    spec.flux[:40] = spec.flux[-60:] = np.nan
-    null.flux[:40] = null.flux[-60:] = np.nan
+        x2 = np.concatenate([x[: limits[0]], x[limits[1] :]])
+        y2 = np.concatenate([y[: limits[0]], y[limits[1] :]])
+        yf = np.polyval(np.polyfit(x2, y2, 3), x)
 
-    # Shift null spectrum unto spec spectrum
-    sm = np.isfinite(spec.flux)
-    sx, sy = (
-        spec.wavelength[sm].to_value("AA"),
-        gaussian_filter1d(spec.flux[sm].to_value(1), nseg),
-    )
-    nm = np.isfinite(null.flux)
-    nx, ny = (
-        null.wavelength[nm].to_value("AA"),
-        gaussian_filter1d(null.flux[nm].to_value(1), nseg),
-    )
-    c_light = const.c.to_value("km/s")
+        area = 1 - y / yf
+        area[: limits[0]] = area[limits[1] :] = 0
+        area = gaussian_filter1d(area, 1)
 
-    def func(x):
-        beta = x[0] / c_light
-        shifted = nx * np.sqrt((1 + beta) / (1 - beta))
-        ni = interp1d(
-            shifted, (ny - x[1]) * x[2], kind="slinear", fill_value="extrapolate"
-        )(sx)
-        return gaussian_filter1d(sy - ni, nseg)
+        spec, null = solve_prepared(
+            spectra,
+            telluric,
+            stellar_combined,
+            normalized,
+            detector,
+            star,
+            planet,
+            solver="linear",
+            seg=seg,
+            rv=v_planet,
+            n_sysrem=n_sysrem,
+            regularization_weight=regularization_weight,
+            regularization_ratio=10,
+            area=area,
+        )
 
-    ms, mn = np.median(sy), np.median(ny)
-    res = least_squares(func, x0=[65.0, ms - mn, ms / mn], method="trf", loss="soft_l1")
-    rv = res.x[0] << (u.km / u.s)
+        # print("Saving data...")
+        spec.write(
+            join(
+                done_dir,
+                f"planet_extracted_{seg}_{regularization_weight}_{n_sysrem}.fits",
+            )
+        )
 
-    null._data -= res.x[1]
-    null._data *= res.x[2]
-    null = null.shift("planet", rv=rv)
-    null = null.resample(spec.wavelength)
+        if n_sysrem is None:
+            sflux = spec.flux - np.nanpercentile(spec.flux, 5)
+            sflux /= np.nanpercentile(sflux, 95)
+            nflux = null.flux - np.nanpercentile(null.flux, 5)
+            nflux /= np.nanpercentile(nflux, 95)
+        else:
+            sflux = spec.flux
+            nflux = null.flux
 
-    sflux = spec.flux - np.nanpercentile(spec.flux, 5)
-    sflux /= np.nanpercentile(sflux, 95)
-    nflux = null.flux - np.nanpercentile(null.flux, 5)
-    nflux /= np.nanpercentile(null.flux, 95)
+        d += [
+            {
+                "x": spec.wavelength.to_value("AA"),
+                "y": sflux.to_value(1),
+                "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
+            },
+            # {
+            #     "x": null.wavelength.to_value("AA"),
+            #     "y": nflux.to_value(1),
+            #     "name": f"inversed, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
+            # },
+        ]
+        visible += [-1]
 
-    hspec = hitspec.resample(wavelength[seg], inplace=False)
-    hspec.flux[:] -= np.nanmin(hspec.flux)
-    hspec.flux[:] /= np.nanmax(hspec.flux)
+    minimum = min([np.nanpercentile(ds["y"], 5) for ds in d[0:]])
+    for i in range(0, len(d)):
+        d[i]["y"] -= minimum
 
-    # Plot plotly
-    data = [
-        {
-            "x": wavelength[seg].to_value("AA"),
-            "y": flux[seg].to_value(1),
-            "name": "normalized observation",
-        },
-        {
-            "x": wavelength[seg].to_value("AA"),
-            "y": hspec.flux.to_value(1),
-            "name": "planet model",
-        },
-        {
-            "x": spec.wavelength.to_value("AA"),
-            "y": sflux.to_value(1),
-            "name": "extracted",
-        },
-        {
-            "x": null.wavelength.to_value("AA"),
-            "y": nflux.to_value(1),
-            "name": "extracted (reverse rv)",
-        },
-    ]
+    maximum = max([np.nanpercentile(ds["y"], 95) for ds in d[0:]])
+    for i in range(0, len(d)):
+        d[i]["y"] /= maximum
 
-    # Take the difference between the two to get the planet spectrum?
-    # null.wavelenth != spec.wavelnegth BUT the spectra are aligned?
-    sflux = spec.flux - null.flux
-    magnification = -1 / np.nanpercentile(sflux, 1)
-    sflux = 1 + magnification * sflux
-    wave = spec.wavelength
+    data += d
 
-    data += [
-        {
-            "x": wave.to_value("AA"),
-            "y": sflux.to_value(1),
-            "name": "extracted_difference",
-        }
-    ]
 
-    wran = [wavelength[seg][0].to_value("AA"), wavelength[seg][-1].to_value("AA")]
-    layout = {
-        "title": f"Segment: {seg}; Regularization weight: {spec.meta['regularization_weight']}",
-        "xaxis": {"title": "Wavelength [Å]", "range": wran},
-        "yaxis": {"title": "Flux, normalised", "range": [0, 2]},
-    }
-    fname = join(done_dir, f"planet_spectrum_{seg}.html")
-    fig = go.Figure(data, layout)
-    py.plot(fig, filename=fname, auto_open=False)
-pass
+# # Add traces, one for each slider step
+# step_data = []
+# for i, step in enumerate(np.arange(-100, 100, 1)):
+#     rv = step
+#     step_data += [
+#         {
+#             "visible": False,
+#             "name": "rv = " + str(step),
+#             "x": wavelength[seg].to_value("AA") * (1 - rv / 3e5),
+#             "y": hspec.flux.to_value(1),
+#         }
+#     ]
+#     visible += [i]
+
+# data += step_data
+# visible = np.array(visible)
+
+# # Create and add slider
+# steps = []
+# for i in range(len(step_data)):
+#     steps += [
+#         {
+#             "method": "update",
+#             "args": [
+#                 {"visible": (visible == -1) | (visible == i)},
+#             ],  # layout attribute
+#         }
+#     ]
+
+# sliders = [
+#     {
+#         "active": 10,
+#         "currentvalue": {"prefix": "rv: "},
+#         "pad": {"t": 50},
+#         "steps": steps,
+#     }
+# ]
+
+
+wran = [wavelength[seg][0].to_value("AA"), wavelength[seg][-1].to_value("AA")]
+layout = {
+    "title": f"Segment: {seg}",
+    "xaxis": {"title": "Wavelength [Å]", "range": wran},
+    "yaxis": {"title": "Flux, normalised"},
+    # "sliders": sliders,
+}
+fname = join(done_dir, f"planet_spectrum_{seg}.html")
+fig = go.Figure(data, layout)
+py.plot(fig, filename=fname, auto_open=False)

@@ -9,12 +9,14 @@ from scipy.linalg import solve_banded, dft
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from scipy.optimize import fsolve, minimize_scalar, minimize
+from scipy.ndimage import gaussian_filter1d
 from scipy.special import binom
 from scipy.sparse import csc_matrix, lil_matrix
 from astropy.constants import c
 from astropy import units as u
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+
 
 from .solver import SolverBase
 from ..least_squares.least_squares import least_squares
@@ -33,9 +35,10 @@ class LinearSolver(SolverBase):
         regularization=True,
         regularization_ratio=50,
         regularization_weight=None,
+        n_sysrem=None,
         plot=False,
     ):
-        super().__init__(detector, star, planet)
+        super().__init__(detector, star, planet, n_sysrem=n_sysrem)
         self.method = method
         self.regularization = regularization
         self.regularization_ratio = regularization_ratio
@@ -354,6 +357,7 @@ class LinearSolver(SolverBase):
             wavelength = np.copy(wavelength)
         if rv is None:
             rv = self.telescope_frame.to_frame(self.planet_frame, times)
+        # For beta > 0, the source and target are moving away from each other
         beta = (rv / c).to_value(1)
         beta *= -1 if reverse else 1
         wavelength *= np.sqrt((1 + beta) / (1 - beta))[:, None]
@@ -389,8 +393,13 @@ class LinearSolver(SolverBase):
         f, g = f[mask], g[mask]
 
         # Setup linear interpolation scheme
-        proj = self.create_projection_matrix(w0, wave)
-        A = diags(f, 0) * proj
+        # proj = self.create_projection_matrix(w0, wave)
+        # A = diags(f, 0) * proj
+
+        # # Use every data point individually
+        w0 = wave
+        A = diags(f, 0)
+
         return w0, A, g
 
     def solve(
@@ -403,14 +412,23 @@ class LinearSolver(SolverBase):
         telluric,
         reverse=False,
         rv=None,
+        area=None,
     ):
         """
         Find the least-squares solution to the linear equation
         f * x - g = 0
         """
         wavelength, f, g = self.prepare_fg(
-            times, wavelength, spectra, stellar, intensities, telluric
+            times, wavelength, spectra, stellar, intensities, telluric, area=area
         )
+
+        # w0 = wavelength[50]
+        # x0 = np.nanmedian(g[20:80] / f[20:80], axis=0)
+
+        # if self.regularization:
+        #     regweight = self.regularization_weight
+        #     if regweight is not None:
+        #         x0 = gaussian_filter1d(x0, self.regularization_weight)
 
         if self.regularization:
             if self.regularization_weight is None:
