@@ -13,6 +13,16 @@ rv_units = u.km / u.s
 
 
 class ReferenceFrame:
+    names = []
+
+    def to_dict(self):
+        data = {n: getattr(self, n) for n in self.names}
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
     def from_barycentric(self, datetime):
         """
         Calculate the radial velocity from the barycentric restframe
@@ -54,10 +64,12 @@ class BarycentricFrame(ReferenceFrame):
 
 
 class TelescopeFrame(ReferenceFrame):
-    def __init__(self, observatory_location, sky_location):
+    names = ["observatory", "sky"]
+
+    def __init__(self, observatory, sky):
         super().__init__()
-        self.observatory = observatory_location
-        self.sky = sky_location
+        self.observatory = observatory
+        self.sky = sky
 
     def __str__(self):
         return "telescope"
@@ -97,6 +109,8 @@ class TelescopeFrame(ReferenceFrame):
 
 
 class StarFrame(ReferenceFrame):
+    names = ["star"]
+
     def __init__(self, star):
         super().__init__()
         self.star = star
@@ -109,6 +123,8 @@ class StarFrame(ReferenceFrame):
 
 
 class PlanetFrame(ReferenceFrame):
+    names = ["planet"]
+
     def __init__(self, star, planet):
         super().__init__()
         self.star = star

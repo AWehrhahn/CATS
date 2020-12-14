@@ -64,6 +64,17 @@ class Crires(Detector):
     def __str__(self):
         return "CRIRES"
 
+    def to_dict(self):
+        data = {}
+        names = ["setting", "detector", "orders"]
+        for name in names:
+            data[name] = getattr(self, name)
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
     @staticmethod
     def load_spectral_regions(setting: str, detector: list, orders: list):
         # Spectral regions

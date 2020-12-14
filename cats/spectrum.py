@@ -4,7 +4,7 @@ from collections import Sequence
 from copy import copy, deepcopy
 from datetime import datetime
 from os import makedirs
-from os.path import abspath, dirname
+from os.path import abspath, dirname, splitext
 
 from tqdm import tqdm
 import astropy.constants as const
@@ -22,6 +22,9 @@ import astroplan
 from . import reference_frame as rf
 from .data_modules.stellar_db import StellarDb
 from .simulator import detector
+
+from flex.flex import FlexFile
+from flex.extensions.bindata import MultipleDataExtension
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +101,100 @@ class SpectrumBase:
         airmass = altaz.secz.value
         return airmass
 
+    def __flex_save__(self):
+        header = self.meta
+        header["wavelength_unit"] = self.wavelength.unit
+        header["flux_unit"] = self.flux.unit
+        data = {
+            "wavelength": self.wavelength.to_value("AA"),
+            "flux": self.flux.to_value(1),
+        }
+        if self.uncertainty is not None:
+            header["uncertainty_unit"] = self.uncertainty.unit
+            data["uncertainty"] = self.uncertainty.array
 
-class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
+        module = self.__class__.__module__
+        cls = self.__class__.__name__
+        ext = MultipleDataExtension(header, data, cls=f"{module}.{cls}")
+        return ext
+
+    @classmethod
+    def __flex_load__(cls, header, data):
+        ext = MultipleDataExtension._parse(header, data)
+
+        wavelength = ext.data["wavelength"]
+        wavelength = wavelength << ext.header["wavelength_unit"]
+
+        flux = ext.data["flux"]
+        flux = flux << ext.header["flux_unit"]
+
+        if "uncertainty" in ext.data:
+            uncertainty = ext.data["uncertainty"]
+            uncertainty = uncertainty << ext.header["uncertainty_unit"]
+            uncertainty = StdDevUncertainty(uncertainty)
+        else:
+            uncertainty = None
+
+        exceptions = [
+            "__module__",
+            "__class__",
+            "__header__",
+            "uncertainty_unit",
+            "wavelength_unit",
+            "flux_unit",
+        ]
+        meta = {k: v for k, v in ext.header.items() if k not in exceptions}
+        meta["spectral_axis"] = wavelength
+        meta["flux"] = flux
+        meta["uncertainty"] = uncertainty
+
+        return cls(**meta)
+
+    def get_fits_hdu(self):
+        raise NotImplementedError
+
+    @classmethod
+    def read_fits_hdu(cls, hdu):
+        raise NotImplementedError
+
+    def write(self, filename, format="flex"):
+        if format == "flex":
+            ff = FlexFile(extensions={"spectrum": self.__flex_save__()})
+            ff.write(filename)
+        elif format == "fits":
+            hdu = self.get_fits_hdu()
+            hdu.writeto(filename, overwrite=True)
+        else:
+            raise ValueError(
+                f"Format not understood expected one of ('flex', 'fits') but got {format}"
+            )
+
+    @classmethod
+    def read(cls, filename, format=None):
+        if format is None:
+            _, ext = splitext(filename)
+            if ext in [".flex", ".flx"]:
+                format = "flex"
+            elif ext in [".fits", ".gz"]:
+                format = "fits"
+            else:
+                raise ValueError("Could not determine filetype based on file ending")
+
+        if format == "flex":
+            ff = FlexFile.read(filename)
+            data = ff["spectrum"]
+            return data
+        elif format == "fits":
+            hdulist = fits.open(filename)
+            spec = cls.read_fits_hdu(hdulist[1])
+            return spec
+        else:
+            raise ValueError(
+                f"Format not understood expected one of ('flex', 'fits') but got {format}"
+            )
+
+
+class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
     """
     Extends the specutils Spectrum1D class
     with a few convenience functions useful for
@@ -175,7 +270,36 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
         wmin, wmax = self.wavelength[[0, -1]]
         return specutils.SpectralRegion(wmin, wmax)
 
-    def _get_fits_hdu(self):
+    def _get_header(self):
+        header = {
+            "SOURCE": self.meta["source"],
+            "DESCR": self.meta["description"],
+            "CITATION": self.meta["citation"].replace("\n", "").strip(),
+            "DATE-OBS": self.datetime.fits,
+            "DATE": datetime.now().isoformat(),
+            "REFFRAME": str(self.reference_frame),
+        }
+
+        # This only saves the name
+        # Values have to be recovered using various sources
+        # StellarDB for star and planet
+        # EarthCoordinates for observatory
+        if self.meta["star"] is not None:
+            header["STAR"] = str(self.meta["star"])
+            header["RA"] = self.meta["star"].coordinates.ra.to_value("hourangle")
+            header["DEC"] = self.meta["star"].coordinates.dec.to_value("deg")
+        if self.meta["planet"] is not None:
+            header["PLANET"] = str(self.meta["planet"])
+        if self.meta["observatory_location"] is not None:
+            if isinstance(self.meta["observatory_location"], str):
+                header["OBSNAME"] = self.meta["observatory_location"]
+            elif isinstance(self.meta["observatory_location"], (tuple, list)):
+                header["OBSLAT"] = (self.meta["observatory_location"][0],)
+                header["OBSLON"] = (self.meta["observatory_location"][1],)
+                header["OBSALT"] = (self.meta["observatory_location"][2],)
+        return header
+
+    def get_fits_hdu(self):
         wave = self.wavelength.to(u.AA)
         flux = self.flux.decompose()
         wave_unit = str(wave.unit)
@@ -204,39 +328,13 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
                 coord_unit=flux_unit,
             )
 
-        header = {
-            "SOURCE": self.meta["source"],
-            "DESCR": self.meta["description"],
-            "CITATION": self.meta["citation"].replace("\n", "").strip(),
-            "DATE-OBS": self.datetime.fits,
-            "DATE": datetime.now().isoformat(),
-            "REFFRAME": str(self.reference_frame),
-        }
-
-        # This only saves the name
-        # Values have to be recovered using various sources
-        # StellarDB for star and planet
-        # EarthCoordinates for observatory
-        if self.meta["star"] is not None:
-            header["STAR"] = str(self.meta["star"])
-            header["RA"] = self.meta["star"].coordinates.ra.to_value("hourangle")
-            header["DEC"] = self.meta["star"].coordinates.dec.to_value("deg")
-        if self.meta["planet"] is not None:
-            header["PLANET"] = str(self.meta["planet"])
-        if self.meta["observatory_location"] is not None:
-            if isinstance(self.meta["observatory_location"], str):
-                header["OBSNAME"] = self.meta["observatory_location"]
-            elif isinstance(self.meta["observatory_location"], (tuple, list)):
-                header["OBSLAT"] = (self.meta["observatory_location"][0],)
-                header["OBSLON"] = (self.meta["observatory_location"][1],)
-                header["OBSALT"] = (self.meta["observatory_location"][2],)
-
+        header = self._get_header()
         header = fits.Header(header)
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
         return hdu
 
     @classmethod
-    def _read_fits_hdu(cls, hdu):
+    def read_fits_hdu(cls, hdu):
         header = hdu.header
         data = hdu.data
         meta = {}
@@ -289,16 +387,6 @@ class Spectrum1D(specutils.Spectrum1D, SpectrumBase):
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 
-        return spec
-
-    def write(self, fname):
-        hdu = self._get_fits_hdu()
-        hdu.writeto(fname, overwrite=True)
-
-    @staticmethod
-    def read(fname):
-        hdulist = fits.open(fname)
-        spec = Spectrum1D._read_fits_hdu(hdulist[1])
         return spec
 
     def shift(self, target_frame, inplace=False, rv=None):
@@ -615,7 +703,6 @@ class SpectrumList(Sequence, SpectrumBase):
             secondary += [spec._get_fits_hdu()]
 
         hdulist = fits.HDUList(hdus=[primary, *secondary])
-        makedirs(dirname(abspath(fname)), exist_ok=True)
         hdulist.writeto(fname, overwrite=True)
 
     @classmethod
@@ -708,7 +795,7 @@ class SpectrumList(Sequence, SpectrumBase):
             return self
 
 
-class SpectrumArray(Sequence, SpectrumBase):
+class SpectrumArray(SpectrumBase, Sequence):
     """
     A Collection of Spectra with the same size,
     but possibly different wavelength axis
@@ -747,19 +834,21 @@ class SpectrumArray(Sequence, SpectrumBase):
             else:
                 self.uncertainty = None
 
+            self.meta = {}
             self.segments = np.zeros(nseg + 1, dtype=int)
             self.segments[1:] = spectra[0].shape[1]
             self.segments = np.cumsum(self.segments)
 
-            self.meta = spectra[0].meta
+            self.meta.update(spectra[0].meta)
             times = Time([spec.datetime for spec in spectra])
             self.meta["datetime"] = times
         elif len(args) == 0 and len(kwargs) > 0:
+            self.meta = {}
             self.wavelength = kwargs.pop("spectral_axis")
             self.flux = kwargs.pop("flux")
             self.segments = kwargs.pop("segments")
             self.uncertainty = kwargs.pop("uncertainty", None)
-            self.meta = kwargs
+            self.meta.update(kwargs)
         else:
             raise ValueError
 
@@ -769,6 +858,14 @@ class SpectrumArray(Sequence, SpectrumBase):
     @property
     def nseg(self):
         return len(self.segments) - 1
+
+    @property
+    def segments(self):
+        return self.meta["segments"]
+
+    @segments.setter
+    def segments(self, value):
+        self.meta["segments"] = value
 
     def __getitem__(self, key):
         wave = self.wavelength[key]

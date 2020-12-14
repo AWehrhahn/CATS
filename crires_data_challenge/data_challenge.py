@@ -1,34 +1,28 @@
-from glob import glob
+import inspect
+import logging
 import os
-from os.path import basename, dirname, exists, join
+import warnings
 from copy import deepcopy
+from glob import glob
+from os.path import basename, dirname, exists, join
 
-import plotly.offline as py
-import plotly.graph_objs as go
-from plotly.io import write_image
+from flex.static import write as flexwrite, read as flexread
 
+import astropy.constants as const
+import exoorbit
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.graph_objs as go
+import plotly.offline as py
+from astropy.utils.iers import IERS_Auto
 from astropy import units as u
 from astropy.io import fits
-from astropy.time import Time
-from exoorbit.bodies import Planet, Star
-from tqdm import tqdm
-from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import least_squares
-from scipy.interpolate import interp1d
-import astropy.constants as const
-from scipy.signal import find_peaks
-
 from astropy.nddata import StdDevUncertainty
-
-import exoorbit
-from cats.data_modules.telluric_fit import TelluricFit
-from scipy.ndimage.morphology import binary_erosion, binary_dilation
-from cats.pysysrem.sysrem import sysrem
-
+from astropy.time import Time
+from astropy.utils.data import conf
 from cats.data_modules.stellar_db import StellarDb
+from cats.data_modules.telluric_fit import TelluricFit
 from cats.data_modules.telluric_model import TelluricModel
 from cats.extractor.extract_stellar_parameters import (
     extract_stellar_parameters,
@@ -38,97 +32,224 @@ from cats.extractor.extract_stellar_parameters import (
 from cats.extractor.extract_transit_parameters import extract_transit_parameters
 from cats.extractor.normalize_observation import normalize_observation
 from cats.extractor.prepare import create_intensities, create_stellar, create_telluric
+from cats.pysysrem.sysrem import sysrem
 from cats.simulator.detector import Crires
-
 from cats.spectrum import Spectrum1D, SpectrumArray, SpectrumList
+from exoorbit.bodies import Planet, Star
 from pysme.sme import SME_Structure
+from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage.morphology import binary_dilation, binary_erosion
+from scipy.optimize import least_squares
+from tqdm import tqdm
 
-from simulate_planet import simulate_planet
-from solve_prepared import solve_prepared
-from hitran_linelist import Hitran, HitranSpectrum
-from planet_spectra import load_planet
 from radtrans import radtrans
-
-from tellurics.tellurics import TapasTellurics
-
-
-import warnings
-from astroplan.utils import (
-    download_IERS_A,
-    _get_IERS_A_table,
-)
-from astropy.utils.data import conf
+from solve_prepared import solve_prepared
 
 conf.remote_timeout = 100.0
-
-# Make sure we have an up to date IERS_A table
-needs_download = False
-try:
-    with warnings.catch_warnings(record=True) as warn:
-        _get_IERS_A_table()
-        if len(warn) != 0:
-            # Table is out of date
-            needs_download = True
-except OSError:
-    # Table is not cached
-    needs_download = True
-
-if needs_download:
-    download_IERS_A()
+IERS_Auto()
 
 
-def collect_observations(files, additional_data):
-    files = glob(files)
-    additional_data = pd.read_csv(additional_data)
+logger = logging.getLogger(__name__)
 
-    speclist = []
-    for f in tqdm(files):
-        i = int(basename(f)[9:-5])
-        hdu = fits.open(f)
-        wave = hdu[1].data << u.AA
-        flux = hdu[2].data << u.one
 
-        add = additional_data.iloc[i]
-        time = Time(add["time"], format="jd")
-        airmass = add["airmass"]
-        rv = add["barycentric velocity (Paranal)"] << (u.km / u.s)
+class Step:
+    def __init__(self, raw_dir, medium_dir, done_dir):
+        self.raw_dir = raw_dir
+        self.medium_dir = medium_dir
+        self.done_dir = done_dir
 
-        spectra = []
-        orders = list(range(wave.shape[1]))
-        for order in orders:
-            for det in [1, 2, 3]:
-                w = wave[det - 1, order]
-                f = flux[det - 1, order]
-                if np.all(np.isnan(w)) or np.all(np.isnan(f)):
-                    continue
+    def run(self, *args, **kwargs):
+        raise NotImplementedError
 
-                # We just assume shot noise, no read out noise etc
-                unc = np.sqrt(np.abs(f))
-                unc = StdDevUncertainty(unc)
-                spec = Spectrum1D(
-                    flux=f,
-                    spectral_axis=w,
-                    uncertainty=unc,
-                    source="CRIRES+ Data Challenge 1",
-                    star=star,
-                    planet=planet,
-                    observatory_location=observatory,
-                    datetime=time,
-                    reference_frame="telescope",
-                    radial_velocity=rv,
-                    airmass=airmass,
+    def save(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def load(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class CollectObservationsStep(Step):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.data = None
+        self.savefilename = join(self.medium_dir, "spectra.npz")
+
+    def run(self, observatory, star, planet):
+        files_fname = join(self.raw_dir, "*.fits")
+        files = glob(files_fname)
+        additional_data_fname = join(self.raw_dir, "*.csv")
+        try:
+            additional_data = glob(additional_data_fname)[0]
+            additional_data = pd.read_csv(additional_data)
+        except:
+            additional_data = None
+
+        speclist = []
+        for f in tqdm(files):
+            i = int(basename(f)[9:-5])
+            hdu = fits.open(f)
+            wave = hdu[1].data << u.AA
+            flux = hdu[2].data << u.one
+
+            if additional_data is not None:
+                add = additional_data.iloc[i]
+                time = Time(add["time"], format="jd")
+                airmass = add["airmass"]
+                rv = add["barycentric velocity (Paranal)"] << (u.km / u.s)
+
+            spectra = []
+            orders = list(range(wave.shape[1]))
+            for order in orders:
+                for det in [1, 2, 3]:
+                    w = wave[det - 1, order]
+                    f = flux[det - 1, order]
+                    if np.all(np.isnan(w)) or np.all(np.isnan(f)):
+                        continue
+
+                    # We just assume shot noise, no read out noise etc
+                    unc = np.sqrt(np.abs(f))
+                    unc = StdDevUncertainty(unc)
+                    spec = Spectrum1D(
+                        flux=f,
+                        spectral_axis=w,
+                        uncertainty=unc,
+                        source="CRIRES+ Data Challenge 1",
+                        star=star,
+                        planet=planet,
+                        observatory_location=observatory,
+                        datetime=time,
+                        reference_frame="telescope",
+                        radial_velocity=rv,
+                        airmass=airmass,
+                    )
+                    spectra += [spec]
+
+            speclist += [SpectrumList.from_spectra(spectra)]
+
+        times = [spec.datetime for spec in speclist]
+        sort = np.argsort(times)
+        speclist = [speclist[i] for i in sort]
+        times = [times[i] for i in sort]
+
+        self.data = SpectrumArray(speclist)
+        self.save(self.savefilename)
+        return {"spectra": self.data}
+
+    def save(self, fname=None):
+        if self.data is None:
+            raise ValueError("This step needs to be run first before data can be saved")
+        if fname is None:
+            fname = self.savefilename
+        self.data.write(fname)
+
+    def load(self, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        self.data = SpectrumArray.read(fname)
+        return self.data
+
+
+class CatsRunner:
+    names_of_steps = {"collect": CollectObservationsStep}
+    step_order = {"collect": 10}
+
+    def __init__(
+        self, detector, star, planet, raw_dir=None, medium_dir=None, done_dir=None
+    ):
+        self.detector = detector
+        self.observatory = self.detector.observatory
+
+        if not isinstance(star, Star):
+            sdb = StellarDb()
+            self.star = sdb.get(star)
+        else:
+            self.star = star
+
+        if not isinstance(planet, Planet):
+            self.planet = self.star.planets[planet]
+        else:
+            self.planet = planet
+
+        self.orbit = exoorbit.Orbit(self.star, self.planet)
+
+        if raw_dir is None:
+            self.raw_dir = join(dirname(__file__), "raw")
+        else:
+            self.raw_dir = raw_dir
+
+        if medium_dir is None:
+            self.medium_dir = join(dirname(__file__), "medium")
+        else:
+            self.medium_dir = medium_dir
+
+        if done_dir is None:
+            self.done_dir = join(dirname(__file__), "done")
+        else:
+            self.done_dir = done_dir
+
+    def run(self, steps):
+        # Make sure the directories exists
+        for d in [self.medium_dir, self.done_dir]:
+            os.makedirs(d, exist_ok=True)
+
+        if steps == "all":
+            steps = list(self.step_order.keys())
+        steps = list(steps)
+        # Order steps in the best order
+        steps = sorted(steps, key=lambda s: self.step_order[s])
+
+        # Reset data
+        self.data = {
+            "raw_dir": self.raw_dir,
+            "medium_dir": self.medium_dir,
+            "done_dir": self.done_dir,
+            "star": self.star,
+            "planet": self.planet,
+            "detector": self.detector,
+            "observatory": self.observatory,
+        }
+
+        # Run individual steps
+        for step in steps:
+            self.run_module(step)
+
+        return self.data
+
+    def run_module(self, step, load=False):
+        # The Module this step is based on (An object of the Step class)
+        module = self.names_of_steps[step](self.raw_dir, self.medium_dir, self.done_dir)
+
+        # Load the dependencies necessary for loading/running this step
+        # We determine this through introspection
+        members = inspect.getmembers(module.__class__.run)
+        members = [m for m in members if m[0] == "__code__"][0][1]
+        # We skip the first element, as that is 'self'
+        dependencies = inspect.getargs(members).args[1:]
+        # Then we get all the data from other steps if necessary
+        for dependency in dependencies:
+            if dependency not in self.data.keys():
+                self.data[dependency] = self.run_module(dependency, load=True)
+        args = {d: self.data[d] for d in dependencies}
+
+        # Try to load the data, if the step is not specifically given as necessary
+        # If the intermediate data is not available, run it normally instead
+        # But give a warning
+        if load:
+            try:
+                logger.info("Loading data from step '%s'", step)
+                data = module.load(**args)
+            except FileNotFoundError:
+                logger.warning(
+                    "Intermediate File(s) for loading step %s not found. Running it instead.",
+                    step,
                 )
-                spectra += [spec]
+                data = self.run_module(step, load=False)
+        else:
+            logger.info("Running step '%s'", step)
+            data = module.run(**args)
 
-        speclist += [SpectrumList.from_spectra(spectra)]
-
-    times = [spec.datetime for spec in speclist]
-    sort = np.argsort(times)
-    speclist = [speclist[i] for i in sort]
-    times = [times[i] for i in sort]
-
-    spectra = SpectrumArray(speclist)
-    return spectra
+        self.data[step] = data
+        return data
 
 
 def normalize(spectra, stellar, telluric, detector):
@@ -201,49 +322,50 @@ def fit_tellurics(
 
 # TODO: barycentric velocity is given by the table, not from star
 
-# Settings
+# Detector
 setting = "K/2/4"
 detectors = [1, 2, 3]
 orders = [7, 6, 5, 4, 3, 2]
-# orders = [2, 3, 4, 5, 6, 7]
 detector = Crires(setting, detectors, orders=orders)
-wrange = detector.regions
-observatory = detector.observatory
+
+# Linelist
+linelist = join(dirname(__file__), "crires_k_2_4.lin")
 
 # Star info
-sdb = StellarDb()
-star = sdb.get("HD209458")
-star.vsini = 1.2 * (u.km / u.s)
-star.monh = 0 * u.one
-planet = star.planets["b"]
+star = "HD209458"
+planet = "b"
 
-orbit = exoorbit.Orbit(star, planet)
-t = [orbit.first_contact(), orbit.fourth_contact()]
-rv = orbit.radial_velocity_planet(t)
-
-# Data locations
 raw_dir = join(dirname(__file__), "HD209458_v4")
-medium_dir = join(dirname(__file__), "medium")
-done_dir = join(dirname(__file__), "done")
+runner = CatsRunner(detector, star, planet, raw_dir=raw_dir)
+medium_dir = runner.medium_dir
+done_dir = runner.done_dir
 
-for d in [medium_dir, done_dir]:
-    os.makedirs(d, exist_ok=True)
+# Override data with known information
+runner.star.vsini = 1.2 * (u.km / u.s)
+runner.star.monh = 0 * u.one
 
+# data = runner.run(["collect"])
 
-# Other data
-linelist = join(dirname(__file__), "crires_k_2_4.lin")
-additional_data = join(raw_dir, "HD209458_additional_data.csv")
+# flexwrite("bla.flx", **data)
+# data2 = flexread("bla.flx")
+
+# spectra = data["collect"]
 
 # 1: Collect observations
 print("Collect observations")
 fname = join(medium_dir, "spectra.npz")
-if not exists(fname) or False:
+cos = CollectObservationsStep(raw_dir, medium_dir, done_dir)
+try:
+    spectra = cos.load(fname)
+except FileNotFoundError:
     files = join(raw_dir, "*.fits")
-    spectra = collect_observations(files, additional_data)
-    spectra.write(fname)
-else:
-    spectra = SpectrumArray.read(fname)
+    spectra = cos.run(files, additional_data=additional_data)
+    cos.save(fname)
+
 times = spectra.datetime
+
+flexwrite("bla.flex", spectra=spectra)
+data2 = flexread("bla.flex")
 
 # 2: Extract Telluric information
 # TODO: determine tellurics
@@ -375,17 +497,13 @@ if not exists(fname) or False:
     p.save(fname)
 else:
     p = Planet.load(fname)
-    # This is based on what we know about the model
+# This is based on what we know about the model
+planet = runner.planet
 planet.t0 = p.t0
 planet.inc = 86.59 * u.deg
 planet.ecc = 0 * u.one
 planet.period = 3.52472 * u.day
 planet.radius = p.radius
-
-# Fit Telluric Spectrum
-# telluric = fit_tellurics(
-#     normalized, telluric, star, observatory, skip_resample=True, degree=1
-# )
 
 # 8: Create specific intensitiies
 fname = join(medium_dir, "intensities.npz")
@@ -399,31 +517,9 @@ else:
 
 intensities.flux = gaussian_filter1d(intensities.flux, stellar_broadening) << u.one
 
-# TODO: use the ratio from SME and the spectrum from combined
-# to create the intensities
-sort = np.argsort(times)
-i = np.arange(101)[sort][51]
-# plt.plot(normalized.wavelength[i], normalized.flux[i])
-# plt.plot(combined.wavelength[i], combined.flux[i])
-# plt.plot(stellar.wavelength[i], stellar.flux[i])
-# plt.plot(intensities.wavelength[i], intensities.flux[i])
-# plt.plot(telluric.wavelength[i], telluric.flux[i])
-# plt.show()
-
-# # We use sme to estimate the limb darkening at each point
-# # But use the extracted stellar spectrum, to create the actual intensities
-intensities_combined = (intensities / stellar) * stellar_combined
-
-
-# TODO: is this wavelength scale in air or in vacuum????
-# It's the same as telluric, so it should be in air!
-# but CRIRES is in vacuum!
 fname = join(medium_dir, "reference_petitRADTRANS.fits")
 if not exists(fname) or False:
-    # Use planet model as reference
-    # TODO: use petitRadtrans Code to create the reference spectrum
-    # Currently we use the input spectrum!!!
-    # ref = HitranSpectrum()
+    # Use petitRadtrans Code to create the reference spectrum
     wmin = 1 * u.um
     wmax = 3 * u.um
     ref = radtrans([wmin, wmax], star, planet)
@@ -432,11 +528,7 @@ if not exists(fname) or False:
 else:
     ref = Spectrum1D.read(fname)
 
-# from cats.utils import air2vac, vac2air
-
-from specutils.utils.wcs_utils import vac_to_air, air_to_vac
-
-# Rescaled to 0 to 1
+# Rescaled ref to 0 to 1
 f = np.sqrt(1 - ref.flux)
 f -= f.min()
 f /= f.max()
@@ -452,14 +544,6 @@ if not exists(fname) or False:
     ref_tell.write(fname)
 else:
     ref_tell = Spectrum1D.read(fname)
-
-# ref_tell = Spectrum1D(flux=telluric.flux[50], spectral_axis=telluric.wavelength[50])
-# ref_tell.flux[:] = ref_tell.flux * stellar.flux[50]
-# # Scale telluric spectrum to the same scale as the model flux
-# rmin = ref.flux.min()
-# rmax = ref.flux.max()
-# ref_tell.flux[:] = ref_tell.flux * (rmax - rmin) + rmin
-# ref = ref_tell
 
 rv_range = 100
 rv_points = 201
@@ -492,27 +576,14 @@ else:
 # Thus additional absorption would result in a negative signal at points of large absorption
 reference.flux[:] -= 1
 
-# Add absorption for fun
-# for i in range(20, 80):
-#     normalized.flux[i] -= 1e-3 * reference.flux[-12 + i]
-
-# TODO: How would SysRem help us?
+# How does SysRem help us?
 # It removes the trend from the airmass, but then we can't use the tellurics anymore
 # Unless we figure out the airmass that is being used by all the observations?
 
 
 fname = join(medium_dir, "correlation.npz")
 if not exists(fname) or False:
-    # # Mask strong telluric absorbtion (and nan values)
-    # mask = telluric.flux.to_value(1) >= 0.1
-    # # but not nans at the side?
-    # # TODO: have tellurics without nans at the border
-    # mask |= np.isnan(telluric.flux.to_value(1))
-    # mask = mask[:90]
-    # mask |= np.any(mask, axis=0)
-
-    # flux = normalized.shift("barycentric", inplace=False)
-    # flux = flux.resample(spectra.wavelength[50], inplace=True)
+    # entries past 90 are 'weird'
     flux = normalized.flux.to_value(1)
     flux = flux[:90]
     unc = spectra.uncertainty.array[:90]
@@ -521,19 +592,10 @@ if not exists(fname) or False:
     for n in tqdm(range(101), desc="Sysrem N"):
         corrected_flux = sysrem(flux, num_errors=n, errors=unc)
 
-        # u, s, vh = np.linalg.svd(flux, full_matrices=False)
-        # s[:n] = 0
-        # # s[80:] = 0  # Empirically determined
-        # corrected_flux = (u * s) @ vh
-
         # Mask strong tellurics
-        # corrected_flux[~mask] = np.nan
-        # corrected_flux -= gaussian_filter1d(corrected_flux, 20, axis=1)
         std = np.nanstd(corrected_flux, axis=0)
         std[std == 0] = 1
         corrected_flux /= std
-        # corrected_flux += np.median(normalized.flux.to_value(1), axis=0)
-        # normalized_sysrem.flux = corrected_flux << normalized.flux.unit
 
         # Observations 90 to 101 have weird stuff
         corr = np.zeros((90, rv_points))
@@ -630,256 +692,137 @@ v_planet = res.x[1] * (np.arange(n_obs) - n_obs // 2)
 v_planet = -v_planet << (u.km / u.s)
 
 
-# ax1 = plt.subplot(2, 1, 1)
-# plt.imshow(corr, aspect="auto", origin="lower")
-# plt.subplot(212, sharex=ax1)
-# plt.imshow(model, aspect="auto", origin="lower")
-# plt.show()
+# TODO:
+# For this dataset we can fit the lightcurve directly
+# since all observations are the same, but in reallity that will be tricky
+# So we should make sure that:
+#   orb = Orbit(self.star, self.planet)
+#   area = orb.stellar_surface_covered_by_planet(times)
+# Works similarly well
 
-# tmp = np.copy(corr)
-# tmp -= gaussian_filter1d(corr, 20, axis=0)
-# tmp -= gaussian_filter1d(corr, 20, axis=1)
+# TODO: some of the area we calculate here should be explained by limb darkening
 
-# ax1 = plt.subplot(2, 1, 1)
-# vmin, vmax = np.nanpercentile(corr, (5, 95))
-# plt.imshow(corr, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
-# plt.subplot(212, sharex=ax1)
-# vmin, vmax = np.nanpercentile(tmp, (5, 95))
-# plt.imshow(tmp, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
-# plt.show()
+limits = 15, 85
+f = spectra.flux.to_value(1)
+y = np.nanmean(f, axis=1)
+x = np.arange(len(y))
 
-# vmin, vmax = np.nanpercentile(corrected_flux, (5, 95))
-# plt.imshow(corrected_flux, aspect="auto", origin="lower", vmin=vmin, vmax=vmax)
-# plt.show()
+x2 = np.concatenate([x[: limits[0]], x[limits[1] :]])
+y2 = np.concatenate([y[: limits[0]], y[limits[1] :]])
+yf = np.polyval(np.polyfit(x2, y2, 3), x)
 
-# Shifting the observations and stacking them doesn't work (as expected?)
-# normalized_sysrem = deepcopy(normalized)
-# normalized_sysrem.flux[:] = sysrem(normalized_sysrem, 1)
-# normalized_sysrem.flux[:] /= np.nanstd(normalized_sysrem.flux, axis=0)
-
-
-# TODO: calculate the planet size from this plot
-# plt.plot(np.median(corrected_flux, axis=1))
-# plt.show()
-
-
-# telluric_corrected_flux = sysrem(telluric_combined.flux.to_value(1))
-# telluric_combined.flux = telluric_corrected_flux << telluric_combined.flux.unit
-
-# stellar_corrected_flux = sysrem(stellar_combined.flux.to_value(1))
-# stellar_combined.flux = stellar_corrected_flux << stellar_combined.flux.unit
+area = 1 - y / yf
+area[: limits[0]] = area[limits[1] :] = 0
+area = gaussian_filter1d(area, 1)
 
 # 9: Solve the equation system
-i = np.arange(101)[sort][51]
-wavelength = normalized[i].wavelength
-flux = normalized[i].flux
-planet_spectrum = load_planet()
+wavelength = normalized[51].wavelength
+flux = normalized[51].flux
 nseg = normalized.nseg
 
-# hitspec = HitranSpectrum()
-# hitspec.datetime = normalized.datetime[i]
-# hitspec = hitspec.shift(normalized.reference_frame)
+ref.flux[:] = gaussian_filter1d(ref.flux, 100)
 
-# import spectres
+cross_corr = {}
+for seg in tqdm([13]):
+    hspec = ref.resample(wavelength[seg], inplace=False)
+    hspec.flux[:] -= np.nanmin(hspec.flux)
+    hspec.flux[:] /= np.nanmax(hspec.flux)
 
-# hflux = spectres.spectres(
-#     normalized.wavelength[i].to_value("AA")[::10],
-#     hitspec.wavelength.to_value("AA"),
-#     hitspec.flux.to_value(1),
-# )
-# hflux -= np.nanmin(hflux)
-# hflux /= np.nanmax(hflux)
+    data = [
+        {
+            "x": wavelength[seg].to_value("AA"),
+            "y": flux[seg].to_value(1),
+            "name": "normalized observation",
+        },
+        {
+            "x": wavelength[seg].to_value("AA"),
+            "y": hspec.flux.to_value(1),
+            "name": "planet model",
+        },
+    ]
+    visible = [-1, -1]
 
-# hitspec = Spectrum1D(spectral_axis=normalized.wavelength[i][::10], flux=hflux << u.one)
-# hitspec = ref.shift("telescope", rv=-v_sys)
-# hitspec = hitspec.resample(spectra.wavelength[50])
+    # TODO: put everything into one big extraction
+    # for seg in tqdm(range(nseg)):
+    # 10000000
+    for regularization_weight in tqdm(
+        [5000000], desc="Regularization Weight", leave=False
+    ):
+        d = []
+        for n_sysrem in tqdm([10], desc="N Sysrem", leave=False):
 
-hitspec = ref  # .shift("barycentric", rv=v_sys, inplace=False)
-# hitspec = hitspec.resample(normalized.wavelength[i], method="flux_conserving")
-
-
-# spec_all, null_all = solve_prepared(
-#     normalized,
-#     telluric_combined,
-#     stellar_combined,
-#     intensities,
-#     detector,
-#     star,
-#     planet,
-#     solver="linear",
-#     rv=v_planet,
-# )
-
-# print("Saving data...")
-# spec.write(join(done_dir, f"planet_extracted.fits"))
-# null.write(join(done_dir, f"null_extracted.fits"))
-
-# lower, upper = spectra.segments[seg : seg + 2]
-# spec, null = spec_all[lower:upper], null_all[lower:upper]
-
-# spec.star = null.star = star
-# spec.planet = null.planet = planet
-# spec.observatory_location = null.observatory_location = observatory
-# spec.datetime = null.datetime = spectra.datetime[50]
-
-seg = 13
-
-hspec = hitspec.resample(wavelength[seg], inplace=False)
-hspec.flux[:] = gaussian_filter1d(hspec.flux, 1)
-hspec.flux[:] -= np.nanmin(hspec.flux)
-hspec.flux[:] /= np.nanmax(hspec.flux)
-
-
-data = [
-    {
-        "x": wavelength[seg].to_value("AA"),
-        "y": flux[seg].to_value(1),
-        "name": "normalized observation",
-    },
-    {
-        "x": wavelength[seg].to_value("AA"),
-        "y": hspec.flux.to_value(1),
-        "name": "planet model",
-    },
-]
-visible = [-1, -1]
-sysrems = [10]
-
-# TODO: put everything into one big extraction
-# for seg in tqdm(range(nseg)):
-# 10000000
-for regularization_weight in tqdm([100], desc="Regularization Weight"):
-    d = []
-    for n_sysrem in tqdm(sysrems, desc="N Sysrem"):
-
-        # TODO:
-        # For this dataset we can fit the lightcurve directly
-        # since all observations are the same, but in reallity that will be tricky
-        # So we should make sure that:
-        #   orb = Orbit(self.star, self.planet)
-        #   area = orb.stellar_surface_covered_by_planet(times)
-        # Works similarly well
-
-        # TODO: some of the area we calculate here should be explained by limb darkening
-
-        limits = 15, 85
-        f = spectra.flux.to_value(1)
-        y = np.nanmean(f, axis=1)
-        x = np.arange(len(y))
-
-        x2 = np.concatenate([x[: limits[0]], x[limits[1] :]])
-        y2 = np.concatenate([y[: limits[0]], y[limits[1] :]])
-        yf = np.polyval(np.polyfit(x2, y2, 3), x)
-
-        area = 1 - y / yf
-        area[: limits[0]] = area[limits[1] :] = 0
-        area = gaussian_filter1d(area, 1)
-
-        spec, null = solve_prepared(
-            spectra,
-            telluric,
-            stellar_combined,
-            normalized,
-            detector,
-            star,
-            planet,
-            solver="linear",
-            seg=seg,
-            rv=v_planet,
-            n_sysrem=n_sysrem,
-            regularization_weight=regularization_weight,
-            regularization_ratio=10,
-            area=area,
-        )
-
-        # print("Saving data...")
-        spec.write(
-            join(
-                done_dir,
-                f"planet_extracted_{seg}_{regularization_weight}_{n_sysrem}.fits",
+            spec, null = solve_prepared(
+                spectra,
+                telluric,
+                stellar_combined,
+                spectra,
+                detector,
+                star,
+                planet,
+                solver="linear",
+                seg=seg,
+                rv=v_planet,
+                n_sysrem=n_sysrem,
+                regularization_weight=regularization_weight,
+                regularization_ratio=10,
+                area=area,
             )
-        )
 
-        if n_sysrem is None:
-            sflux = spec.flux - np.nanpercentile(spec.flux, 5)
-            sflux /= np.nanpercentile(sflux, 95)
-            nflux = null.flux - np.nanpercentile(null.flux, 5)
-            nflux /= np.nanpercentile(nflux, 95)
-        else:
-            sflux = spec.flux
-            nflux = null.flux
+            # print("Saving data...")
+            spec.write(
+                join(
+                    done_dir,
+                    f"planet_extracted_{seg}_{regularization_weight}_{n_sysrem}.fits",
+                )
+            )
 
-        d += [
-            {
-                "x": spec.wavelength.to_value("AA"),
-                "y": sflux.to_value(1),
-                "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
-            },
-            # {
-            #     "x": null.wavelength.to_value("AA"),
-            #     "y": nflux.to_value(1),
-            #     "name": f"inversed, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
-            # },
-        ]
-        visible += [-1]
+            if n_sysrem is None:
+                sflux = spec.flux - np.nanpercentile(spec.flux, 5)
+                sflux /= np.nanpercentile(sflux, 95)
+                nflux = null.flux - np.nanpercentile(null.flux, 5)
+                nflux /= np.nanpercentile(nflux, 95)
+            else:
+                sflux = spec.flux
+                nflux = null.flux
 
-    minimum = min([np.nanpercentile(ds["y"], 5) for ds in d[0:]])
-    for i in range(0, len(d)):
-        d[i]["y"] -= minimum
+            d += [
+                {
+                    "x": spec.wavelength.to_value("AA"),
+                    "y": sflux.to_value(1),
+                    "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
+                },
+                # {
+                #     "x": null.wavelength.to_value("AA"),
+                #     "y": nflux.to_value(1),
+                #     "name": f"inversed, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
+                # },
+            ]
+            visible += [-1]
 
-    maximum = max([np.nanpercentile(ds["y"], 95) for ds in d[0:]])
-    for i in range(0, len(d)):
-        d[i]["y"] /= maximum
+        minimum = min([np.nanpercentile(ds["y"], 5) for ds in d[0:]])
+        for i in range(0, len(d)):
+            d[i]["y"] -= minimum
 
-    data += d
+        maximum = max([np.nanpercentile(ds["y"], 95) for ds in d[0:]])
+        for i in range(0, len(d)):
+            d[i]["y"] /= maximum
 
+        for i in range(0, len(d)):
+            dspec = np.interp(hspec.wavelength.to_value("AA"), d[i]["x"], d[i]["y"])
+            cross_corr[f"{seg}.{i}"] = np.correlate(
+                dspec, hspec.flux.to_value(1), mode="same"
+            )
 
-# # Add traces, one for each slider step
-# step_data = []
-# for i, step in enumerate(np.arange(-100, 100, 1)):
-#     rv = step
-#     step_data += [
-#         {
-#             "visible": False,
-#             "name": "rv = " + str(step),
-#             "x": wavelength[seg].to_value("AA") * (1 - rv / 3e5),
-#             "y": hspec.flux.to_value(1),
-#         }
-#     ]
-#     visible += [i]
+        data += d
 
-# data += step_data
-# visible = np.array(visible)
+    wran = [wavelength[seg][0].to_value("AA"), wavelength[seg][-1].to_value("AA")]
+    layout = {
+        "title": f"Segment: {seg}",
+        "xaxis": {"title": "Wavelength [Å]", "range": wran},
+        "yaxis": {"title": "Flux, normalised"},
+    }
+    fname = join(done_dir, f"planet_spectrum_{seg}.html")
+    fig = go.Figure(data, layout)
+    py.plot(fig, filename=fname, auto_open=False)
 
-# # Create and add slider
-# steps = []
-# for i in range(len(step_data)):
-#     steps += [
-#         {
-#             "method": "update",
-#             "args": [
-#                 {"visible": (visible == -1) | (visible == i)},
-#             ],  # layout attribute
-#         }
-#     ]
-
-# sliders = [
-#     {
-#         "active": 10,
-#         "currentvalue": {"prefix": "rv: "},
-#         "pad": {"t": 50},
-#         "steps": steps,
-#     }
-# ]
-
-
-wran = [wavelength[seg][0].to_value("AA"), wavelength[seg][-1].to_value("AA")]
-layout = {
-    "title": f"Segment: {seg}",
-    "xaxis": {"title": "Wavelength [Å]", "range": wran},
-    "yaxis": {"title": "Flux, normalised"},
-    # "sliders": sliders,
-}
-fname = join(done_dir, f"planet_spectrum_{seg}.html")
-fig = go.Figure(data, layout)
-py.plot(fig, filename=fname, auto_open=False)
+np.savez(join(done_dir, "cross_correlation.npz"), **cross_corr)
