@@ -5,6 +5,7 @@ from copy import copy, deepcopy
 from datetime import datetime
 from os import makedirs
 from os.path import abspath, dirname, splitext
+import inspect
 
 from tqdm import tqdm
 import astropy.constants as const
@@ -150,6 +151,38 @@ class SpectrumBase:
 
         return cls(**meta)
 
+    def to_dict(self):
+        data = self.meta
+        data["spectral_axis"] = self.wavelength.value
+        data["spectral_axis_unit"] = self.wavelength.unit
+        data["flux"] = self.flux.value
+        data["flux_unit"] = self.flux.unit
+        if self.uncertainty is not None:
+            data["uncertainty"] = self.uncertainty.array
+            data["uncertainty_unit"] = self.uncertainty.unit
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        meta = data.get("meta", {})
+        exceptions = ["flux", "flux_unit", "spectral_axis", "spectral_axis_unit"]
+        for k, v in data.items():
+            if k not in exceptions:
+                meta[k] = v
+        flux_unit = data["flux_unit"]
+        wave_unit = data["spectral_axis_unit"]
+        meta["flux"] = data["flux"] << u.Unit(flux_unit)
+        meta["spectral_axis"] = data["spectral_axis"] << u.Unit(wave_unit)
+
+        if "uncertainty" in data.keys():
+            uncs_unit = data["uncertainty_unit"]
+            uncs = data["uncertainty"] << u.Unit(uncs_unit)
+            uncs = StdDevUncertainty(uncs)
+            meta["uncertainty"] = uncs
+
+        self = cls(**meta)
+        return self
+
     def get_fits_hdu(self):
         raise NotImplementedError
 
@@ -157,13 +190,30 @@ class SpectrumBase:
     def read_fits_hdu(cls, hdu):
         raise NotImplementedError
 
-    def write(self, filename, format="flex"):
+    @staticmethod
+    def determine_filetype_based_on_filename(filename):
+        _, ext = splitext(filename)
+        if ext in [".flex", ".flx"]:
+            return "flex"
+        elif ext in [".fits", ".gz"]:
+            return "fits"
+        elif ext in [".npz"]:
+            return "npz"
+        else:
+            raise ValueError("Could not determine filetype based on file ending")
+
+    def write(self, filename, format=None):
+        if format is None:
+            format = self.__class__.determine_filetype_based_on_filename(filename)
         if format == "flex":
             ff = FlexFile(extensions={"spectrum": self.__flex_save__()})
             ff.write(filename)
         elif format == "fits":
             hdu = self.get_fits_hdu()
             hdu.writeto(filename, overwrite=True)
+        elif format == "npz":
+            data = self.to_dict()
+            np.savez(filename, **data)
         else:
             raise ValueError(
                 f"Format not understood expected one of ('flex', 'fits') but got {format}"
@@ -172,21 +222,20 @@ class SpectrumBase:
     @classmethod
     def read(cls, filename, format=None):
         if format is None:
-            _, ext = splitext(filename)
-            if ext in [".flex", ".flx"]:
-                format = "flex"
-            elif ext in [".fits", ".gz"]:
-                format = "fits"
-            else:
-                raise ValueError("Could not determine filetype based on file ending")
+            format = cls.determine_filetype_based_on_filename(filename)
 
         if format == "flex":
             ff = FlexFile.read(filename)
-            data = ff["spectrum"]
-            return data
+            spec = ff["spectrum"]
+            return spec
         elif format == "fits":
             hdulist = fits.open(filename)
             spec = cls.read_fits_hdu(hdulist[1])
+            return spec
+        elif format == "npz":
+            data = np.load(filename, allow_pickle=True)
+            data = {k: v[()] for k, v in data.items()}
+            spec = cls.from_dict(data)
             return spec
         else:
             raise ValueError(
@@ -203,12 +252,24 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
     the spectrum to different wavelengths grids
     """
 
+    __code__ = [
+        m
+        for m in inspect.getmembers(specutils.Spectrum1D.__init__)
+        if m[0] == "__code__"
+    ][0][1]
+    __init_args__ = inspect.getargs(__code__).args[1:] + [
+        "data",
+        "unit",
+        "uncertainty",
+        "meta",
+        "mask",
+        "copy",
+    ]
+
     def __init__(self, *args, **kwargs):
         # Set default options (if not given)
 
-        if "spectral_axis" in kwargs.keys():
-            pass
-        else:
+        if "spectral_axis" not in kwargs.keys():
             kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
 
         meta = {}
@@ -229,12 +290,17 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
         # One of "barycentric", "telescope", "planet", "star"
         reference_frame = kwargs.pop("reference_frame", "barycentric")
 
-        for other_key in ["regularization_weight"]:
-            if other_key in kwargs.keys():
-                meta[other_key] = kwargs.pop(other_key)
-
         # Obsolete keywords
         kwargs.pop("sky_location", None)
+
+        marked_for_death = []
+        for key, value in kwargs.items():
+            if key not in self.__init_args__:
+                meta[key] = value
+                marked_for_death += [key]
+
+        for key in marked_for_death:
+            del kwargs[key]
 
         kwmeta = kwargs.pop("meta", {})
         kwmeta.update(meta)
@@ -492,9 +558,9 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
         else:
             # Cast spec to Spectrum 1D class and set meta parameters
             spec.meta = copy(self.meta)
-            spec.radial_velocity = self.radial_velocity
-            spec.with_velocity_convention(self.velocity_convention)
             spec.__class__ = Spectrum1D
+            #spec.with_velocity_convention(self.velocity_convention)
+            #spec.radial_velocity = self.radial_velocity
 
         return spec
 
@@ -947,38 +1013,21 @@ class SpectrumArray(SpectrumBase, Sequence):
             spectral_axis=wave,
             uncertainty=uncs,
             segments=[0, right - left],
-            **self.meta,
+            **{k: v for k, v in self.meta.items() if k != "segments"},
         )
         return specarr
 
-    def write(self, fname):
-        data = dict(
-            wavelength=self.wavelength.value,
-            flux=self.flux.value,
-            meta=self.meta,
-            segments=self.segments,
-            flux_unit=str(self.flux.unit),
-            wave_unit=str(self.wavelength.unit),
-        )
-
-        if self.uncertainty is not None:
-            data["uncertainty"] = self.uncertainty.array
-            data["uncertainty_unit"] = str(self.uncertainty.unit)
-
-        np.savez(fname, **data)
-
     @classmethod
-    def read(cls, fname):
-        data = np.load(fname, allow_pickle=True)
-        meta = data["meta"][()]
-        flux_unit = data["flux_unit"][()]
-        wave_unit = data["wave_unit"][()]
+    def from_dict(cls, data):
+        meta = data["meta"]
+        flux_unit = data["flux_unit"]
+        wave_unit = data["wave_unit"]
         flux = data["flux"] << u.Unit(flux_unit)
         wave = data["wavelength"] << u.Unit(wave_unit)
         segments = data["segments"]
 
         if "uncertainty" in data.keys():
-            uncs_unit = data["uncertainty_unit"][()]
+            uncs_unit = data["uncertainty_unit"]
             uncs = data["uncertainty"] << u.Unit(uncs_unit)
             uncs = StdDevUncertainty(uncs)
             meta["uncertainty"] = uncs
