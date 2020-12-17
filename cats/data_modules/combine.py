@@ -17,7 +17,6 @@ from ..least_squares.least_squares import least_squares
 
 from .datasource import DataSource
 from ..spectrum import SpectrumArray
-from ..extractor.normalize_observation import continuum_normalize_part_2
 
 
 def detect_ouliers(spectra: SpectrumArray):
@@ -259,31 +258,6 @@ class CombineStellar(DataSource):
         # combine
         spectra = deepcopy(spectra)
         self.combined, self.telluric = combine_observations(spectra)
-
-        # # Repeat the data for each observation
-        # nobs = len(spectra)
-
-        # # The NDUncertainty class doesn't like being handled like a np.ndarray
-        # # so we give it some special treatment
-        # unc_cls = self.combined.uncertainty.__class__
-        # uncs = self.combined.uncertainty.array
-        # uunit = self.combined.uncertainty.unit
-        # uncs = np.tile(uncs, (nobs, 1)) << uunit
-        # uncs = unc_cls(uncs)
-
-        # self.combined = SpectrumArray(
-        #     flux=self.combined.flux,
-        #     spectral_axis=np.tile(self.combined.wavelength, (nobs, 1)),
-        #     uncertainty=uncs,
-        #     segments=spectra.segments,
-        #     datetime=spectra.datetime,
-        #     reference_frame="barycentric",
-        # )
-
-        # self.combined = continuum_normalize_part_2(
-        #     self.combined, stellar, telluric, detector
-        # )
-        pass
 
     def get(self, wrange, time):
         idx = self.combined.datetime == time

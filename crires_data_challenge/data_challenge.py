@@ -8,8 +8,7 @@ from astropy import units as u
 from astropy.utils.iers import IERS_Auto
 
 from cats.simulator.detector import Crires
-
-from runner import CatsRunner
+from cats.extractor.runner import CatsRunner
 
 # TODO List:
 # - automatically mask points before fitting with SME
@@ -36,17 +35,20 @@ star = "HD209458"
 planet = "b"
 
 # Initialize the CATS runner
-raw_dir = join(dirname(__file__), "HD209458_v4")
-runner = CatsRunner(detector, star, planet, linelist, raw_dir=raw_dir)
+base_dir = dirname(__file__)
+raw_dir = join(base_dir, "HD209458_v4")
+runner = CatsRunner(
+    detector, star, planet, linelist, base_dir=base_dir, raw_dir=raw_dir
+)
 
 # Override data with known information
-star = runner.run_module("star")
+star = runner.run_module("star", load=True)
 runner.star.vsini = 1.2 * (u.km / u.s)
 runner.star.monh = 0 * u.one
 runner.star.name = "HD209458"
 runner.star.radial_velocity = -14.743 * (u.km / u.s)
 
-planet = runner.run_module("planet")
+planet = runner.run_module("planet", load=True)
 runner.planet.inc = 86.59 * u.deg
 runner.planet.ecc = 0 * u.one
 runner.planet.period = 3.52472 * u.day

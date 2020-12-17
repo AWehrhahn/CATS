@@ -81,6 +81,7 @@ class CatsRunner:
         star,
         planet,
         linelist,
+        base_dir=None,
         raw_dir=None,
         medium_dir=None,
         done_dir=None,
@@ -104,20 +105,33 @@ class CatsRunner:
         self.linelist = linelist
         self.orbit = Orbit(self.star, self.planet)
 
+        if base_dir is None:
+            base_dir = os.getcwd()
         if raw_dir is None:
-            self.raw_dir = join(dirname(__file__), "raw")
+            self.raw_dir = join(base_dir, "raw")
         else:
             self.raw_dir = raw_dir
 
         if medium_dir is None:
-            self.medium_dir = join(dirname(__file__), "medium")
+            self.medium_dir = join(base_dir, "medium")
         else:
             self.medium_dir = medium_dir
 
         if done_dir is None:
-            self.done_dir = join(dirname(__file__), "done")
+            self.done_dir = join(base_dir, "done")
         else:
             self.done_dir = done_dir
+
+        self.data = {
+            "raw_dir": self.raw_dir,
+            "medium_dir": self.medium_dir,
+            "done_dir": self.done_dir,
+            "star": self.star,
+            "planet": self.planet,
+            "detector": self.detector,
+            "observatory": self.observatory,
+            "linelist": self.linelist,
+        }
 
     def run(self, steps):
         # Make sure the directories exists
@@ -129,18 +143,6 @@ class CatsRunner:
         steps = list(steps)
         # Order steps in the best order
         steps = sorted(steps, key=lambda s: self.step_order[s])
-
-        # Reset data
-        self.data = {
-            "raw_dir": self.raw_dir,
-            "medium_dir": self.medium_dir,
-            "done_dir": self.done_dir,
-            "star": self.star,
-            "planet": self.planet,
-            "detector": self.detector,
-            "observatory": self.observatory,
-            "linelist": self.linelist,
-        }
 
         # Run individual steps
         for step in steps:

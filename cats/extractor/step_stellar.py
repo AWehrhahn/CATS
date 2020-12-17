@@ -24,20 +24,17 @@ Lets do Option A!
 
 import numpy as np
 from astropy import units as u
-from tqdm import tqdm
-
+from exoorbit.bodies import Star
+from pysme.gui import plot_plotly
 from pysme.linelist.vald import ValdFile
 from pysme.sme import SME_Structure
 from pysme.solve import SME_Solver
-from pysme.synthesize import synthesize_spectrum, Synthesizer
-from pysme.gui import plot_plotly
+from pysme.synthesize import Synthesizer, synthesize_spectrum
+from tqdm import tqdm
 
-from exoorbit.bodies import Star
-
-from .steps import Step, StepIO
-
-from ..spectrum import SpectrumArray
 from ..data_modules.combine import combine_observations
+from ..spectrum import SpectrumArray, SpectrumArrayIO
+from .steps import Step, StepIO
 
 
 class SmeStructureIO(StepIO):

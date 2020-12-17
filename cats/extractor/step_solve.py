@@ -1,8 +1,11 @@
+from os.path import join
+
 import numpy as np
 import plotly.graph_objs as go
 import plotly.offline as py
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
+from astropy import units as u
 
 from ..solver.bayes import BayesSolver
 from ..solver.linear import LinearSolver

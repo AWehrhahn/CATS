@@ -6,7 +6,7 @@ from flex.flex import FlexFile
 
 from ..pysysrem.sysrem import sysrem
 from ..spectrum import Spectrum1D, Spectrum1DIO, SpectrumArray, SpectrumArrayIO
-from .steps import Step
+from .steps import Step, StepIO
 
 
 class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):

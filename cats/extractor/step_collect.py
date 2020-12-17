@@ -2,13 +2,14 @@ from os.path import join, basename
 from glob import glob
 
 from tqdm import tqdm
+import numpy as np
 import pandas as pd
 from astropy.io import fits
 from astropy.time import Time
 from astropy.nddata import StdDevUncertainty
+from astropy import units as u
 
-
-from ..spectrum import Spectrum1D, SpectrumArray, SpectrumArrayIO
+from ..spectrum import Spectrum1D, SpectrumArray, SpectrumArrayIO, SpectrumList
 from .steps import Step
 
 

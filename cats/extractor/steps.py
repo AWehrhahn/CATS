@@ -1,3 +1,6 @@
+from os.path import join
+
+
 class Step:
     def __init__(self, raw_dir, medium_dir, done_dir, config=None):
         self.raw_dir = raw_dir
@@ -6,7 +9,7 @@ class Step:
 
         if config is not None:
             for key, value in config.items():
-                setattr(self, key) = value
+                setattr(self, key, value)
 
     def run(self, *args, **kwargs):
         raise NotImplementedError
