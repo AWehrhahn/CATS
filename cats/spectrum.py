@@ -23,6 +23,7 @@ import astroplan
 from . import reference_frame as rf
 from .data_modules.stellar_db import StellarDb
 from .simulator import detector
+from .extractor.steps import StepIO
 
 from flex.flex import FlexFile
 from flex.extensions.bindata import MultipleDataExtension
@@ -559,8 +560,8 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
             # Cast spec to Spectrum 1D class and set meta parameters
             spec.meta = copy(self.meta)
             spec.__class__ = Spectrum1D
-            #spec.with_velocity_convention(self.velocity_convention)
-            #spec.radial_velocity = self.radial_velocity
+            # spec.with_velocity_convention(self.velocity_convention)
+            # spec.radial_velocity = self.radial_velocity
 
         return spec
 
@@ -1097,3 +1098,29 @@ class SpectrumArray(SpectrumBase, Sequence):
             spectra.wavelength[i] = wavelength[i]
 
         return spectra
+
+
+class SpectrumArrayIO(StepIO):
+    def save(self, data, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data.write(fname)
+
+    def load(self, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data = SpectrumArray.read(fname)
+        return data
+
+
+class Spectrum1DIO(StepIO):
+    def save(self, data, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data.write(fname)
+
+    def load(self, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data = Spectrum1D.read(fname)
+        return data

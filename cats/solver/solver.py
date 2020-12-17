@@ -112,11 +112,11 @@ class SolverBase:
         # f /= norm
         # g /= norm
 
-        plt.imshow(g, aspect="auto", origin="lower")
-        plt.xlabel("Wavelength")
-        plt.ylabel("Time")
-        plt.title(f"N_Sysrem: {self.n_sysrem}")
-        plt.savefig(f"spectra_sysrem_{self.n_sysrem}.png")
+        # plt.imshow(g, aspect="auto", origin="lower")
+        # plt.xlabel("Wavelength")
+        # plt.ylabel("Time")
+        # plt.title(f"N_Sysrem: {self.n_sysrem}")
+        # plt.savefig(f"spectra_sysrem_{self.n_sysrem}.png")
 
         return wavelength, f, g
 
