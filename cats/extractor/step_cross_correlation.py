@@ -13,12 +13,13 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
     filename = "reference_petitRADTRANS.npz"
 
     def run(self, star, planet, detector):
+        rv_padding = self.rv_padding
         wrange = detector.regions
         wmin = min([wr.lower for wr in wrange])
         wmax = max([wr.upper for wr in wrange])
         # Apply possible radial velocity tolerance of 200 km/s
-        wmin *= 1 - 200 / 3e5
-        wmax *= 1 + 200 / 3e5
+        wmin *= 1 - rv_padding / 3e5
+        wmax *= 1 + rv_padding / 3e5
         ref = petit_radtrans.radtrans([wmin, wmax], star, planet)
         ref.star = star
         ref.planet = planet
@@ -38,8 +39,8 @@ class CrossCorrelationReferenceStep(Step, Spectrum1DIO):
     filename = "reference_petitRADTRANS.fits"
 
     def run(self, planet_reference_spectrum, star, observatory, spectra):
-        rv_range = 100
-        rv_points = 201
+        rv_range = self.rv_range
+        rv_points = self.rv_points
 
         ref = planet_reference_spectrum
         ref.star = star
@@ -72,9 +73,10 @@ class CrossCorrelationStep(Step, StepIO):
     filename = "cross_correlation.npz"
 
     def run(self, spectra, cross_correlation_reference):
-        max_nsysrem = 10
-        rv_range = 100
-        rv_points = 201
+        max_nsysrem = self.max_sysrem_iterations
+        max_nsysrem_after = self.max_sysrem_iterations_afterwards
+        rv_range = self.rv_range
+        rv_points = self.rv_points
 
         reference = cross_correlation_reference
 
@@ -110,7 +112,11 @@ class CrossCorrelationStep(Step, StepIO):
                         corr[i, j] *= m.size / np.count_nonzero(m)
 
             correlation[f"{n}"] = np.copy(corr)
-            for i in tqdm(range(10), leave=False, desc="Sysrem on Cross Correlation"):
+            for i in tqdm(
+                range(max_nsysrem_after),
+                leave=False,
+                desc="Sysrem on Cross Correlation",
+            ):
                 correlation[f"{n}.{i}"] = sysrem(np.copy(corr), i)
 
         self.save(correlation)
@@ -132,9 +138,10 @@ class PlanetRadialVelocityStep(Step, StepIO):
     filename = "planet_radial_velocity.flex"
 
     def run(self, cross_correlation, spectra):
-        rv_range = 100
-        rv_points = 201
-        n, i = 2, 4
+        rv_range = self.rv_range
+        rv_points = self.rv_points
+        n = self.sysrem_iterations
+        i = self.sysrem_iterations_afterwards
 
         corr = cross_correlation[f"{n}.{i}"]
         # Remove large scale variation

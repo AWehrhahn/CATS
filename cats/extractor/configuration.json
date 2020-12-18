@@ -1,0 +1,42 @@
+{
+    "__comment__": "Default parameters for CATS Runner steps",
+    "spectra": {},
+    "telluric": {},
+    "telluric_tapas": {},
+    "telluric_space": {},
+    "stellar_parameters_first_guess": {},
+    "star": {},
+    "stellar_spectrum": {},
+    "normalized_observation": {},
+    "stellar_spectrum_combined": {},
+    "planet": {},
+    "specific_intensities": {},
+    "planet_reference_spectrum": {
+        "source": "petitRadtrans",
+        "rv_padding": 200
+    },
+    "cross_correlation_reference": {
+        "rv_range": 100,
+        "rv_points": 201
+    },
+    "cross_correlation": {
+        "max_sysrem_iterations": 10,
+        "max_sysrem_iterations_afterwards": 10,
+        "rv_range": 100,
+        "rv_points": 201
+    },
+    "planet_radial_velocity": {
+        "rv_range": 100,
+        "rv_points": 201,
+        "sysrem_iterations": 2,
+        "sysrem_iterations_afterwards": 4
+    },
+    "planet_area": {},
+    "solve_problem": {
+        "segments": "all",
+        "solver": "linear",
+        "sysrem_iterations": 10,
+        "regularization_weight": 0.0000001,
+        "regularization_ratio": 10
+    }
+}

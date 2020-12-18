@@ -2,6 +2,7 @@
 import inspect
 import logging
 import os
+import json
 from os.path import dirname, exists, join
 
 # 3rd party imports
@@ -36,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 
 class CatsRunner:
+
+    # Each Step is identified by unique name
+    # The name is used in 4 places, and they need to be consistent for the Runner to work
+    # 1: Here to connect the name to the class
+    # 2: Below to connect the name to the execution order
+    # 3: As arguments to the run method of each step, the names are recovered using introspection
+    # 4: As keys in the configuration, each leading to a seperate dictionary of values
     names_of_steps = {
         "spectra": CollectObservationsStep,
         "telluric": TelluricAirmassStep,
@@ -85,6 +93,7 @@ class CatsRunner:
         raw_dir=None,
         medium_dir=None,
         done_dir=None,
+        configuration=None,
     ):
         #:Detector: The detector/instrument performing the measurements
         self.detector = detector
@@ -122,6 +131,8 @@ class CatsRunner:
         else:
             self.done_dir = done_dir
 
+        self.configuration = self.load_configuration(configuration=configuration)
+
         self.data = {
             "raw_dir": self.raw_dir,
             "medium_dir": self.medium_dir,
@@ -132,6 +143,15 @@ class CatsRunner:
             "observatory": self.observatory,
             "linelist": self.linelist,
         }
+
+    def load_configuration(self, configuration=None):
+        default_config_filename = join(dirname(__file__), "configuration.json")
+        with open(default_config_filename) as default_config_file:
+            default_config = json.load(default_config_file)
+
+        if configuration is not None:
+            default_config.update(configuration)
+        return default_config
 
     def run(self, steps):
         # Make sure the directories exists
@@ -151,8 +171,15 @@ class CatsRunner:
         return self.data
 
     def run_module(self, step, load=False):
+
+        configuration = None
+        if step in self.configuration:
+            configuration = self.configuration[step]
         # The Module this step is based on (An object of the Step class)
-        module = self.names_of_steps[step](self.raw_dir, self.medium_dir, self.done_dir)
+        module = self.names_of_steps[step]
+        module = module(
+            self.raw_dir, self.medium_dir, self.done_dir, configuration=configuration
+        )
 
         # Load the dependencies necessary for loading/running this step
         # We determine this through introspection

@@ -121,7 +121,6 @@ class SolveProblemStep(Step):
         v_planet = planet_radial_velocity["rv_planet"]
         wavelength = normalized[51].wavelength
         flux = normalized[51].flux
-        nseg = normalized.nseg
 
         planet_reference_spectrum.flux[:] = gaussian_filter1d(
             planet_reference_spectrum.flux, 30
@@ -129,7 +128,12 @@ class SolveProblemStep(Step):
 
         return_data = {}
 
-        for seg in tqdm(range(nseg)):
+        segments = self.segments
+        if segments == "all":
+            nseg = spectra.nseg
+            segments = range(nseg)
+
+        for seg in tqdm(segments):
             hspec = planet_reference_spectrum.resample(wavelength[seg], inplace=False)
             hspec.flux[:] -= np.nanmin(hspec.flux)
             hspec.flux[:] /= np.nanmax(hspec.flux)
@@ -146,63 +150,42 @@ class SolveProblemStep(Step):
                     "name": "planet model",
                 },
             ]
-            visible = [-1, -1]
 
-            for regularization_weight in tqdm(
-                [0.0000001], desc="Regularization Weight", leave=False
-            ):
-                d = []
-                for n_sysrem in tqdm([10], desc="N Sysrem", leave=False):
+            solver = self.solver
+            regularization_weight = self.regularization_weight
+            sysrem_iterations = self.sysrem_iterations
 
-                    spec = self.solve_prepared(
-                        spectra,  # (normalized) observation
-                        spectra,  # Stellar spectrum
-                        spectra,  # Tellurics
-                        spectra,  # specific intensities
-                        detector,
-                        star,
-                        planet,
-                        solver="linear",
-                        seg=seg,
-                        rv=v_planet,
-                        n_sysrem=n_sysrem,
-                        regularization_weight=regularization_weight,
-                        regularization_ratio=10,
-                        area=planet_area,
-                    )
+            spec = self.solve_prepared(
+                spectra,  # (normalized) observation
+                spectra,  # Stellar spectrum
+                spectra,  # Tellurics
+                spectra,  # specific intensities
+                detector,
+                star,
+                planet,
+                solver=solver,
+                seg=seg,
+                rv=v_planet,
+                n_sysrem=sysrem_iterations,
+                regularization_weight=regularization_weight,
+                regularization_ratio=10,
+                area=planet_area,
+            )
 
-                    return_data[seg] = spec
+            return_data[seg] = spec
 
-                    if n_sysrem is None:
-                        sflux = spec.flux - np.nanpercentile(spec.flux, 5)
-                        sflux /= np.nanpercentile(sflux, 95)
-                    else:
-                        sflux = spec.flux
+            swave = spec.wavelength.to_value("AA")
+            sflux = spec.flux.to_value(1)
+            sflux = sflux - np.nanpercentile(sflux, 5)
+            sflux /= np.nanpercentile(sflux, 95)
 
-                    d += [
-                        {
-                            "x": spec.wavelength.to_value("AA"),
-                            "y": sflux.to_value(1),
-                            "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {n_sysrem}",
-                        },
-                    ]
-                    visible += [-1]
-
-                # Normalize
-                minimum = min([np.nanpercentile(ds["y"], 5) for ds in d[0:]])
-                for i in range(0, len(d)):
-                    d[i]["y"] -= minimum
-
-                maximum = max([np.nanpercentile(ds["y"], 95) for ds in d[0:]])
-                for i in range(0, len(d)):
-                    d[i]["y"] /= maximum
-
-                for i in range(0, len(d)):
-                    dspec = np.interp(
-                        hspec.wavelength.to_value("AA"), d[i]["x"], d[i]["y"]
-                    )
-
-                data += d
+            data += [
+                {
+                    "x": swave,
+                    "y": sflux,
+                    "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {sysrem_iterations}",
+                },
+            ]
 
             wran = [
                 wavelength[seg][0].to_value("AA"),
