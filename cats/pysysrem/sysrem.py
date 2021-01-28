@@ -14,7 +14,6 @@ from tqdm import tqdm
 
 from ..spectrum import SpectrumBase
 
-from . import source_lc
 
 # Set the output print options:
 # np.set_printoptions(threshold=np.nan, precision=6)
