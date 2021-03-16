@@ -498,12 +498,7 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
         # Step 2: Use the determined radial velocity to calculate a new wavelength grid
         beta = (rv / const.c).to_value(1)
         factor = np.sqrt((1 + beta) / (1 - beta))
-
-        if not inplace:
-            shifted = np.copy(self.wavelength)
-            shifted = shifted * np.sqrt((1 + beta) / (1 - beta)) * factor
-        else:
-            shifted = self.wavelength = self.wavelength * factor
+        shifted = self.wavelength * factor
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:
