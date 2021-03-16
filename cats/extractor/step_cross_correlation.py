@@ -168,8 +168,8 @@ class CrossCorrelationStep(Step, StepIO):
 
         # entries past 90 are 'weird'
         flux = spectra.flux.to_value(1)
-        flux = flux[:90]
-        unc = spectra.uncertainty.array[:90]
+        flux = flux
+        unc = spectra.uncertainty.array
 
         correlation = {}
         for n in tqdm(range(max_nsysrem), desc="Sysrem N"):
