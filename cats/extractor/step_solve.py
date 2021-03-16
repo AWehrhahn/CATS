@@ -139,15 +139,17 @@ class SolveProblemStep(Step):
             hspec.flux[:] /= np.nanmax(hspec.flux)
 
             data = [
-                {
-                    "x": wavelength[seg].to_value("AA"),
-                    "y": flux[seg].to_value(1),
-                    "name": "normalized observation",
-                },
+                # {
+                #     "x": wavelength[seg].to_value("AA"),
+                #     "y": flux[seg].to_value(1),
+                #     "name": "normalized observation",
+                #     "line" : {"width": 4},
+                # },
                 {
                     "x": wavelength[seg].to_value("AA"),
                     "y": hspec.flux.to_value(1),
                     "name": "planet model",
+                    "line" : {"width": 4},
                 },
             ]
 
@@ -184,6 +186,7 @@ class SolveProblemStep(Step):
                     "x": swave,
                     "y": sflux,
                     "name": f"extracted, RegWeight: {regularization_weight}, nSysrem: {sysrem_iterations}",
+                    "line" : {"width": 4},
                 },
             ]
 

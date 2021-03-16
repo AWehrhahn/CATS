@@ -36,7 +36,8 @@
         "segments": "all",
         "solver": "linear",
         "sysrem_iterations": 10,
-        "regularization_weight": 0.0000001,
+        "regularization_weight_comment": 0.0000001,
+        "regularization_weight": 1e-25,
         "regularization_ratio": 10
     }
 }

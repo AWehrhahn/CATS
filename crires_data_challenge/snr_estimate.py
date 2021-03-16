@@ -31,29 +31,33 @@ detector = Crires(setting, detectors, orders=orders)
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
 
 # Star info
-star = "HD209458"
+star = "WASP-107"
 planet = "b"
 
 # Initialize the CATS runner
-base_dir = dirname(__file__)
-raw_dir = join(base_dir, "HD209458_v4")
+base_dir = join(dirname(__file__), "../datasets/WASP-107b_SNR100")
+raw_dir = join(base_dir, "Spectrum_00")
+medium_dir = join(base_dir, "medium")
+done_dir = join(base_dir, "done")
 runner = CatsRunner(
-    detector, star, planet, linelist, base_dir=base_dir, raw_dir=raw_dir
+    detector,
+    star,
+    planet,
+    linelist,
+    base_dir=base_dir,
+    raw_dir=raw_dir,
+    medium_dir=medium_dir,
+    done_dir=done_dir,
 )
 
 # Override data with known information
-star = runner.run_module("star", load=True)
-runner.star.vsini = 1.2 * (u.km / u.s)
-runner.star.monh = 0 * u.one
-runner.star.name = "HD209458"
-runner.star.radial_velocity = -14.743 * (u.km / u.s)
-
-planet = runner.run_module("planet", load=True)
-runner.planet.inc = 86.59 * u.deg
-runner.planet.ecc = 0 * u.one
-runner.planet.period = 3.52472 * u.day
+# star = runner.run_module("star", load=True)
+# planet = runner.run_module("planet", load=True)
 
 # Run the Runnert
 # data = runner.run(["planet_radial_velocity"])
-data = runner.run(["solve_problem"])
+data = runner.run(["cross_correlation"])
+
+runner.steps["cross_correlation"].plot(data["cross_correlation"])
+
 pass

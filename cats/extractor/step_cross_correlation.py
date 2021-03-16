@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from flex.flex import FlexFile
 
@@ -125,11 +126,13 @@ class CrossCorrelationReferenceStep(Step, Spectrum1DIO):
         rv_range = self.rv_range
         rv_points = self.rv_points
 
+        idx_middle = len(spectra) // 2
+
         ref = planet_reference_spectrum
         ref.star = star
         ref.observatory_location = observatory
-        ref.datetime = spectra.datetime[50]
-        ref_wave = np.copy(spectra.wavelength[50])
+        ref.datetime = spectra.datetime[idx_middle]
+        ref_wave = np.copy(spectra.wavelength[idx_middle])
         reference = np.zeros((rv_points, ref_wave.size))
 
         rv = np.linspace(-rv_range, rv_range, num=rv_points)
@@ -142,7 +145,7 @@ class CrossCorrelationReferenceStep(Step, Spectrum1DIO):
 
         reference = reference << u.one
         reference = Spectrum1D(
-            spectral_axis=ref_wave, flux=reference, datetime=spectra.datetime[50]
+            spectral_axis=ref_wave, flux=reference, datetime=spectra.datetime[len(spectra) // 2]
         )
         # We are only looking at the difference between the median and the observation
         # Thus additional absorption would result in a negative signal at points of large absorption
@@ -178,8 +181,8 @@ class CrossCorrelationStep(Step, StepIO):
             corrected_flux /= std
 
             # Observations 90 to 101 have weird stuff
-            corr = np.zeros((90, rv_points))
-            for i in tqdm(range(90), leave=False, desc="Observation"):
+            corr = np.zeros((len(spectra), rv_points))
+            for i in tqdm(range(len(spectra)), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
                     for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
                         m = np.isnan(corrected_flux[i, left:right])

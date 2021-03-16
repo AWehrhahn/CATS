@@ -28,7 +28,7 @@ class CollectObservationsStep(Step, SpectrumArrayIO):
 
         speclist = []
         for f in tqdm(files):
-            i = int(basename(f)[9:-5])
+            i = int(basename(f)[-8:-5])
             hdu = fits.open(f)
             wave = hdu[1].data << u.AA
             flux = hdu[2].data << u.one

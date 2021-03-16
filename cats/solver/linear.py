@@ -393,12 +393,12 @@ class LinearSolver(SolverBase):
         f, g = f[mask], g[mask]
 
         # Setup linear interpolation scheme
-        # proj = self.create_projection_matrix(w0, wave)
-        # A = diags(f, 0) * proj
+        proj = self.create_projection_matrix(w0, wave)
+        A = diags(f, 0) * proj
 
-        # # Use every data point individually
-        w0 = wave
-        A = diags(f, 0)
+        # Use every data point individually
+        # w0 = wave
+        # A = diags(f, 0)
 
         return w0, A, g
 

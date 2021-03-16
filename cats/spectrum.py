@@ -153,7 +153,7 @@ class SpectrumBase:
         return cls(**meta)
 
     def to_dict(self):
-        data = self.meta
+        data = copy(self.meta)
         data["spectral_axis"] = self.wavelength.value
         data["spectral_axis_unit"] = self.wavelength.unit
         data["flux"] = self.flux.value
@@ -496,12 +496,14 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
             rv = self.reference_frame.to_frame(target_frame, self.datetime)
 
         # Step 2: Use the determined radial velocity to calculate a new wavelength grid
+        beta = (rv / const.c).to_value(1)
+        factor = np.sqrt((1 + beta) / (1 - beta))
+
         if not inplace:
             shifted = np.copy(self.wavelength)
+            shifted = shifted * np.sqrt((1 + beta) / (1 - beta)) * factor
         else:
-            shifted = self.wavelength
-        beta = (rv / const.c).to_value(1)
-        shifted *= np.sqrt((1 + beta) / (1 - beta))
+            shifted = self.wavelength = self.wavelength * factor
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:

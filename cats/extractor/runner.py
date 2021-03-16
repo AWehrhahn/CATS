@@ -132,7 +132,7 @@ class CatsRunner:
             self.done_dir = done_dir
 
         self.configuration = self.load_configuration(configuration=configuration)
-
+        self.steps = {}
         self.data = {
             "raw_dir": self.raw_dir,
             "medium_dir": self.medium_dir,
@@ -180,6 +180,7 @@ class CatsRunner:
         module = module(
             self.raw_dir, self.medium_dir, self.done_dir, configuration=configuration
         )
+        self.steps[step] = module
 
         # Load the dependencies necessary for loading/running this step
         # We determine this through introspection
