@@ -7,6 +7,8 @@ from ..orbit import Orbit as orbit_calculator
 from .data_interface import data_intensities as di
 from .dataset import dataset
 
+# TODO: replace Orbit with ExoOrbit
+
 class data_intensities(di):
     def __init__(self, configuration):
         self.parameters = {}
