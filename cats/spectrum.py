@@ -1,6 +1,6 @@
 import logging
 import operator as op
-from collections import Sequence
+from collections.abc import Sequence
 from copy import copy, deepcopy
 from datetime import datetime
 from os.path import splitext
