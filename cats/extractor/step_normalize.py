@@ -1,11 +1,13 @@
+from copy import copy, deepcopy
+
 import numpy as np
+from astropy import units as u
+from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import least_squares, curve_fit
 from tqdm import tqdm
 
-from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import least_squares
-
-from .steps import Step
 from ..spectrum import SpectrumArrayIO
+from .steps import Step
 
 
 class NormalizeObservationsStep(Step, SpectrumArrayIO):

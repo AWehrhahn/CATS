@@ -32,6 +32,7 @@ from pysme.solve import SME_Solver
 from pysme.synthesize import Synthesizer, synthesize_spectrum
 from tqdm import tqdm
 
+from ..data_modules.sme import SmeStellar, SmeIntensities
 from ..data_modules.combine import combine_observations
 from ..spectrum import SpectrumArray, SpectrumArrayIO
 from .steps import Step, StepIO
@@ -205,10 +206,9 @@ class StellarStep(Step, SpectrumArrayIO):
         return result
 
 
-class StellarSpectrumStep(Step, SpectrumArrayIO):
+class StellarSpectrumStep(StellarStep, SpectrumArrayIO):
     filename = "stellar.npz"
     source = "sme"
-
 
 class StellarSpectrumCombinedStep(StellarStep):
     filename_stellar = "stellar_spectrum_combined.npz"

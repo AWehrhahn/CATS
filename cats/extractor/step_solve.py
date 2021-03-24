@@ -119,8 +119,8 @@ class SolveProblemStep(Step):
     ):
         normalized, broadening = normalized_observation
         v_planet = planet_radial_velocity["rv_planet"]
-        wavelength = normalized[51].wavelength
-        flux = normalized[51].flux
+        wavelength = normalized[len(normalized)//2].wavelength
+        flux = normalized[len(normalized)//2].flux
 
         planet_reference_spectrum.flux[:] = gaussian_filter1d(
             planet_reference_spectrum.flux, 30

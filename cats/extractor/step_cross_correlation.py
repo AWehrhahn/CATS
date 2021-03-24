@@ -5,6 +5,8 @@ from tqdm import tqdm
 
 from flex.flex import FlexFile
 
+from scipy.ndimage.filters import gaussian_filter1d
+
 from astropy import units as u
 from petitRADTRANS import Radtrans
 from petitRADTRANS import nat_cst as nc
@@ -220,7 +222,10 @@ class CrossCorrelationStep(Step, StepIO):
         return data
 
     def plot(self, data, sysrem_iterations=2, sysrem_iterations_afterwards=4):
-        corr = data[f"{sysrem_iterations}.{sysrem_iterations_afterwards}"]
+        if sysrem_iterations_afterwards is not None:
+            corr = data[f"{sysrem_iterations}.{sysrem_iterations_afterwards}"]
+        else:
+            corr = data[f"{sysrem_iterations}"]
 
         vmin, vmax = np.nanpercentile(corr, (1, 99))
         plt.imshow(corr, origin="lower", aspect="auto", vmin=vmin, vmax=vmax)
@@ -263,7 +268,7 @@ class PlanetRadialVelocityStep(Step, StepIO):
         v_sys = -35  # Star radial velocity + barycentric correction
         v_planet = 30 / 60
         sig = 2
-        lower, upper = 20, 80
+        lower, upper = int(0.2 * n_obs), int(0.8 * n_obs)
         x0 = [v_sys, v_planet, sig, A]
         x = np.linspace(-rv_range, rv_range + 1, rv_points)
 

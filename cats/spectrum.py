@@ -1017,11 +1017,11 @@ class SpectrumArray(SpectrumBase, Sequence):
 
     @classmethod
     def from_dict(cls, data):
-        meta = data["meta"]
+        meta = data["meta"] if "meta" in data.keys() else {}
         flux_unit = data["flux_unit"]
-        wave_unit = data["wave_unit"]
+        wave_unit = data["spectral_axis_unit"]
         flux = data["flux"] << u.Unit(flux_unit)
-        wave = data["wavelength"] << u.Unit(wave_unit)
+        wave = data["spectral_axis"] << u.Unit(wave_unit)
         segments = data["segments"]
 
         if "uncertainty" in data.keys():

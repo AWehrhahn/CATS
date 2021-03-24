@@ -1,3 +1,5 @@
+import numpy as np
+
 from ..data_modules.telluric_model import TelluricModel
 from ..data_modules.telluric_tapas import TapasTellurics
 from ..data_modules.space import Space
@@ -15,15 +17,15 @@ class TelluricStep(Step, SpectrumArrayIO):
         wrange = detector.regions
         reference_frame = spectra.reference_frame
 
-        telluric = self.get_datasource(source, star, observatory)
+        telluric = self.get_datasource(self.source, star, observatory)
         spec = telluric.get(wrange, times)
         if spec.reference_frame != reference_frame:
             spec = spec.shift(reference_frame, inplace=True)
         spec = spec.resample(spectra.wavelength, inplace=False, method="linear")
         spec.segments = np.copy(spectra.segments)
 
-        self.save(data, self.savefilename)
-        return data
+        self.save(spec, self.savefilename)
+        return spec
 
     def get_datasource(self, source, star, observatory):
         if source == "model":
