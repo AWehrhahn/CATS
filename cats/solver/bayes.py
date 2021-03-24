@@ -12,6 +12,8 @@ import numpy as np
 import emcee
 from scipy.sparse import diags
 
+from astropy import units as u
+
 from .solver import SolverBase
 from ..spectrum import Spectrum1D
 

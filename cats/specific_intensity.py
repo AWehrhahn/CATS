@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.integrate import quad, trapz, simps, tplquad
+from scipy.integrate import simps, tplquad
 
 
 from ..orbit import Orbit as orbit_calculator
@@ -8,6 +8,7 @@ from .data_interface import data_intensities as di
 from .dataset import dataset
 
 # TODO: replace Orbit with ExoOrbit
+
 
 class data_intensities(di):
     def __init__(self, configuration):
@@ -32,7 +33,6 @@ class data_intensities(di):
         L = np.sqrt(ha**2 - r**2)
         return np.repeat(0.5 / L, h.shape[1]).reshape(h.shape)
 
-
     def atmosphere_profile(self, phase, intensity, r0, h, profile="exponential", n_radii=11, n_angle=12, n_depth=13):
         if profile == "exponential":
             profile = self.profile_exponential
@@ -53,10 +53,10 @@ class data_intensities(di):
         rho_i = np.nan_to_num(rho_i, copy=False)
 
         mu = self.orbit.get_mu(_, y, z, angles=theta, radii=r)
-        I = self._class__.interpolate_intensity(mu, intensity)
+        I_interp = self._class__.interpolate_intensity(mu, intensity)
 
         # TODO optimize this multiplication?
-        tmp = simps(I * mu[..., None] * rho_i[None, :, None, None]
+        tmp = simps(I_interp * mu[..., None] * rho_i[None, :, None, None]
                     * r[None, :, None, None], r, axis=1)
         res = simps(tmp, theta, axis=1) / np.pi  # TODO normalize to area of star
         return res
@@ -98,7 +98,6 @@ class data_intensities(di):
         flux = interp1d(keys, values, kind='linear', axis=0, bounds_error=False, fill_value=(values[0], values[-1]))(mu)
         flux[mu < 0, :] = 0
         return flux
-
 
     def calc_intensity(self, phase, intensity, min_radius, max_radius, n_radii, n_angle, spacing='equidistant'):
         """Calculate the average specific intensity in a given radius range around the planet center
@@ -150,7 +149,6 @@ class data_intensities(di):
         intens = np.average(intens, axis=2)
         intens = np.average(intens, axis=1, weights=radii)
         return intens
-
 
     def calc_mu(self, time, angles=None, radii=None):
         """calculate the distance from the center of the planet to the center of the star as seen from earth
@@ -245,7 +243,6 @@ class data_intensities(di):
             return ds, ds2
         else:
             raise ValueError
-
 
     def load_intensities(self, **data):
         """ Load specific intensity data, for this method

@@ -85,7 +85,7 @@ class PlanetParametersStep(Step, StepIO):
         lp = self.lnprior(theta, trange)
         if not np.isfinite(lp):
             return -np.inf
-        return lp + lnlike(theta, x, y)
+        return lp + self.lnlike(theta, x, y)
 
     def normalize_spectra(self, spectra, telluric, times):
         # Sort the observations by date
@@ -124,7 +124,7 @@ class PlanetParametersStep(Step, StepIO):
             [tmax, 365, 1, np.inf, 180, 1, 360, np.inf, np.inf, np.inf],
         )
         popt, _ = curve_fit(
-            lambda x, *p: model(x, p),
+            lambda x, *p: self.model(x, p),
             times.mjd,
             flux,
             p0=p0,
@@ -197,7 +197,7 @@ class PlanetParametersStep(Step, StepIO):
         popt[6] = planet.w.to_value("deg")
 
         plt.plot(times.mjd, flux)
-        plt.plot(times.mjd, model(times.mjd, popt))
+        plt.plot(times.mjd, self.model(times.mjd, popt))
         plt.show()
 
         # Save the results

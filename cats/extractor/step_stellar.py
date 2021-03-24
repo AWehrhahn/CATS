@@ -33,7 +33,7 @@ from pysme.synthesize import Synthesizer, synthesize_spectrum
 from tqdm import tqdm
 
 from ..data_modules.sme import SmeStellar, SmeIntensities
-from ..data_modules.combine import combine_observations
+from ..data_modules.combine import combine_observations, CombineStellar
 from ..spectrum import SpectrumArray, SpectrumArrayIO
 from .steps import Step, StepIO
 
@@ -157,7 +157,7 @@ class StellarParametersFitStep(Step, StepIO):
     def save(self, data, filename=None):
         if filename is None:
             filename = self.savefilename
-        star.save(filename)
+        data.save(filename)
 
     def load(self, filename=None):
         if filename is None:
@@ -219,7 +219,7 @@ class StellarSpectrumCombinedStep(StellarStep):
         wrange = detector.regions
         times = normalized_observation.datetime
 
-        stellar_combined, telluric_combined = create_stellar(
+        stellar_combined, telluric_combined = self.create_stellar(
             wrange,
             normalized_observation,
             times,
@@ -229,7 +229,7 @@ class StellarSpectrumCombinedStep(StellarStep):
             stellar=stellar_spectrum,
         )
         self.save(stellar_combined, self.filename_stellar)
-        self.save(tellurics_combined, self.filename_tellurics)
+        self.save(telluric_combined, self.filename_tellurics)
         return stellar_combined, telluric_combined
 
     def load(self, filename_stellar=None, filename_telluric=None):

@@ -92,23 +92,3 @@ def sysrem(input_star_list, num_errors=5, iterations=10, errors=None):
     # std_dev = np.std(corrected_mags, axis=1)
 
     return residuals.T
-
-
-if __name__ == "__main__":
-
-    if len(sys.argv) == 1:
-        print("Please provide a list of light curve files")
-    elif len(sys.argv) == 2:
-        # A filename has been provided, containing a list of files
-        listfile = at.read(sys.argv[0])
-        file_list = listfile["filename"]
-    elif len(sys.argv) > 2:
-        # Create a list of all the input files:
-        file_list = sorted(sys.argv[1:])
-
-    star_list = []
-    for filename in file_list:
-        star = source_lc.source.from_ptf(filename)
-        star_list.append(star)
-
-    sysrem(star_list)

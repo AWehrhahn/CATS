@@ -1,9 +1,5 @@
-import numpy as np
-from astropy.time import Time
 from astropy import units as u
 from astropy import coordinates as coords
-
-from functools import lru_cache
 
 import exoorbit
 
@@ -40,7 +36,7 @@ class ReferenceFrame:
         """
         Calculate the radial velocity from this restframe to the
         barycentric restframe
-        
+
         Retuns
         ------
         frame : BarycentricFrame

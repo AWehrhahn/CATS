@@ -143,7 +143,7 @@ class Psg(DataSource):
         phase_all = np.array(phase_all)
         phase_all = np.deg2rad(phase_all)
 
-        ds = dataset(wl, obs_all)
+        ds = Spectrum1D(spectral_axis=wl, flux=obs_all)
         ds.phase = phase_all
 
         return ds
@@ -177,7 +177,7 @@ class Psg(DataSource):
         wl = flux["Wave/freq"].values
         flux = flux["Stellar"].values
 
-        ds = dataset(wl, flux)
+        ds = Spectrum1D(spectral_axis=wl, flux=flux)
         return ds
 
     def get_tellurics(self, **data):

@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from astropy import units as u
 
+from .datasource import DataSource
 from ..spectrum import Spectrum1D
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,9 @@ class MarcsStellar(DataSource):
             flux=flux,
             spectral_axis=wave,
             reference_frame="barycentric",
-            star=star,
+            star=self.star,
             source="marcs",
-            description=f"stellar spectrum of {star['name']}",
+            description=f"stellar spectrum of {self.star['name']}",
         )
 
         return spec

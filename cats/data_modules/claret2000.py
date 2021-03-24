@@ -181,10 +181,10 @@ class Claret2000(StellarIntensities):
 
         # Select correct coefficients
         lddata = self.lddata[
-            (lddata["Teff"] == T)
-            & (lddata["logg"] == logg)
-            & (lddata["VT"] == vmt)
-            & (lddata["log_M_H_"] == met)
+            (self.lddata["Teff"] == T)
+            & (self.lddata["logg"] == logg)
+            & (self.lddata["VT"] == vmt)
+            & (self.lddata["log_M_H_"] == met)
         ]
         coeff = lddata["Coeff"]
         names = ["U", "B", "V", "R", "I"]

@@ -3,8 +3,7 @@ import operator as op
 from collections import Sequence
 from copy import copy, deepcopy
 from datetime import datetime
-from os import makedirs
-from os.path import abspath, dirname, splitext
+from os.path import splitext
 import inspect
 
 from tqdm import tqdm
@@ -460,7 +459,7 @@ class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
         """
         Shift the spectrum from the current
         to a new reference frame
-        
+
         Acceptable reference frames are:
           - barycentric
           - telescope (NOT barycentric)
@@ -620,8 +619,8 @@ class SpectrumList(Sequence, SpectrumBase):
         self._data = []
         if uncertainty is None:
             uncertainty = [None for _ in flux]
-        for f, sa, u in zip(flux, spectral_axis, uncertainty):
-            spec = Spectrum1D(flux=f, spectral_axis=sa, uncertainty=u, **kwargs)
+        for f, sa, unc in zip(flux, spectral_axis, uncertainty):
+            spec = Spectrum1D(flux=f, spectral_axis=sa, uncertainty=unc, **kwargs)
             self._data += [spec]
 
     def __getitem__(self, key):
@@ -721,7 +720,7 @@ class SpectrumList(Sequence, SpectrumBase):
     def from_spectra(cls, spectra):
         """
         Create a new SpectrumList object from a list of Spectrum1D
-        
+
         Note
         ----
         The input spectra are NOT copied, therefore any changes
@@ -731,7 +730,7 @@ class SpectrumList(Sequence, SpectrumBase):
         ----------
         spectra : list
             list of Spectrum1D
-        
+
         Returns
         -------
         spectrum_list : SpectrumList
@@ -744,7 +743,7 @@ class SpectrumList(Sequence, SpectrumBase):
     def write(self, fname, detector=None):
         """Save all spectra in SpectrumList to a single fits file
         Each Spectrum1D has its own extension with a complete header
-        
+
         Parameters
         ----------
         fname : str
@@ -826,7 +825,7 @@ class SpectrumList(Sequence, SpectrumBase):
     def shift(self, target_frame, inplace=False, rv=None, **kwargs):
         """
         Shift all spectra to the target frame
-        
+
         Parameters
         ----------
         target_frame : ReferenceFrame
@@ -993,17 +992,13 @@ class SpectrumArray(SpectrumBase, Sequence):
     def shape(self):
         return self.wavelength.shape
 
-    @property
-    def nseg(self):
-        return len(self.segments) - 1
-
     def get_segment(self, seg):
         left, right = self.segments[seg : seg + 2]
         left, right = int(left), int(right)
         wave = self.wavelength[:, left:right]
         flux = self.flux[:, left:right]
         if self.uncertainty is not None:
-            uncs = self.uncertainty[:, left:right]
+            uncs = self.uncertainty[:, left : right]
         else:
             uncs = None
         specarr = SpectrumArray(

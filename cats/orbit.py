@@ -2,15 +2,10 @@
 Calculate intermediary data products like
 specific intensities or F and G
 """
-import warnings
-
 import matplotlib.pyplot as plt
 import numpy as np
 
 import ExoOrbit
-
-from .data_modules.dataset import dataset
-
 
 class Orbit:
     """Calculates the orbital parameters of the transiting planet
@@ -248,4 +243,3 @@ class Orbit:
             ax.view_init(elev=0, azim=0)
 
             plt.show()
-

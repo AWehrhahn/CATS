@@ -10,6 +10,7 @@ class SpecificIntensitiesSmeStep(Step, SpectrumArrayIO):
 
     def run(self, detector, spectra, star, planet, observatory, linelist):
         wrange = detector.regions
+        times = spectra.times
         intensities = self.create_intensities(
             wrange, spectra, star, planet, observatory, times, linelist
         )
