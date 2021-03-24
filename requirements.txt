@@ -4,5 +4,10 @@ astropy
 matplotlib
 pytest
 tqdm
+specutils
+astroplan
+batman-package
+corner
+emcee
 git+https://github.com/AWehrhahn/datasources
 git+https://github.com/AWehrhahn/ExoOrbits

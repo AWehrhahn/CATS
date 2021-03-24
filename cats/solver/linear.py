@@ -8,12 +8,19 @@ from numpy.linalg import norm
 from scipy.linalg import solve_banded, dft
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from scipy.optimize import fsolve, minimize_scalar
+from scipy.optimize import fsolve, minimize_scalar, minimize
+from scipy.ndimage import gaussian_filter1d
+from scipy.special import binom
+from scipy.sparse import csc_matrix, lil_matrix
 from astropy.constants import c
 from astropy import units as u
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+
 
 from .solver import SolverBase
+from ..least_squares.least_squares import least_squares
+
 from ..reference_frame import TelescopeFrame, PlanetFrame
 from ..spectrum import Spectrum1D
 
@@ -27,15 +34,18 @@ class LinearSolver(SolverBase):
         method="Tikhonov",
         regularization=True,
         regularization_ratio=50,
+        regularization_weight=None,
+        n_sysrem=None,
         plot=False,
     ):
-        super().__init__(detector, star, planet)
+        super().__init__(detector, star, planet, n_sysrem=n_sysrem)
         self.method = method
         self.regularization = regularization
         self.regularization_ratio = regularization_ratio
-
+        self.regularization_weight = regularization_weight
         self.plot = plot
-        self.difference_accuracy = 8
+        self.difference_accuracy = 2
+        self.normalize = False
 
     @property
     def method(self):
@@ -91,18 +101,18 @@ class LinearSolver(SolverBase):
         return solve_banded((1, 1), ab, g)
 
     def _Tikhonov(self, A, D, l, g):
-        return spsolve(A ** 2 + l ** 2 * D.T * D, A * g)
+        return spsolve(A.T * A + l ** 2 * D.T * D, A.T * g)
 
-    def Tikhonov(self, f, g, l, spacing=None):
-        """Solve f * x = g, with Tikhonov regularization parameter l
+    def Tikhonov(self, A, b, l, spacing=None):
+        """Solve A * x = b, with Tikhonov regularization parameter l
 
         Solve the equation diag(f) + l**2 * diag(f).I * D.T * D = g
         where D is the difference operator matrix, and diag the diagonal matrix
 
         Parameters:
         ----------
-        f : np.ndarray
-        g : np.ndarray
+        A : np.ndarray, or sparse matrix
+        b : np.ndarray
         l : float
             Tikhonov regularization parameter
         Returns
@@ -111,19 +121,15 @@ class LinearSolver(SolverBase):
             x
         """
 
-        f = np.asarray(f)
-        g = np.asarray(g)
-
         # Create the matrix A (and its inverse)
         if spacing is None:
-            n = np.arange(len(f))
+            n = A.shape[1]
             D = self.gradient_matrix(n)
         else:
             D = self.gradient_matrix(spacing)
-        A = diags(f, 0)
 
         # Solve the equation
-        sol = self._Tikhonov(A, D, l, g)
+        sol = self._Tikhonov(A, D, l, b)
         return sol
 
     def difference_matrix_2(self, spacing):
@@ -150,31 +156,27 @@ class LinearSolver(SolverBase):
         return diags([a, b, c], offsets=[-1, 0, 1])
 
     def gradient_matrix(self, grid):
-        size = len(grid)
-        if self.difference_accuracy == 2:
-            factors = [-1 / 2, 0.0, 1 / 2]
-        elif self.difference_accuracy == 4:
-            factors = [1 / 12, -2 / 3, 0.0, 2 / 3, -1 / 12]
-        elif self.difference_accuracy == 6:
-            factors = [-1 / 60, 3 / 20, -3 / 4, 0.0, 3 / 4, -3 / 20, 1 / 60]
-        elif self.difference_accuracy == 8:
-            factors = [
-                1 / 280,
-                -4 / 105,
-                1 / 5,
-                -4 / 5,
-                0.0,
-                4 / 5,
-                -1 / 5,
-                4 / 105,
-                -1 / 280,
-            ]
+        if hasattr(grid, "__len__"):
+            size = len(grid)
         else:
-            raise ValueError
+            size = int(grid)
+
+        # https://en.wikipedia.org/wiki/Finite_difference
+        # n = self.difference_accuracy
+        # factors = [(-1)**i * binom(n, i) for i in range(n + 1)]
+
+        factors = [-1, 2, -1]
+
+        # first order
+        # factors = np.array([3, -32, 168, -672, 0, 672, -168, 32, -3]) / 840
+
+        # Why second order factors?
+        # factors = np.array([-9, 128, -1008, 8064, -14350, 8064, -1008, 128, -9]) / 5040
 
         nf = len(factors)
         offsets = np.arange(nf) - nf // 2
         columns = [np.full(size - abs(j), f) for j, f in zip(offsets, factors)]
+        columns[1][0] = columns[1][-1] = 1
         grad = diags(columns, offsets=offsets)
         return grad
 
@@ -213,7 +215,7 @@ class LinearSolver(SolverBase):
         lamb = np.abs(lamb[0])
         return lamb
 
-    def best_lambda(self, f, g, spacing=None):
+    def best_lambda(self, f, g, wavelength, times):
         """Use the L-curve algorithm to find the best regularization parameter lambda
 
         http://www2.compute.dtu.dk/~pcha/DIP/chap5.pdf
@@ -245,7 +247,7 @@ class LinearSolver(SolverBase):
             """ calculate points of the L-curve"""
             if self._method == "Tikhonov":
                 sol = self._Tikhonov(A, D, lamb, r)
-            if self._method == "Franklin":
+            elif self._method == "Franklin":
                 sol = spsolve(A + lamb * D, r)
 
             x = norm(A * sol - r, 2)
@@ -255,103 +257,230 @@ class LinearSolver(SolverBase):
         def func(lamb, ratio, A, D, r, angle=-np.pi / 4):
             """ get "goodness" value for a given lambda using L-parameter """
             progress.update(1)
-            x, y = get_point(lamb, A, D, r)
+            x, y = get_point(lamb[0], A, D, r)
             # scale and rotate point
-            return -x * np.sin(angle) + y * ratio * np.cos(angle)
+            _, j = rotate(x, y, angle)
+            return j
 
-        # reduce data, and filter nans
-        b, r = f, g
-        mask = np.isfinite(b) & np.isfinite(r)
-        b, r = b[mask], r[mask]
+        def rotate(x, y, angle):
+            i = x * np.cos(angle) + y * ratio * np.sin(angle)
+            j = -x * np.sin(angle) + y * ratio * np.cos(angle)
+            return i, j
 
         # prepare matrices
-        if spacing is not None:
-            D = self.gradient_matrix(spacing)
-        else:
-            spacing = np.arange(len(b))
-            D = self.gradient_matrix(spacing)
-
-        # D = __fourier_matrix__(len(b))
-        A = diags(b, offsets=0)
-        A.I = diags(1 / b, 0)
+        w0, A, g = self.prepare_tikhonov(f, g, wavelength, times, reverse=False)
+        D = self.gradient_matrix(len(w0))
 
         # Calculate best lambda
         progress = tqdm(total=500)
         ratio = self.regularization_ratio
-        res = minimize_scalar(func, args=(ratio, A, D, r), method="brent")
+        angle = -np.pi / 4
+
+        # Just sample lots of points for a first guess
+        ls = np.geomspace(1, 1e6, 300)
+        tmp = [get_point(l, A, D, g) for l in tqdm(ls)]
+        x = np.array([t[0] for t in tmp])
+        y = np.array([t[1] for t in tmp])
+
+        xp, yp = np.copy(x), np.copy(y)
+
+        x, y = rotate(x, y, angle)
+        i = np.argmin(y)
+        lamb = ls[i]
+
+        # Improve the guess with a minimum solver
+        res = minimize(func, x0=[lamb], args=(ratio, A, D, g), method="Nelder-Mead")
+        lamb = res.x[0]
         progress.close()
+
         if self.plot:
-            import matplotlib.pyplot as plt
-
-            ls = np.geomspace(1, 1e6, 300)
-            tmp = [get_point(l, A, D, r) for l in ls]
-            x = np.array([t[0] for t in tmp])
-            y = np.array([t[1] for t in tmp])
-
-            p1 = get_point(10, A, D, r)
-            p2 = get_point(1e6, A, D, r)
-            p3 = get_point(res.x, A, D, r)
-
-            def rotate(x, y, angle):
-                i = x * np.cos(angle) + y * ratio * np.sin(angle)
-                j = -x * np.sin(angle) + y * ratio * np.cos(angle)
-                return i, j
-
-            angle = -np.pi / 4
-            x, y = rotate(x, y, angle)
-            p1 = rotate(*p1, angle)
-            p2 = rotate(*p2, angle)
-            p3 = rotate(*p3, angle)
-
-            plt.plot(x, y, "+")
-            plt.plot(p1[0], p1[1], "r+")
-            plt.plot(p2[0], p2[1], "g+")
-            plt.plot(p3[0], p3[1], "d")
-            plt.loglog()
-            plt.xlabel(r"$||\mathrm{Residual}||_2$")
-            plt.ylabel(str(ratio) + r"$ * ||\mathrm{first derivative}||_2$")
+            p3 = get_point(lamb, A, D, g)
+            plt.plot(xp, yp, "+")
+            plt.plot(p3[0], p3[1], "rd")
+            # plt.loglog()
+            plt.xlabel(r"$||A x - b||_2$")
+            plt.ylabel(r"$||D x||_2$")
             plt.show()
 
-        return res.x
+        return lamb
+
+    def least_squares(self, f, g, wavelength, wavelength_shifted, regweight):
+        wave = wavelength[0]
+        p = np.zeros(wavelength.shape)
+        mask = np.isfinite(f) & np.isfinite(g)
+
+        def func(x, p):
+            for i in range(len(wavelength)):
+                p[i] = np.interp(wave, wavelength_shifted[i], x, left=1, right=1)
+            return (f * p - g)[mask]
+
+        m = np.count_nonzero(mask)
+        n = wavelength.shape[1]
+        reg = np.empty(n)
+        D = self.gradient_matrix(n)
+
+        def regression(x):
+            reg = D * x
+            reg = reg ** 2
+            return reg
+
+        # TODO: Use sparse jacobian
+        res = least_squares(
+            func,
+            x0=np.ones(n),
+            method="trf",
+            verbose=2,
+            regularization=regression,
+            r_scale=regweight,
+            args=[p],
+            tr_solver="lsmr",
+        )
+
+        x0 = res.x
+        return x0
+
+    def create_projection_matrix(self, wavelength_reference, wavelength_data):
+        w0 = wavelength_reference
+        proj = lil_matrix((wavelength_data.size, w0.size))
+        digits = np.digitize(wavelength_data, w0)
+        for i, (d, w) in tqdm(
+            enumerate(zip(digits, wavelength_data)), total=digits.size, leave=False
+        ):
+            tmp = (w - w0[d - 1]) / (w0[d] - w0[d - 1])
+            proj[i, d - 1] = 1 - tmp
+            proj[i, d] = tmp
+        proj = proj.tocsc()
+        return proj
+
+    def shift_wavelength(self, wavelength, times, reverse=False, copy=False, rv=None):
+        if copy:
+            wavelength = np.copy(wavelength)
+        if rv is None:
+            rv = self.telescope_frame.to_frame(self.planet_frame, times)
+        # For beta > 0, the source and target are moving away from each other
+        beta = (rv / c).to_value(1)
+        beta *= -1 if reverse else 1
+        wavelength *= np.sqrt((1 + beta) / (1 - beta))[:, None]
+        return wavelength
+
+    def prepare_tikhonov(self, f, g, wavelength, times, reverse=False, rv=None):
+        wavelength = self.shift_wavelength(
+            wavelength, times, reverse=reverse, copy=True, rv=rv
+        )
+
+        # Make our own wavelength grid
+        w0 = []
+        diff = np.diff(wavelength[0])
+        idx = np.where(diff > 100 * np.median(diff))[0] + 1
+        idx = [0, *idx, len(wavelength[0]) - 1]
+        for left, right in zip(idx[:-1], idx[1:]):
+            w = wavelength[:, left:right]
+            w = np.geomspace(w.min(), w.max() + 0.1, num=(right - left) + 1)
+            w0 += [w]
+        w0 = np.concatenate(w0)
+
+        # Sort by wavelength
+        wave = wavelength.ravel()
+        f, g = f.ravel(), g.ravel()
+        idx = np.argsort(wave)
+        wave = wave[idx]
+        f, g = f[idx], g[idx]
+
+        # Remove Inf and NaN values
+        mask = np.isfinite(f) & np.isfinite(g)
+        # mask &= (f != 0) & (g != 0)
+        wave = wave[mask]
+        f, g = f[mask], g[mask]
+
+        # Setup linear interpolation scheme
+        proj = self.create_projection_matrix(w0, wave)
+        A = diags(f, 0) * proj
+
+        # Use every data point individually
+        # w0 = wave
+        # A = diags(f, 0)
+
+        return w0, A, g
 
     def solve(
-        self, times, wavelength, spectra, stellar, intensities, telluric, regweight=None
+        self,
+        times,
+        wavelength,
+        spectra,
+        stellar,
+        intensities,
+        telluric,
+        reverse=False,
+        rv=None,
+        area=None,
     ):
         """
         Find the least-squares solution to the linear equation
         f * x - g = 0
         """
-        wave, f, g = self.prepare_fg(
-            times, wavelength, spectra, stellar, intensities, telluric
+        wavelength, f, g = self.prepare_fg(
+            times, wavelength, spectra, stellar, intensities, telluric, area=area
         )
 
+        # w0 = wavelength[50]
+        # x0 = np.nanmedian(g[20:80] / f[20:80], axis=0)
+
+        # if self.regularization:
+        #     regweight = self.regularization_weight
+        #     if regweight is not None:
+        #         x0 = gaussian_filter1d(x0, self.regularization_weight)
+
         if self.regularization:
-            if regweight is None:
+            if self.regularization_weight is None:
                 # regweight = 200
-                regweight = self.best_lambda(f, g)
+                regweight = self.best_lambda(f, g, wavelength, times)
                 print("Regularization weight: ", regweight)
+            else:
+                regweight = self.regularization_weight
         else:
             regweight = 0
 
-        x0 = self.Tikhonov(f, g, regweight)
+        # Each observation will have a different wavelength grid
+        # in the planet restframe (since the planet moves quite fast)
+        # therefore we use each wavelength point from each observation
+        # individually, but we sort them by wavelength
+        # so that the gradient, is still only concerned about the immediate
+        # neighbours
+        # TODO: rv is (approx?) linear in time, so we could try to fit that as well
+        # at the cost of having to compute a new wavelength grid everytime
+        # although the correlation might not be strong enough to restrain this properly
+        if self._method == "lsq":
+            wavelength_shifted = self.shift_wavelength(
+                wavelength, times, reverse=reverse
+            )
+            x0 = self.least_squares(f, g, wavelength, wavelength_shifted, regweight)
+            wave = wavelength[0]
+        elif self._method == "Tikhonov":
+            # Run Tikhonov
+            w0, A, g = self.prepare_tikhonov(
+                f, g, wavelength, times, reverse=reverse, rv=rv
+            )
+            x0 = self.Tikhonov(A, g, regweight)
 
         # Normalize x0, each segment individually
-        diff = np.diff(wave)
-        idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
-
-        for left, right in zip(idx[:-1], idx[1:]):
-            x0[left:right] -= np.min(x0[left:right])
-            x0[left:right] /= np.max(x0[left:right])
+        if self.normalize:
+            diff = np.diff(wave)
+            idx = [0, *np.where(diff > 1000 * np.median(diff))[0], -1]
+            for left, right in zip(idx[:-1], idx[1:]):
+                x0[left:right] -= np.nanpercentile(x0[left:right], 5)
+                x0[left:right] /= np.nanpercentile(x0[left:right], 90)
 
         spec = Spectrum1D(
             flux=x0 << u.one,
-            spectral_axis=wave << u.AA,
+            spectral_axis=w0 << u.AA,
             source="Linear solver",
             description="recovered planet transmission spectrum",
             reference_frame="planet",
             star=self.star,
             planet=self.planet,
             observatory_location=self.detector.observatory,
+            datetime=times[0],
+            meta={"regularization_weight": regweight},
         )
 
         return spec

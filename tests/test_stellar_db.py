@@ -1,6 +1,8 @@
 import pytest
 
+from exoorbit.bodies import Star
 from cats.data_modules.stellar_db import StellarDb
+
 
 # @pytest.fixture
 # def parameters_expected_outputs():
@@ -12,4 +14,4 @@ def test_load_data(star):
     sdb = StellarDb()
     star_dict = sdb.get(star)
 
-    assert isinstance(star_dict, dict)
+    assert isinstance(star_dict, Star)

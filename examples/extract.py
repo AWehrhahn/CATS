@@ -1,10 +1,10 @@
-from os.path import dirname, join
+from os.path import dirname, join, exists
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from cats.simulator.detector import Crires
-from cats.spectrum import SpectrumList
+from cats.spectrum import SpectrumList, SpectrumArray
 from cats.data_modules.stellar_db import StellarDb
 
 from cats.extractor.extract_stellar_parameters import extract_stellar_parameters
@@ -28,7 +28,6 @@ if __name__ == "__main__":
     medium_dir = join(base_dir, "medium")
     done_dir = join(base_dir, "medium")
 
-    files = join(raw_dir, "*.fits")
     detector = Crires("H/1/4", [1, 2, 3])
     wrange = detector.regions
     observatory = detector.observatory
@@ -37,7 +36,13 @@ if __name__ == "__main__":
     sdb = StellarDb()
     star = sdb.get("HD209458")
 
-    spectra = collect_observations(files)
+    fname = join(medium_dir, "spectra.npz")
+    if not exists(fname):
+        files = join(raw_dir, "*.fits")
+        spectra = collect_observations(files)
+        spectra.write(fname)
+    else:
+        spectra = SpectrumArray.read(fname)
     times = spectra.datetime
     # TODO: determine tellurics
     telluric = create_telluric(wrange, spectra, star, observatory, times)

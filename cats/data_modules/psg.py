@@ -73,8 +73,8 @@ class Psg(DataSource):
             planetary transmission spectrum
         """
         wave, planet = [], []
-        for wmin, wmax in wrange.subregions:
-            wmin, wmax = wmin.to_value(u.AA), wmax.to_value(u.AA)
+        for wr in wrange:
+            wmin, wmax = wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)
 
             if not exists(self.file_atm) or not self.check_wavelength_range(
                 self.file_atm, (wmin, wmax)

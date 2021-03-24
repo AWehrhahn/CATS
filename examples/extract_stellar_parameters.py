@@ -52,12 +52,13 @@ from cats.extractor.extract_stellar_parameters import (
     extract_stellar_parameters,
     create_first_guess,
     combine_observations,
+    fit_observation,
 )
 
 if __name__ == "__main__":
-    data_dir = join(dirname(__file__), "noise_1", "raw")
-    target_dir = join(dirname(__file__), "noise_1", "medium")
-    util_dir = join(dirname(__file__), "noise_1")
+    data_dir = join(dirname(__file__), "noise_5", "raw")
+    target_dir = join(dirname(__file__), "noise_5", "medium")
+    util_dir = join(dirname(__file__), "noise_5")
     files = join(data_dir, "*.fits")
 
     linelist = join(util_dir, "crires_h_1_4.lin")
@@ -72,15 +73,21 @@ if __name__ == "__main__":
     # Load data
     print("Loading data...")
     spectra = SpectrumArray.read(join(target_dir, "spectra.npz"))
+
     times = spectra.datetime
 
-    spectrum = combine_observations(spectra, blaze)
-    sme = create_first_guess(spectrum, star, blaze, linelist)
+    # spectrum = combine_observations(spectra, blaze)
+    # sme = create_first_guess(spectrum, star, blaze, linelist)
 
-    sme.save("spectrum.sme")
-    exit()
-    star = extract_stellar_parameters(spectra, star, blaze, linelist)
+    # sme.save("spectrum.sme")
+    # exit()
+    # star = extract_stellar_parameters(spectra, star, blaze, linelist)
 
+    sme = SME_Structure.load("spectrum_with_mask.sme")
+    # fig = plot_plotly.FinalPlot(sme)
+    # fig.save(filename="spec.html")
+    sme, star = fit_observation(sme, star, list(range(5, 22)))
+    sme.save(join(target_dir, "spectrum_fitted.sme"))
     fname = join(target_dir, "star.yaml")
     star.save(fname)
     pass

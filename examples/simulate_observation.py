@@ -60,9 +60,9 @@ def find_transit(observatory, star, planet):
 if __name__ == "__main__":
     # TODO: get transit times with astroplan
     # and compare to my internal calculations in ExoOrbit
-    # data_directory = "/DATA/exoSpectro"
-    data_directory = join(dirname(__file__), "../data")
-    target_directory = join(dirname(__file__), "noise_1")
+    data_directory = "/DATA/exoSpectro"
+    # data_directory = join(dirname(__file__), "../data")
+    target_directory = join(dirname(__file__), "noise_1", "raw")
     detector = Crires("H/1/4", [1, 2, 3])
 
     # Define wavelength range

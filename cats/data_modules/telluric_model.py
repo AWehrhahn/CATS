@@ -6,6 +6,8 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from scipy.interpolate import interp1d
+from scipy.interpolate import RegularGridInterpolator
+
 from specutils.manipulation import extract_region
 from specutils.spectra import SpectralRegion
 
@@ -90,10 +92,20 @@ class TelluricModel(DataSource):
         spec : Spectrum1D
             Telluric spectrum at the desired airmass
         """
-        flux = interp1d(
-            self.points, self.spectra.T, "linear", fill_value="extrapolate"
-        )(airmass)
+        # flux = interp1d(
+        #     self.points, self.spectra.T, "linear", fill_value="extrapolate"
+        # )(airmass)
+
+        if not hasattr(airmass, "__len__"):
+            airmass = [
+                airmass,
+            ]
+
+        flux = RegularGridInterpolator((self.points,), self.spectra)(airmass)
         flux = np.clip(flux, 0, 1)
+
+        if len(airmass) == 1:
+            flux = flux[0]
 
         wave = self.wavelength
         flux = flux << u.one
@@ -140,24 +152,14 @@ class TelluricModel(DataSource):
             Telluric spectra for the given time. The list contains one Spectrum1D for each wavelength subregion
         """
         airmass = self.calculate_airmass(time)
-        spec = self.interpolate_spectra(airmass)
+        spectra = self.interpolate_spectra(airmass)
+        spectra = spectra.extract_region(wrange)
 
-        wave, flux = [], []
-        for i in range(len(wrange)):
-            subrange = wrange[i]
-            s = spec.extract_region(subrange)
-            wave += [s.wavelength]
-            flux += [s.flux]
-
-        spectra = SpectrumList(
-            flux=flux,
-            spectral_axis=wave,
-            description="telluric transmission spectrum from a model",
-            source="Evangelos/CRIRES+ wiki",
-            datetime=time,
-            star=self.star,
-            observatory_location=self.observatory,
-            reference_frame="telescope",
-        )
+        spectra.description = "telluric transmission spectrum from a model"
+        spectra.source = "Evangelos/CRIRES+ wiki"
+        spectra.datetime = time
+        spectra.star = self.star
+        spectra.observatory_location = self.observatory
+        spectra.reference_frame = "telescope"
 
         return spectra

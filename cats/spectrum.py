@@ -4,7 +4,8 @@ from collections import Sequence
 from copy import copy, deepcopy
 from datetime import datetime
 from os import makedirs
-from os.path import abspath, dirname
+from os.path import abspath, dirname, splitext
+import inspect
 
 from tqdm import tqdm
 import astropy.constants as const
@@ -15,15 +16,235 @@ import specutils.manipulation as specman
 from astropy import coordinates as coords
 from astropy.io import fits
 from astropy.time import Time
+from astropy.nddata import StdDevUncertainty
+
+import astroplan
 
 from . import reference_frame as rf
 from .data_modules.stellar_db import StellarDb
 from .simulator import detector
+from .extractor.steps import StepIO
+
+from flex.flex import FlexFile
+from flex.extensions.bindata import MultipleDataExtension
 
 logger = logging.getLogger(__name__)
 
 
-class Spectrum1D(specutils.Spectrum1D):
+class SpectrumBase:
+    reference_frame_values = ["barycentric", "telescope", "planet", "star"]
+
+    @property
+    def datetime(self):
+        return self.meta["datetime"]
+
+    @datetime.setter
+    def datetime(self, value):
+        if not isinstance(value, Time):
+            value = Time(value)
+        self.meta["datetime"] = value
+
+    @property
+    def reference_frame(self):
+        return self.meta["reference_frame"]
+
+    @reference_frame.setter
+    def reference_frame(self, value):
+        if (
+            not isinstance(value, rf.ReferenceFrame)
+            and value not in self.reference_frame_values
+        ):
+            raise ValueError(
+                f"Reference frame not understood."
+                f"Expected one of {self.reference_frame_values} but got {value}"
+            )
+        if value in self.reference_frame_values:
+            value = self.reference_frame_from_name(value)
+        self.meta["reference_frame"] = value
+
+    def reference_frame_from_name(self, frame):
+        frame = rf.reference_frame_from_name(
+            frame,
+            star=self.meta["star"],
+            planet=self.meta["planet"],
+            observatory=self.meta["observatory_location"],
+        )
+        return frame
+
+    @property
+    def star(self):
+        return self.meta["star"]
+
+    @star.setter
+    def star(self, value):
+        self.meta["star"] = value
+
+    @property
+    def planet(self):
+        return self.meta["planet"]
+
+    @planet.setter
+    def planet(self, value):
+        self.meta["planet"] = value
+
+    @property
+    def observatory_location(self):
+        return self.meta["observatory_location"]
+
+    @observatory_location.setter
+    def observatory_location(self, value):
+        self.meta["observatory_location"] = value
+
+    @property
+    def airmass(self):
+        target = astroplan.FixedTarget(name=self.star.name, coord=self.star.coordinates)
+        observer = astroplan.Observer(self.observatory_location)
+        altaz = observer.altaz(self.datetime, target)
+        airmass = altaz.secz.value
+        return airmass
+
+    def __flex_save__(self):
+        header = self.meta
+        header["wavelength_unit"] = self.wavelength.unit
+        header["flux_unit"] = self.flux.unit
+        data = {
+            "wavelength": self.wavelength.to_value("AA"),
+            "flux": self.flux.to_value(1),
+        }
+        if self.uncertainty is not None:
+            header["uncertainty_unit"] = self.uncertainty.unit
+            data["uncertainty"] = self.uncertainty.array
+
+        module = self.__class__.__module__
+        cls = self.__class__.__name__
+        ext = MultipleDataExtension(header, data, cls=f"{module}.{cls}")
+        return ext
+
+    @classmethod
+    def __flex_load__(cls, header, data):
+        ext = MultipleDataExtension._parse(header, data)
+
+        wavelength = ext.data["wavelength"]
+        wavelength = wavelength << ext.header["wavelength_unit"]
+
+        flux = ext.data["flux"]
+        flux = flux << ext.header["flux_unit"]
+
+        if "uncertainty" in ext.data:
+            uncertainty = ext.data["uncertainty"]
+            uncertainty = uncertainty << ext.header["uncertainty_unit"]
+            uncertainty = StdDevUncertainty(uncertainty)
+        else:
+            uncertainty = None
+
+        exceptions = [
+            "__module__",
+            "__class__",
+            "__header__",
+            "uncertainty_unit",
+            "wavelength_unit",
+            "flux_unit",
+        ]
+        meta = {k: v for k, v in ext.header.items() if k not in exceptions}
+        meta["spectral_axis"] = wavelength
+        meta["flux"] = flux
+        meta["uncertainty"] = uncertainty
+
+        return cls(**meta)
+
+    def to_dict(self):
+        data = copy(self.meta)
+        data["spectral_axis"] = self.wavelength.value
+        data["spectral_axis_unit"] = self.wavelength.unit
+        data["flux"] = self.flux.value
+        data["flux_unit"] = self.flux.unit
+        if self.uncertainty is not None:
+            data["uncertainty"] = self.uncertainty.array
+            data["uncertainty_unit"] = self.uncertainty.unit
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        meta = data.get("meta", {})
+        exceptions = ["flux", "flux_unit", "spectral_axis", "spectral_axis_unit"]
+        for k, v in data.items():
+            if k not in exceptions:
+                meta[k] = v
+        flux_unit = data["flux_unit"]
+        wave_unit = data["spectral_axis_unit"]
+        meta["flux"] = data["flux"] << u.Unit(flux_unit)
+        meta["spectral_axis"] = data["spectral_axis"] << u.Unit(wave_unit)
+
+        if "uncertainty" in data.keys():
+            uncs_unit = data["uncertainty_unit"]
+            uncs = data["uncertainty"] << u.Unit(uncs_unit)
+            uncs = StdDevUncertainty(uncs)
+            meta["uncertainty"] = uncs
+
+        self = cls(**meta)
+        return self
+
+    def get_fits_hdu(self):
+        raise NotImplementedError
+
+    @classmethod
+    def read_fits_hdu(cls, hdu):
+        raise NotImplementedError
+
+    @staticmethod
+    def determine_filetype_based_on_filename(filename):
+        _, ext = splitext(filename)
+        if ext in [".flex", ".flx"]:
+            return "flex"
+        elif ext in [".fits", ".gz"]:
+            return "fits"
+        elif ext in [".npz"]:
+            return "npz"
+        else:
+            raise ValueError("Could not determine filetype based on file ending")
+
+    def write(self, filename, format=None):
+        if format is None:
+            format = self.__class__.determine_filetype_based_on_filename(filename)
+        if format == "flex":
+            ff = FlexFile(extensions={"spectrum": self.__flex_save__()})
+            ff.write(filename)
+        elif format == "fits":
+            hdu = self.get_fits_hdu()
+            hdu.writeto(filename, overwrite=True)
+        elif format == "npz":
+            data = self.to_dict()
+            np.savez(filename, **data)
+        else:
+            raise ValueError(
+                f"Format not understood expected one of ('flex', 'fits') but got {format}"
+            )
+
+    @classmethod
+    def read(cls, filename, format=None):
+        if format is None:
+            format = cls.determine_filetype_based_on_filename(filename)
+
+        if format == "flex":
+            ff = FlexFile.read(filename)
+            spec = ff["spectrum"]
+            return spec
+        elif format == "fits":
+            hdulist = fits.open(filename)
+            spec = cls.read_fits_hdu(hdulist[1])
+            return spec
+        elif format == "npz":
+            data = np.load(filename, allow_pickle=True)
+            data = {k: v[()] for k, v in data.items()}
+            spec = cls.from_dict(data)
+            return spec
+        else:
+            raise ValueError(
+                f"Format not understood expected one of ('flex', 'fits') but got {format}"
+            )
+
+
+class Spectrum1D(SpectrumBase, specutils.Spectrum1D):
     """
     Extends the specutils Spectrum1D class
     with a few convenience functions useful for
@@ -32,11 +253,25 @@ class Spectrum1D(specutils.Spectrum1D):
     the spectrum to different wavelengths grids
     """
 
-    reference_frame_values = ["barycentric", "telescope", "planet", "star"]
+    __code__ = [
+        m
+        for m in inspect.getmembers(specutils.Spectrum1D.__init__)
+        if m[0] == "__code__"
+    ][0][1]
+    __init_args__ = inspect.getargs(__code__).args[1:] + [
+        "data",
+        "unit",
+        "uncertainty",
+        "meta",
+        "mask",
+        "copy",
+    ]
 
     def __init__(self, *args, **kwargs):
         # Set default options (if not given)
-        kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
+
+        if "spectral_axis" not in kwargs.keys():
+            kwargs["radial_velocity"] = kwargs.get("radial_velocity", 0 * (u.km / u.s))
 
         meta = {}
         # Which data source was this obtained from
@@ -51,13 +286,24 @@ class Spectrum1D(specutils.Spectrum1D):
         meta["observatory_location"] = kwargs.pop("observatory_location", None)
         # Datetime of the observation
         meta["datetime"] = kwargs.pop("datetime", Time(0, format="mjd"))
+        # airmass is somewhat redundant (it can be calculated from star, observatory, and time)
+        meta["airmass"] = kwargs.pop("airmass", None)
         # One of "barycentric", "telescope", "planet", "star"
         reference_frame = kwargs.pop("reference_frame", "barycentric")
 
         # Obsolete keywords
         kwargs.pop("sky_location", None)
 
-        kwmeta = kwargs.get("meta", {}) if kwargs.get("meta") is not None else {}
+        marked_for_death = []
+        for key, value in kwargs.items():
+            if key not in self.__init_args__:
+                meta[key] = value
+                marked_for_death += [key]
+
+        for key in marked_for_death:
+            del kwargs[key]
+
+        kwmeta = kwargs.pop("meta", {})
         kwmeta.update(meta)
         kwargs["meta"] = kwmeta
 
@@ -87,59 +333,11 @@ class Spectrum1D(specutils.Spectrum1D):
         return other
 
     @property
-    def datetime(self):
-        return self.meta["datetime"]
-
-    @datetime.setter
-    def datetime(self, value):
-        if not isinstance(value, Time):
-            value = Time(value)
-        self.meta["datetime"] = value
-
-    @property
-    def reference_frame(self):
-        return self.meta["reference_frame"]
-
-    @property
     def regions(self):
         wmin, wmax = self.wavelength[[0, -1]]
         return specutils.SpectralRegion(wmin, wmax)
 
-    @reference_frame.setter
-    def reference_frame(self, value):
-        if (
-            not isinstance(value, rf.ReferenceFrame)
-            and value not in self.reference_frame_values
-        ):
-            raise ValueError(
-                f"Reference frame not understood."
-                f"Expected one of {self.reference_frame_values} but got {value}"
-            )
-        if value in self.reference_frame_values:
-            value = self.reference_frame_from_name(value)
-        self.meta["reference_frame"] = value
-
-    def reference_frame_from_name(self, frame):
-        frame = rf.reference_frame_from_name(
-            frame,
-            star=self.meta["star"],
-            planet=self.meta["planet"],
-            observatory=self.meta["observatory_location"],
-        )
-        return frame
-
-    def _get_fits_hdu(self):
-        wave = self.wavelength.to(u.AA)
-        flux = self.flux.decompose()
-        wave_unit = str(wave.unit)
-        flux_unit = str(flux.unit)
-        wave = fits.Column(
-            name="wavelength", array=wave.value, format="D", coord_unit=wave_unit
-        )
-        flux = fits.Column(
-            name="flux", array=flux.value, format="D", coord_unit=flux_unit
-        )
-
+    def _get_header(self):
         header = {
             "SOURCE": self.meta["source"],
             "DESCR": self.meta["description"],
@@ -166,13 +364,44 @@ class Spectrum1D(specutils.Spectrum1D):
                 header["OBSLAT"] = (self.meta["observatory_location"][0],)
                 header["OBSLON"] = (self.meta["observatory_location"][1],)
                 header["OBSALT"] = (self.meta["observatory_location"][2],)
+        return header
 
+    def get_fits_hdu(self):
+        wave = self.wavelength.to(u.AA)
+        flux = self.flux.decompose()
+        wave_unit = str(wave.unit)
+        flux_unit = str(flux.unit)
+        wave = fits.Column(
+            name="wavelength", array=wave.value, format="D", coord_unit=wave_unit
+        )
+
+        if flux.ndim == 1:
+            flux = fits.Column(
+                name="flux", array=flux.value, format="D", coord_unit=flux_unit,
+            )
+        elif flux.ndim == 2:
+            flux = fits.Column(
+                name="flux",
+                array=flux.value.T,
+                format=f"{flux.shape[0]}D",
+                coord_unit=flux_unit,
+            )
+        else:
+            flux = fits.Column(
+                name="flux",
+                array=flux.value.T,
+                format=f"{flux.shape[0]}D",
+                dim=flux.shape[1:],
+                coord_unit=flux_unit,
+            )
+
+        header = self._get_header()
         header = fits.Header(header)
         hdu = fits.BinTableHDU.from_columns([wave, flux], header=header)
         return hdu
 
     @classmethod
-    def _read_fits_hdu(cls, hdu):
+    def read_fits_hdu(cls, hdu):
         header = hdu.header
         data = hdu.data
         meta = {}
@@ -184,6 +413,9 @@ class Spectrum1D(specutils.Spectrum1D):
         wave = data["wavelength"] << wunit
         flux = data["flux"] << funit
 
+        if flux.ndim >= 2:
+            flux = flux.T
+
         meta["source"] = header["SOURCE"]
         meta["description"] = header["DESCR"]
         meta["citation"] = header["CITATION"]
@@ -191,17 +423,24 @@ class Spectrum1D(specutils.Spectrum1D):
         meta["reference_frame"] = header["REFFRAME"]
 
         sdb = StellarDb()
+        star = None
         if "STAR" in header:
             star = header["STAR"]
-            star = sdb.get(star)
-            meta["star"] = star
+            try:
+                star = sdb.get(star)
+                meta["star"] = star
+            except AttributeError:
+                # TODO: warning, or empty star or something
+                star = None
+                pass
         if "PLANET" in header:
             planet = header["PLANET"]
-            planet = star.planets[planet]
-            meta["planet"] = planet
+            if star is not None:
+                planet = star.planets[planet]
+                meta["planet"] = planet
         if "OBSNAME" in header:
             meta["observatory_location"] = header["OBSNAME"]
-        elif "OBSLON" in header:
+        elif "OBSLON" in header and "OBSLAT" in header and "OBSALT" in header:
             meta["observatory_location"] = (
                 header["OBSLON"],
                 header["OBSLAT"],
@@ -210,20 +449,11 @@ class Spectrum1D(specutils.Spectrum1D):
         if "RA" in header and "DEC" in header:
             ra = coords.Angle(header["RA"], "hourangle")
             dec = header["DEC"] * u.deg
-            meta["star"].coordinates = coords.SkyCoord(ra, dec)
+            if "star" in meta.keys():
+                meta["star"].coordinates = coords.SkyCoord(ra, dec)
 
         spec = cls(flux=flux, spectral_axis=wave, **meta)
 
-        return spec
-
-    def write(self, fname):
-        hdu = self._get_fits_hdu()
-        hdu.writeto(fname, overwrite=True)
-
-    @staticmethod
-    def read(fname):
-        hdulist = fits.open(fname)
-        spec = Spectrum1D._read_fits_hdu(hdulist[0])
         return spec
 
     def shift(self, target_frame, inplace=False, rv=None):
@@ -251,6 +481,9 @@ class Spectrum1D(specutils.Spectrum1D):
             the shifted spectrum structure
         """
 
+        # TODO: optimize in case that the target frame == reference frame
+        # TODO: so we don't have to waste time on that
+
         # TODO: conversion to/from star/planet requires info about the star/planet
         # TODO: don't forget to use the radial velocity as well (?)
         try:
@@ -263,16 +496,13 @@ class Spectrum1D(specutils.Spectrum1D):
             rv = self.reference_frame.to_frame(target_frame, self.datetime)
 
         # Step 2: Use the determined radial velocity to calculate a new wavelength grid
-        if not inplace:
-            shifted = np.copy(self.wavelength)
-        else:
-            shifted = self.wavelength
-        beta = rv / const.c
-        shifted *= np.sqrt((1 + beta) / (1 - beta))
+        beta = (rv / const.c).to_value(1)
+        factor = np.sqrt((1 + beta) / (1 - beta))
+        shifted = self.wavelength * factor
 
         # Step 3: Create new Spectrum1D with shifted wavelength grid
         if inplace:
-            self.spectral_axis = shifted
+            self._spectral_axis = shifted
             self.reference_frame = target_frame
             spec = self
         else:
@@ -281,7 +511,7 @@ class Spectrum1D(specutils.Spectrum1D):
 
         return spec
 
-    def resample(self, grid, method="spline", **kwargs):
+    def resample(self, grid, method="linear", inplace=False, **kwargs):
         """
         Resample the current spectrum to a different wavelength grid
 
@@ -315,31 +545,55 @@ class Spectrum1D(specutils.Spectrum1D):
 
         spec = resampler(self, grid)
 
-        # Cast spec to Spectrum 1D class and set meta parameters
-        spec.meta = copy(self.meta)
-        spec.radial_velocity = self.radial_velocity
-        spec.with_velocity_convention(self.velocity_convention)
-        spec.__class__ = Spectrum1D
+        if inplace:
+            self._spectral_axis[:] = spec._spectral_axis
+            self._data[:] = spec._data
+            self._unit = spec._unit
+            if self._uncertainty is not None:
+                self._uncertainty = spec._uncertainty
+            else:
+                self._uncertainty = spec._uncertainty
+        else:
+            # Cast spec to Spectrum 1D class and set meta parameters
+            spec.meta = copy(self.meta)
+            spec.__class__ = Spectrum1D
+            # spec.with_velocity_convention(self.velocity_convention)
+            # spec.radial_velocity = self.radial_velocity
 
         return spec
 
     def extract_region(self, wrange):
         wave, flux = [], []
-        for wmin, wmax in wrange.subregions:
+
+        if hasattr(wrange, "subregions"):
+            wrange = wrange.subregions
+
+        for wr in wrange:
+            if hasattr(wr, "subregions"):
+                wr = wr.subregions[0]
+            wmin, wmax = wr
+
             mask = (self.wavelength >= wmin) & (self.wavelength <= wmax)
 
             wave += [self.wavelength[mask]]
-            flux += [self.flux[mask]]
+            flux += [self.flux[..., mask]]
 
         if len(wrange) == 1:
             spec = Spectrum1D(flux=flux[0], spectral_axis=wave[0], **self.meta)
         else:
-            spec = SpectrumList(flux=flux, spectral_axis=wave, **self.meta)
+            segments = np.zeros(len(wrange) + 1)
+            segments[1:] = np.cumsum([len(w) for w in wave])
+            flux = np.hstack(flux)
+            wave = np.concatenate(wave)
+            wave = np.tile(wave, (flux.shape[0], 1))
+            spec = SpectrumArray(
+                flux=flux, spectral_axis=wave, segments=segments, **self.meta
+            )
 
         return spec
 
 
-class SpectrumList(Sequence):
+class SpectrumList(Sequence, SpectrumBase):
     """
     Stores a list of Spectrum1D objects, with shared metadata
     This usually represents the different orders of the spectrum,
@@ -356,7 +610,7 @@ class SpectrumList(Sequence):
 
     """
 
-    def __init__(self, flux, spectral_axis, **kwargs):
+    def __init__(self, flux, spectral_axis, uncertainty=None, **kwargs):
         super().__init__()
 
         # We actually just pass everything to each individual spectrum
@@ -364,8 +618,10 @@ class SpectrumList(Sequence):
         # This means we don't have to worry about setting the values later
         # But this also means that they could change if we are not careful
         self._data = []
-        for f, sa in zip(flux, spectral_axis):
-            spec = Spectrum1D(flux=f, spectral_axis=sa, **kwargs)
+        if uncertainty is None:
+            uncertainty = [None for _ in flux]
+        for f, sa, u in zip(flux, spectral_axis, uncertainty):
+            spec = Spectrum1D(flux=f, spectral_axis=sa, uncertainty=u, **kwargs)
             self._data += [spec]
 
     def __getitem__(self, key):
@@ -434,6 +690,10 @@ class SpectrumList(Sequence):
     @property
     def wavelength(self):
         return [s.wavelength for s in self]
+
+    @property
+    def uncertainty(self):
+        return [s.uncertainty for s in self]
 
     @property
     def meta(self):
@@ -507,7 +767,6 @@ class SpectrumList(Sequence):
             secondary += [spec._get_fits_hdu()]
 
         hdulist = fits.HDUList(hdus=[primary, *secondary])
-        makedirs(dirname(abspath(fname)), exist_ok=True)
         hdulist.writeto(fname, overwrite=True)
 
     @classmethod
@@ -600,7 +859,7 @@ class SpectrumList(Sequence):
             return self
 
 
-class SpectrumArray(Sequence):
+class SpectrumArray(SpectrumBase, Sequence):
     """
     A Collection of Spectra with the same size,
     but possibly different wavelength axis
@@ -628,32 +887,64 @@ class SpectrumArray(Sequence):
                 self.wavelength[i] = np.concatenate(spec.wavelength)
                 self.flux[i] = np.concatenate(spec.flux)
 
+            if spectra[0][0].uncertainty is not None:
+                uunit = spectra[0][0].uncertainty.unit
+                self.uncertainty = np.zeros((nspec, npix)) << uunit
+                for i, spec in enumerate(spectra):
+                    self.uncertainty[i] = np.concatenate(
+                        [unc.array for unc in spec.uncertainty]
+                    )
+                self.uncertainty = StdDevUncertainty(self.uncertainty)
+            else:
+                self.uncertainty = None
+
+            self.meta = {}
             self.segments = np.zeros(nseg + 1, dtype=int)
             self.segments[1:] = spectra[0].shape[1]
             self.segments = np.cumsum(self.segments)
 
-            self.meta = spectra[0].meta
+            self.meta.update(spectra[0].meta)
             times = Time([spec.datetime for spec in spectra])
             self.meta["datetime"] = times
         elif len(args) == 0 and len(kwargs) > 0:
+            self.meta = {}
             self.wavelength = kwargs.pop("spectral_axis")
             self.flux = kwargs.pop("flux")
             self.segments = kwargs.pop("segments")
-            self.meta = kwargs
+            self.uncertainty = kwargs.pop("uncertainty", None)
+            self.meta.update(kwargs)
         else:
             raise ValueError
 
     def __len__(self):
         return len(self.wavelength)
 
+    @property
+    def nseg(self):
+        return len(self.segments) - 1
+
+    @property
+    def segments(self):
+        return self.meta["segments"]
+
+    @segments.setter
+    def segments(self, value):
+        self.meta["segments"] = value
+
     def __getitem__(self, key):
         wave = self.wavelength[key]
         flux = self.flux[key]
+        if self.uncertainty is not None:
+            uncs = self.uncertainty[key]
+        else:
+            uncs = None
 
         spectra = []
         for left, right in zip(self.segments[:-1], self.segments[1:]):
             meta = self.meta.copy()
             meta["datetime"] = self.datetime[key]
+            if uncs is not None:
+                meta["uncertainty"] = uncs[left:right]
             spec = Spectrum1D(
                 flux=flux[left:right], spectral_axis=wave[left:right], **meta
             )
@@ -666,64 +957,167 @@ class SpectrumArray(Sequence):
         self.wavelength[key] = np.concatenate(value.wavelength)
         self.flux[key] = np.concatenate(value.flux)
 
-    @property
-    def datetime(self):
-        return self.meta["datetime"]
+    def __operator__(self, other, operator):
+        if isinstance(other, (float, int)) or (
+            hasattr(other, "size") and other.size == 1
+        ):
+            data = operator(self.flux, other)
+        elif isinstance(other, SpectrumArray):
+            data = operator(self.flux, other.flux)
+        elif isinstance(other, np.ndarray):
+            data = operator(self.flux, other)
+        else:
+            return NotImplemented
+
+        sa = self.__class__(
+            flux=data,
+            spectral_axis=self.wavelength,
+            segments=self.segments,
+            **self.meta,
+        )
+        return sa
+
+    def __add__(self, other):
+        return self.__operator__(other, op.add)
+
+    def __sub__(self, other):
+        return self.__operator__(other, op.sub)
+
+    def __mul__(self, other):
+        return self.__operator__(other, op.mul)
+
+    def __truediv__(self, other):
+        return self.__operator__(other, op.truediv)
 
     @property
-    def reference_frame(self):
-        return self.meta["reference_frame"]
+    def shape(self):
+        return self.wavelength.shape
+
+    @property
+    def nseg(self):
+        return len(self.segments) - 1
 
     def get_segment(self, seg):
         left, right = self.segments[seg : seg + 2]
+        left, right = int(left), int(right)
         wave = self.wavelength[:, left:right]
         flux = self.flux[:, left:right]
+        if self.uncertainty is not None:
+            uncs = self.uncertainty[:, left:right]
+        else:
+            uncs = None
         specarr = SpectrumArray(
-            flux=flux, spectral_axis=wave, segments=[0, wave.shape[1]], **self.meta
+            flux=flux,
+            spectral_axis=wave,
+            uncertainty=uncs,
+            segments=[0, right - left],
+            **{k: v for k, v in self.meta.items() if k != "segments"},
         )
         return specarr
 
-    def write(self, fname):
-        np.savez(
-            fname,
-            wavelength=self.wavelength.value,
-            flux=self.flux.value,
-            meta=self.meta,
-            segments=self.segments,
-            flux_unit=str(self.flux.unit),
-            wave_unit=str(self.wavelength.unit),
-        )
-
     @classmethod
-    def read(cls, fname):
-        data = np.load(fname, allow_pickle=True)
-        meta = data["meta"][()]
-        flux_unit = data["flux_unit"][()]
-        wave_unit = data["wave_unit"][()]
+    def from_dict(cls, data):
+        meta = data["meta"]
+        flux_unit = data["flux_unit"]
+        wave_unit = data["wave_unit"]
         flux = data["flux"] << u.Unit(flux_unit)
         wave = data["wavelength"] << u.Unit(wave_unit)
         segments = data["segments"]
+
+        if "uncertainty" in data.keys():
+            uncs_unit = data["uncertainty_unit"]
+            uncs = data["uncertainty"] << u.Unit(uncs_unit)
+            uncs = StdDevUncertainty(uncs)
+            meta["uncertainty"] = uncs
+
         self = cls(flux=flux, spectral_axis=wave, segments=segments, **meta)
         return self
 
-    def shift(self, target_frame, inplace=True):
-        for i in tqdm(range(len(self))):
-            meta = self.meta.copy()
-            meta["datetime"] = self.datetime[i]
+    def shift(self, target_frame, inplace=True, rv=None):
+        if not inplace:
+            spectra = deepcopy(self)
+        else:
+            spectra = self
+
+        try:
+            target_frame = self.reference_frame_from_name(target_frame)
+        except ValueError:
+            pass
+
+        if rv is None:
+            rv = self.reference_frame.to_frame(target_frame, self.datetime)
+
+        meta = self.meta.copy()
+        for i in tqdm(range(len(spectra)), leave=False):
+            meta["datetime"] = spectra.datetime[i]
+            if spectra.uncertainty is not None:
+                meta["uncertainty"] = spectra.uncertainty[i]
+
+            spec = Spectrum1D(
+                flux=spectra.flux[i], spectral_axis=spectra.wavelength[i], **meta
+            )
+            spec = spec.shift(target_frame, rv=rv[i], inplace=True)
+            spectra.wavelength[i] = spec.wavelength
+            target_frame = spec.reference_frame
+
+        spectra.meta["reference_frame"] = target_frame
+        return spectra
+
+    def resample(self, wavelength, inplace=False, **kwargs):
+        n_spectra = self.flux.shape[0]
+
+        if np.ndim(wavelength) == 1:
+            wavelength = np.tile(wavelength, (n_spectra, 1))
+
+        n_wave_points = wavelength.shape[1]
+
+        if not inplace:
+            spectra = deepcopy(self)
+            spectra.wavelength = np.copy(wavelength)
+            spectra.flux = (
+                np.zeros((n_spectra, n_wave_points), dtype=spectra.flux.dtype)
+                << spectra.flux.unit
+            )
+            spectra.segments = [0, len(wavelength)]
+        else:
+            spectra = self
+
+        for i in tqdm(range(len(self)), leave=False):
+            meta = {}
+            if self.uncertainty is not None:
+                meta["uncertainty"] = self.uncertainty[i]
             spec = Spectrum1D(
                 flux=self.flux[i], spectral_axis=self.wavelength[i], **meta
             )
-            spec.shift(target_frame)
-            self.wavelength[i] = spec.wavelength
-            target_frame = spec.reference_frame
+            spec = spec.resample(wavelength[i], inplace=inplace, **kwargs)
+            if not inplace:
+                spectra.flux[i] = spec.flux
+            spectra.wavelength[i] = wavelength[i]
 
-        self.meta["reference_frame"] = target_frame
-        return self
+        return spectra
 
-    def resample(self, wavelength, inplace=True):
-        for i in tqdm(range(len(self))):
-            spec = Spectrum1D(flux=self.flux[i], spectral_axis=self.wavelength[i])
-            spec = spec.resample(wavelength)
-            self.wavelength[i] = wavelength
-            self.flux[i] = spec.flux
-        return self
+
+class SpectrumArrayIO(StepIO):
+    def save(self, data, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data.write(fname)
+
+    def load(self, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data = SpectrumArray.read(fname)
+        return data
+
+
+class Spectrum1DIO(StepIO):
+    def save(self, data, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data.write(fname)
+
+    def load(self, fname=None):
+        if fname is None:
+            fname = self.savefilename
+        data = Spectrum1D.read(fname)
+        return data

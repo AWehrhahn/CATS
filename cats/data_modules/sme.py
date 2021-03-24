@@ -2,6 +2,7 @@ import numpy as np
 import astropy.units as u
 
 from copy import deepcopy
+from tqdm import tqdm
 
 from .datasource import DataSource, StellarIntensities
 from ..spectrum import Spectrum1D, SpectrumList
@@ -48,10 +49,11 @@ class SmeBase(DataSource):
         self.normalize = normalize
 
         if self.atmosphere == "marcs":
-            vturb = self.star.vturb.to_value(u.km / u.s)
-            # round to nearest option
-            vturb = round_to_nearest(vturb, [1, 2, 5])
-            self.atmosphere = f"marcs2012s_t{vturb:1.1f}.sav"
+            self.atmosphere = "marcs2014.sav"
+            # vturb = self.star.vturb.to_value(u.km / u.s)
+            # # round to nearest option
+            # vturb = round_to_nearest(vturb, [1, 2, 5])
+            # self.atmosphere = f"marcs2012p_t{vturb:1.1f}.sav"
 
     def synthesize(self, wrange, mu=None, intensities=False):
         sme = SME_Structure()
@@ -74,10 +76,7 @@ class SmeBase(DataSource):
             for elem, grid in self.nlte.items():
                 sme.nlte.set_nlte(elem, grid)
 
-        sme.wran = [
-            [wmin.to_value(u.AA), wmax.to_value(u.AA)]
-            for wmin, wmax in wrange.subregions
-        ]
+        sme.wran = [[wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)] for wr in wrange]
 
         sme.cscale_flag = "none"
         sme.normalize_by_continuum = self.normalize
@@ -169,54 +168,49 @@ class SmeIntensities(SmeBase, StellarIntensities):
         self.spectra = None
 
     def prepare(self, wrange, times):
-        mu = self.orbit.mu(times)
-        mu = np.atleast_1d(mu)
 
-        mask = (mu < 1) & (mu > 0)
+        # Oversample mu by a factor of 5
+        # that way we can estimate the average intensity
+        d = self.orbit.projected_radius(times)
+        r = self.orbit.planet.radius
+        R = self.orbit.star.radius
 
-        wave, spec, citation = self.synthesize(wrange, mu[mask], intensities=True)
-
-        j, spectra = 0, []
-        for i in range(len(times)):
-            m = mu[i]
+        spectra = []
+        subsampling = 5
+        steps = np.linspace(-1, 1, subsampling)
+        for i in tqdm(range(len(times))):
             time = times[i]
+            dp = d[i] + steps * r
+            mu = np.sqrt(1 - dp ** 2 / R ** 2)
+            mu = mu[np.isfinite(mu)]
 
-            if mask[i]:
-                # TODO Rossiter McLaughlin Effect
-                synth = SpectrumList(
-                    flux=[s[j] for s in spec],
-                    spectral_axis=wave,
-                    reference_frame="star",
-                    datetime=time,
-                    star=self.star,
-                    source="sme",
-                    description=f"synthetic specific intensities. Mu={m.decompose()}",
-                    citation=citation,
-                )
-                j += 1
+            if len(mu) != 0:
+                wave, spec, citation = self.synthesize(wrange, mu, intensities=True)
+
+                flux = [np.zeros(len(w)) << u.one for w in wave]
+                for j in range(len(spec)):
+                    flux[j] += np.mean(spec[j], axis=0)
             else:
                 regions = [
-                    [wmin.to_value(u.AA), wmax.to_value(u.AA)]
-                    for wmin, wmax in wrange.subregions
+                    [wr.lower.to_value(u.AA), wr.upper.to_value(u.AA)] for wr in wrange
                 ]
-                tmp_wave = [
-                    np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions
-                ]
+                wave = [np.linspace(wmin, wmax, 100) << u.AA for wmin, wmax in regions]
                 if self.normalize:
-                    tmp_spec = [np.zeros(100) << u.one for _ in wrange.subregions]
+                    flux = [np.zeros(100) << u.one for _ in wrange]
                 else:
-                    tmp_spec = [np.zeros(100) << flux_units for _ in wrange.subregions]
-                synth = SpectrumList(
-                    flux=tmp_spec,
-                    spectral_axis=tmp_wave,
-                    reference_frame="star",
-                    source="sme",
-                    datetime=time,
-                    description="stellar specific intensities. All zero since the time is out of transit",
-                    star=self.star,
-                    planet=self.planet,
-                )
+                    flux = [np.zeros(100) << flux_units for _ in wrange]
+                citation = ""
 
+            synth = SpectrumList(
+                flux=flux,
+                spectral_axis=wave,
+                reference_frame="star",
+                datetime=time,
+                star=self.star,
+                source="sme",
+                description="synthetic specific intensities",
+                citation=citation,
+            )
             spectra += [synth]
 
         self.times = times

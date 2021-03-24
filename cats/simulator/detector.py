@@ -29,16 +29,18 @@ class Detector:
 
 
 class Crires(Detector):
-    def __init__(self, setting="H/1/4", detector=1):
+    def __init__(self, setting="H/1/4", detector=1, orders=None):
         super().__init__()
         self.setting = setting
         self.detector = detector
+        self.orders = orders
         self.pixels = 2048
+        self.resolution = 100_000
         self.pixel_size = 18 * u.um
         self.collection_area = (8 * u.m) ** 2
         self.integration_time = 5 * u.min
         self.bad_pixel_ratio = 4e5 / (2048 ** 2)
-        self.spectral_broadening = 1
+        self.spectral_broadening = 2.3
         self.observatory = EarthLocation.of_site("Cerro Paranal")
 
         # TODO: gain / readnoise for each detector / wavelength range
@@ -47,9 +49,9 @@ class Crires(Detector):
         self.efficiency = 0.5  # About 50 percent makes it though
 
         self.regions, self.norders = self.__class__.load_spectral_regions(
-            setting, detector
+            setting, detector, orders
         )
-        self.blaze = self.__class__.load_blaze_function(setting, detector)
+        self.blaze = self.__class__.load_blaze_function(setting, detector, orders)
 
         assert (
             len(self.regions) == len(self.blaze) == sum(self.norders)
@@ -62,28 +64,41 @@ class Crires(Detector):
     def __str__(self):
         return "CRIRES"
 
+    def to_dict(self):
+        data = {}
+        names = ["setting", "detector", "orders"]
+        for name in names:
+            data[name] = getattr(self, name)
+        return data
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(**data)
+
     @staticmethod
-    def load_spectral_regions(setting, detector):
+    def load_spectral_regions(setting: str, detector: list, orders: list):
         # Spectral regions
         # from https://www.astro.uu.se/crireswiki/Instrument?action=AttachFile&do=view&target=crmcfgWLEN_20200223_extracted.csv
         fname = join(dirname(__file__), "crires_wlen_extracted.csv")
         data = pd.read_csv(fname, skiprows=[1])
 
         detector = np.atleast_1d(detector)
-        norders = []
+        norders = [0 for _ in detector]
+
+        if orders is None:
+            orders = range(1, 11)
 
         idx = data["setting"] == setting
         regions = []
-        for det in detector:
-            norders += [0]
-            for order in range(1, 11):
+        for order in orders:
+            for i, det in enumerate(detector):
                 if data[f"O{order} Central Wavelength"][idx].array[0] != -1:
                     wmin = data[f"O{order} BEG DET{det}"][idx].array[0] * u.nm
                     wmax = data[f"O{order} END DET{det}"][idx].array[0] * u.nm
                     regions += [SpectralRegion(wmin, wmax)]
-                    norders[-1] += 1
+                    norders[i] += 1
 
-        regions = np.sum(regions)
+        # regions = np.sum(regions)
         return regions, norders
 
     @staticmethod
@@ -116,7 +131,7 @@ class Crires(Detector):
         return data
 
     @staticmethod
-    def load_blaze_function(setting, detector):
+    def load_blaze_function(setting: str, detector: list, orders: list):
         # TODO: have a datafile, that has the different blaze functions
         # for the different settings
         setting = setting.replace("/", "_")
@@ -126,11 +141,19 @@ class Crires(Detector):
 
         x = np.arange(2048) + 1
 
-        norders = sum([len(data[setting][det]) for det in detector])
+        if orders is None:
+            norders = sum([len(data[setting][det]) for det in detector])
+        else:
+            norders = len(detector) * len(orders)
+
         blaze = np.zeros((norders, 2048)) << u.one
         counter = 0
         for det in detector:
-            for order in range(len(data[setting][det])):
+            if orders is None:
+                _orders = range(len(data[setting][det]))
+            else:
+                _orders = [o - min(orders) for o in orders]
+            for order in _orders:
                 b = np.polyval(data[setting][det][order], x)
                 blaze[counter] = b << u.one
                 counter += 1
@@ -171,14 +194,14 @@ class Crires(Detector):
         sigma = self.spectral_broadening
         if hasattr(spec, "flux") and not hasattr(spec, "__len__"):
             flux = spec.flux.decompose()
-            spec._unit = u.one
+            spec._unit = flux.unit
             spec._data[:] = gaussian_filter1d(flux, sigma)
         elif hasattr(spec, "flux") and hasattr(spec, "__len__"):
             for s in spec:
                 flux = s.flux.decompose()
-                s._unit = u.one
+                s._unit = flux.unit
                 s._data[:] = gaussian_filter1d(flux, sigma)
         else:
-            spec = gaussian_filter1d(spec, sigma)
+            spec = gaussian_filter1d(spec, sigma, axis=-1)
 
         return spec
