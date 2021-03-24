@@ -9,5 +9,6 @@ astroplan
 batman-package
 corner
 emcee
+flex-format
 git+https://github.com/AWehrhahn/datasources
 git+https://github.com/AWehrhahn/ExoOrbits
