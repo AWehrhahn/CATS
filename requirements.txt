@@ -11,7 +11,7 @@ corner
 emcee
 flex-format
 plotly
-# petitradtrans
-git@gitlab.com:mauricemolli/petitRADTRANS.git
+# petitradtrans needs to be installed manually (they do not have a setup.py)
+# git+https://gitlab.com/mauricemolli/petitRADTRANS.git
 git+https://github.com/AWehrhahn/datasources
 git+https://github.com/AWehrhahn/ExoOrbits
