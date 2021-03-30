@@ -25,6 +25,15 @@ shears = {
 }
 
 n_sysrem = 5
+snr = 100
+
+base_dir = join(dirname(__file__), f"../datasets/WASP-107b_SNR{snr}")
+fname = join(base_dir, "medium", "cross_correlation.npz")
+
+data = np.load(fname)
+plt.imshow(data[f"{n_sysrem}"], aspect="auto")
+plt.show()
+
 
 for snr in [50, 100, 200]:
     base_dir = join(dirname(__file__), f"../datasets/WASP-107b_SNR{snr}")

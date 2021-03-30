@@ -52,11 +52,11 @@ class StellarDb(DataSource):
             recovered Star
         """
 
+        self.backend.auto_fill(name)
         data = self.backend.load(name)
 
         # Convert names
         # Stellar parameters
-        coords = SkyCoord(data["coordinates"]["ra"], data["coordinates"]["dec"])
         star = Star(
             name=name,
             mass=data["mass"],
@@ -64,8 +64,8 @@ class StellarDb(DataSource):
             effective_temperature=data["t_eff"],
             logg=data["logg"],
             monh=data["metallicity"],
-            vturb=data["velocity_turbulence"],
-            coordinates=coords,
+            vturb=data.get("velocity_turbulence", 1 * u.km/u.s),
+            coordinates=data["coordinates"],
             distance=data["distance"],
             radial_velocity=data["radial_velocity"],
         )

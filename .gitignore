@@ -11,7 +11,7 @@ examples/stellar.html
 examples/*.sme
 
 *.npy
-
+*.ipynb
 *.html
 *.png
 *.yaml

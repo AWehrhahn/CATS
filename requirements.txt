@@ -10,5 +10,8 @@ batman-package
 corner
 emcee
 flex-format
+plotly
+# petitradtrans
+git@gitlab.com:mauricemolli/petitRADTRANS.git
 git+https://github.com/AWehrhahn/datasources
 git+https://github.com/AWehrhahn/ExoOrbits

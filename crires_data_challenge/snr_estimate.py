@@ -43,11 +43,11 @@ detector = Crires(setting, detectors, orders=orders)
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
 
 # Star info
-star = "WASP-107"
+star = "L98-59"
 planet = "b"
 
 # Initialize the CATS runner
-base_dir = join(dirname(__file__), "../datasets/WASP-107b_SNR100")
+base_dir = join(dirname(__file__), "../datasets/L98-59c_HotJup_SNR100")
 raw_dir = join(base_dir, "Spectrum_00")
 medium_dir = join(base_dir, "medium")
 done_dir = join(base_dir, "done")
