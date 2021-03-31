@@ -52,7 +52,7 @@ class StellarDb(DataSource):
             recovered Star
         """
 
-        self.backend.auto_fill(name)
+        # self.backend.auto_fill(name)
         data = self.backend.load(name)
 
         # Convert names
