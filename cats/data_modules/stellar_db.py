@@ -55,35 +55,42 @@ class StellarDb(DataSource):
         # self.backend.auto_fill(name)
         data = self.backend.load(name)
 
+        if "distance" in data:
+            distance = data["distance"]
+        elif "parallax" in data:
+            distance = 1 / data["parallax"]
+        else:
+            distance = None
+
         # Convert names
         # Stellar parameters
         star = Star(
             name=name,
-            mass=data["mass"],
-            radius=data["radius"],
-            effective_temperature=data["t_eff"],
-            logg=data["logg"],
-            monh=data["metallicity"],
+            mass=data.get("mass"),
+            radius=data.get("radius"),
+            effective_temperature=data.get("t_eff"),
+            logg=data.get("logg"),
+            monh=data.get("metallicity"),
             vturb=data.get("velocity_turbulence", 1 * u.km/u.s),
-            coordinates=data["coordinates"],
-            distance=data["distance"],
-            radial_velocity=data["radial_velocity"],
+            coordinates=data.get("coordinates"),
+            distance=distance,
+            radial_velocity=data.get("radial_velocity"),
         )
 
         planets = {}
         for pname, p in data["planets"].items():
             planet = Planet(
                 name=pname,
-                radius=p["radius"],
-                mass=p["mass"],
-                inclination=p["inclination"],
-                semi_major_axis=p["semi_major_axis"],
-                period=p["period"],
-                eccentricity=p["eccentricity"],
-                # argument_of_periastron=Time(p["periastron"],format="jd"),
-                time_of_transit=Time(p["transit_epoch"], format="jd"),
-                transit_duration=p["transit_duration"],
-                stellar_teff=data["t_eff"],
+                radius=p.get("radius"),
+                mass=p.get("mass"),
+                inclination=p.get("inclination"),
+                semi_major_axis=p.get("semi_major_axis"),
+                period=p.get("period"),
+                eccentricity=p.get("eccentricity"),
+                argument_of_periastron=p.get("periastron"),
+                time_of_transit=p.get("transit_epoch"),
+                transit_duration=p.get("transit_duration"),
+                stellar_teff=data.get("t_eff"),
             )
             planets[pname] = planet
 
