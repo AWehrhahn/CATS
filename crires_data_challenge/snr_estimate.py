@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from skimage import io
 from skimage import transform as tf
 from scipy.interpolate import interp1d
+from scipy.stats import ttest_ind, norm
 
 from astropy import units as u
 from astropy.constants import c
@@ -148,20 +149,26 @@ plt.yticks(yticks, labels=yticks_labels)
 
 plt.show()
 
-plt.imshow(data["5.6"], aspect="auto", origin="lower")
-plt.show()
+# Have to check that this makes sense
+a = np.mean(combined[:200], axis=0)
+b = np.mean(combined[200:], axis=0)
+tresult = ttest_ind(a, b, equal_var=False)
+sigma = norm.isf(tresult.pvalue)
 
-plt.plot(np.sum(shear(data[f"5.6"], -0.8), axis=0) / 100, label=f"5.6")
+# plt.imshow(data["5.6"], aspect="auto", origin="lower")
+# plt.show()
+
+# plt.plot(np.sum(shear(data[f"5.6"], -0.8), axis=0) / 100, label=f"5.6")
 
 
-plt.xlabel("v [km/s]")
-xticks = plt.xticks()[0][1:-1]
-xticks_labels = xticks - 100
-plt.xticks(xticks, labels=xticks_labels)
+# plt.xlabel("v [km/s]")
+# xticks = plt.xticks()[0][1:-1]
+# xticks_labels = xticks - 100
+# plt.xticks(xticks, labels=xticks_labels)
 
-plt.ylabel("ccf [SNR]")
+# plt.ylabel("ccf [SNR]")
 
-plt.legend()
-plt.show()
+# plt.legend()
+# plt.show()
 
 pass
