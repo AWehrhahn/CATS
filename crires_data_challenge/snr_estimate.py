@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 from skimage import io
 from skimage import transform as tf
+from scipy.interpolate import interp1d
 
 from astropy import units as u
 from astropy.constants import c
@@ -43,11 +44,11 @@ detector = Crires(setting, detectors, orders=orders)
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
 
 # Star info
-star = "L98-59"
+star = "WASP 107"
 planet = "b"
 
 # Initialize the CATS runner
-base_dir = join(dirname(__file__), "../datasets/L98-59c_HotJup_SNR100")
+base_dir = join(dirname(__file__), "../datasets/WASP-107b_SNR100")
 raw_dir = join(base_dir, "Spectrum_00")
 medium_dir = join(base_dir, "medium")
 done_dir = join(base_dir, "done")
@@ -75,8 +76,10 @@ velocity_semi_amplitude = orbit.radial_velocity_semiamplitude_planet()
 t_exp = c / (2 * np.pi * velocity_semi_amplitude) * planet.period / detector.resolution
 t_exp = t_exp.decompose()
 
-print("SNR required:", snr)
-print("Maximum exposure time", t_exp)
+
+print("SNR required: ", snr)
+print("Maximum exposure time: ", t_exp)
+print(f"Planet Velocity Kp {velocity_semi_amplitude.to('km/s')}")
 
 # Run the Runnert
 # data = runner.run(["solve_problem"])
@@ -90,6 +93,8 @@ print("Maximum exposure time", t_exp)
 
 data = runner.run_module("cross_correlation", load=True)
 
+spectra = runner.data["spectra"]
+
 # runner.steps["cross_correlation"].plot(data, sysrem_iterations=5, sysrem_iterations_afterwards=6)
 
 # for i in range(3, 10):
@@ -97,9 +102,53 @@ data = runner.run_module("cross_correlation", load=True)
 #     for j in range(10):
 #         plt.plot(np.sum(data[f"{i}.{j}"][10:27], axis=0) / 100, label=f"{i}.{j}")
 
+data = data["5"]
+rv = np.linspace(-100, 100, 201)
 
+plt.imshow(data, aspect="auto", origin="lower")
+plt.xlabel("rv [km/s]")
+xticks = plt.xticks()[0][1:-1]
+xticks_labels = np.interp(xticks, np.arange(len(rv)), rv)
+xticks_labels = [f"{x:.3g}" for x in xticks_labels]
+plt.xticks(xticks, labels=xticks_labels)
+plt.show()
 
-plt.imshow(data["5"], aspect="auto", origin="lower")
+datetime = spectra.datetime
+phi = (datetime - planet.time_of_transit) / planet.period
+phi = phi.to_value(1)
+# We only care about the fraction
+phi = phi % 1
+c_light = 3e5
+
+interpolator = interp1d(rv, data, kind="linear", bounds_error=False)
+
+vsys = np.linspace(-100, 100, 401)
+kp = np.linspace(0, 201, 401)
+combined = np.zeros((len(vsys), len(kp)))
+for i, vs in enumerate(vsys):
+    for j, k in enumerate(kp):
+        vp = vs + k * np.sin(2 * np.pi * phi)
+        # shifted = [np.interp(vp[i], rv, data[i], left=np.nan, right=np.nan) for i in range(len(vp))]
+        shifted = np.diag(interpolator(vp))
+        combined[i, j] = np.nansum(shifted)
+
+plt.imshow(combined, aspect="auto", origin="lower")
+
+plt.xlabel("Kp [km/s]")
+xticks = plt.xticks()[0][1:-1]
+xticks_labels = np.interp(xticks, np.arange(len(kp)), kp)
+xticks_labels = [f"{x:.3g}" for x in xticks_labels]
+plt.xticks(xticks, labels=xticks_labels)
+
+plt.ylabel("vsys [km/s]")
+yticks = plt.yticks()[0][1:-1]
+yticks_labels = np.interp(yticks, np.arange(len(vsys)), vsys)
+yticks_labels = [f"{y:.3g}" for y in yticks_labels]
+plt.yticks(yticks, labels=yticks_labels)
+
+plt.show()
+
+plt.imshow(data["5.6"], aspect="auto", origin="lower")
 plt.show()
 
 plt.plot(np.sum(shear(data[f"5.6"], -0.8), axis=0) / 100, label=f"5.6")
