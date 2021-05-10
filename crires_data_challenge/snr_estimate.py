@@ -124,25 +124,25 @@ interpolator = interp1d(rv, data, kind="linear", bounds_error=False)
 
 vsys = np.linspace(-100, 100, 401)
 kp = np.linspace(0, 201, 401)
-combined = np.zeros((len(vsys), len(kp)))
+combined = np.zeros((len(kp), len(vsys)))
 for i, vs in enumerate(vsys):
     for j, k in enumerate(kp):
         vp = vs + k * np.sin(2 * np.pi * phi)
         # shifted = [np.interp(vp[i], rv, data[i], left=np.nan, right=np.nan) for i in range(len(vp))]
         shifted = np.diag(interpolator(vp))
-        combined[i, j] = np.nansum(shifted)
+        combined[j, i] = np.nansum(shifted)
 
 plt.imshow(combined, aspect="auto", origin="lower")
 
-plt.xlabel("Kp [km/s]")
+plt.xlabel("vsys [km/s]")
 xticks = plt.xticks()[0][1:-1]
-xticks_labels = np.interp(xticks, np.arange(len(kp)), kp)
+xticks_labels = np.interp(xticks, np.arange(len(vsys)), vsys)
 xticks_labels = [f"{x:.3g}" for x in xticks_labels]
 plt.xticks(xticks, labels=xticks_labels)
 
-plt.ylabel("vsys [km/s]")
+plt.ylabel("Kp [km/s]")
 yticks = plt.yticks()[0][1:-1]
-yticks_labels = np.interp(yticks, np.arange(len(vsys)), vsys)
+yticks_labels = np.interp(yticks, np.arange(len(kp)), kp)
 yticks_labels = [f"{y:.3g}" for y in yticks_labels]
 plt.yticks(yticks, labels=yticks_labels)
 
