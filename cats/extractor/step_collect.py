@@ -67,6 +67,7 @@ class CollectObservationsStep(Step, SpectrumArrayIO):
                     spectra += [spec]
 
             speclist += [SpectrumList.from_spectra(spectra)]
+            hdu.close()
 
         times = [spec.datetime for spec in speclist]
         sort = np.argsort(times)
