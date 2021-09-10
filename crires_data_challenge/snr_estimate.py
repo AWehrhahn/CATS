@@ -1,9 +1,10 @@
 import logging
-from os.path import dirname, join
+from os.path import dirname, join, realpath
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import astroplan as ap
 
 from skimage import io
 from skimage import transform as tf
@@ -78,11 +79,12 @@ detector = Crires(setting, detectors, orders=orders)
 linelist = join(dirname(__file__), "crires_k_2_4.lin")
 
 # Star info
-star = "WASP 107"
+star = "WASP-107"
 planet = "b"
 
 # Initialize the CATS runner
-base_dir = join(dirname(__file__), "../datasets/WASP-107b_SNR100")
+dataset = "WASP-107b_SNR50"
+base_dir = realpath(join(dirname(__file__), f"../datasets/{dataset}"))
 raw_dir = join(base_dir, "Spectrum_00")
 medium_dir = join(base_dir, "medium")
 done_dir = join(base_dir, "done")
@@ -96,11 +98,21 @@ runner = CatsRunner(
     medium_dir=medium_dir,
     done_dir=done_dir,
 )
+rv_step = 0.25
+rv_range = 200
+runner.configuration["cross_correlation"]["rv_range"] = rv_range
+runner.configuration["cross_correlation"]["rv_points"] = int((2 * rv_range + 1) / rv_step)
+runner.configuration["cross_correlation_reference"]["rv_range"] = rv_range
+runner.configuration["cross_correlation_reference"]["rv_points"] = int((2 * rv_range + 1) / rv_step)
+
 
 # Override data with known information
 star = runner.star
 planet = runner.planet
 orbit = Orbit(star, planet)
+
+planet.radius = 1 * u.Rjup
+planet.mass = 1 * u.Mjup
 
 atmosphere_height = planet.atm_scale_height(star.teff)
 snr = star.radius ** 2 / (2 * planet.radius * atmosphere_height)
@@ -110,24 +122,29 @@ velocity_semi_amplitude = orbit.radial_velocity_semiamplitude_planet()
 t_exp = c / (2 * np.pi * velocity_semi_amplitude) * planet.period / detector.resolution
 t_exp = t_exp.decompose()
 
-
 print("SNR required: ", snr)
 print("Maximum exposure time: ", t_exp)
 print(f"Planet Velocity Kp {velocity_semi_amplitude.to('km/s')}")
 
-# Run the Runnert
+# Run the Runner
 # data = runner.run(["solve_problem"])
-
 # d = data["solve_problem"]
 # for k, v in d.items():
 #     plt.plot(v.wavelength, v.flux, label=f"{k}")
 # plt.legend()
 # plt.show()
 
-
+data = runner.run_module("cross_correlation_reference", load=True)
 data = runner.run_module("cross_correlation", load=True)
-
 spectra = runner.data["spectra"]
+
+# Barycentric correction
+observer = ap.Observer.at_site("paranal")
+obstime = spectra.datetime[len(spectra)//2]
+sky_location = star.coordinates
+sky_location.obstime = obstime
+sky_location.location = observer.location
+correction = sky_location.radial_velocity_correction()
 
 # runner.steps["cross_correlation"].plot(data, sysrem_iterations=5, sysrem_iterations_afterwards=6)
 
@@ -137,7 +154,11 @@ spectra = runner.data["spectra"]
 #         plt.plot(np.sum(data[f"{i}.{j}"][10:27], axis=0) / 100, label=f"{i}.{j}")
 
 data = data["7"]
-rv = np.linspace(-100, 100, 201)
+config = runner.configuration["cross_correlation"]
+rv_range = config["rv_range"]
+rv_points = config["rv_points"]
+rv_step = (2 * rv_range + 1) / rv_points
+rv = np.linspace(-rv_range, rv_range, rv_points)
 
 plt.imshow(data, aspect="auto", origin="lower")
 plt.xlabel("rv [km/s]")
@@ -184,47 +205,56 @@ plt.show()
 
 plt.subplot(211)
 mean = np.nanmean(combined, axis=0)
-vsys_peak = 65 #np.argmax(mean)
-curve, vsys_popt = gaussfit(
-    vsys[vsys_peak - 10 : vsys_peak + 10],
-    mean[vsys_peak - 10 : vsys_peak + 10],
-    p0=[mean[vsys_peak] - np.min(mean), vsys[vsys_peak], 1, np.min(mean)],
-)
+vsys_peak = np.argmax(mean)
+try:
+    curve, vsys_popt = gaussfit(
+        vsys[vsys_peak - 10 : vsys_peak + 10],
+        mean[vsys_peak - 10 : vsys_peak + 10],
+        p0=[mean[vsys_peak] - np.min(mean), vsys[vsys_peak], 1, np.min(mean)],
+    )
+    plt.plot(vsys, gauss(vsys, *vsys_popt), "r--")
+except:
+    pass
 plt.plot(vsys, mean)
 plt.vlines(vsys[vsys_peak], np.min(mean), mean[vsys_peak], "k", "--")
-plt.plot(vsys, gauss(vsys, *vsys_popt), "r--")
 plt.xlabel("vsys [km/s]")
 plt.subplot(212)
 peak = combined[:, vsys_peak - 1 : vsys_peak + 2]
 mean = np.nanmean(peak, axis=1)
 kp_peak = np.argmax(mean)
-curve, kp_popt = gaussfit(
-    kp,
-    mean,
-    p0=[mean[kp_peak] - np.min(mean), kp[kp_peak], 1, np.min(mean)],
-)
 plt.plot(kp, mean)
 plt.vlines(kp[kp_peak], np.min(mean), mean[kp_peak], "k", "--")
-plt.plot(kp, gauss(kp, *kp_popt), "r--")
+try:
+    curve, kp_popt = gaussfit(
+        kp,
+        mean,
+        p0=[mean[kp_peak] - np.min(mean), kp[kp_peak], 1, np.min(mean)],
+    )
+    plt.plot(kp, gauss(kp, *kp_popt), "r--")
+except:
+    pass
 plt.xlabel("Kp [km/s]")
 plt.show()
 
 
 
 # Have to check that this makes sense
-in_trail = combined[:, vsys_peak - 3 : vsys_peak + 5]
-out_trail = np.hstack([combined[:, :vsys_peak - 3], combined[:, vsys_peak + 5:]])
+median = np.nanmedian(combined)
+in_trail = combined[:, vsys_peak - 3 : vsys_peak + 5] - median
+out_trail = np.hstack([combined[:, :vsys_peak - 3], combined[:, vsys_peak + 5:]]) - median
 
-hrange = (np.min(combined), np.max(combined))
+hrange = (np.min(combined) - median, np.max(combined)-median)
 bins = 100
 in_values, hbins = np.histogram(in_trail.ravel(), bins=bins, range=hrange, density=True)
 out_values, _ = np.histogram(out_trail.ravel(), bins=bins, range=hrange, density=True)
 
-tresult = ttest_ind(in_trail.ravel(), out_trail.ravel(), equal_var=False)
+tresult = ttest_ind(in_trail.ravel(), out_trail.ravel(), equal_var=False, trim=0.25)
 sigma = norm.isf(tresult.pvalue)
 
-plt.hist(in_trail.ravel(), bins=hbins, density=True, histtype="step")
-plt.hist(out_trail.ravel(), bins=hbins, density=True, histtype="step")
+plt.hist(in_trail.ravel(), bins=hbins, density=True, histtype="step", label="in transit")
+plt.hist(out_trail.ravel(), bins=hbins, density=True, histtype="step", label="out of transit")
+plt.legend()
+plt.title(dataset)
 plt.show()
 
 

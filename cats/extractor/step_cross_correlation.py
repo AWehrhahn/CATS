@@ -26,7 +26,7 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         # Initialize atmosphere
         # including the elements in the atmosphere
         atmosphere = Radtrans(
-            line_species=["H2O"],
+            line_species=["H2O", "H2", "CH4"],
             # line_species=["H2O", "CO_all_iso", "CH4", "CO2", "Na", "K"],
             rayleigh_species=["H2", "He"],
             continuum_opacities=["H2-H2", "H2-He"],
@@ -65,8 +65,8 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         mass_fractions = {}
         mass_fractions["H2"] = 0.74 * np.ones_like(temperature)
         mass_fractions["He"] = 0.24 * np.ones_like(temperature)
-        mass_fractions["H2O"] = 0.001 * np.ones_like(temperature)
-        # mass_fractions["CH4"] = 0.000001 * np.ones_like(temperature)
+        mass_fractions["H2O"] = 0.01 * np.ones_like(temperature)
+        mass_fractions["CH4"] = 0.001 * np.ones_like(temperature)
         # mass_fractions["CO_all_iso"] = 0.01 * np.ones_like(temperature)
         # mass_fractions["CO2"] = 0.00001 * np.ones_like(temperature)
         # mass_fractions["Na"] = 0.00001 * np.ones_like(temperature)
@@ -183,7 +183,7 @@ class CrossCorrelationStep(Step, StepIO):
             corrected_flux /= std
 
             # Observations 90 to 101 have weird stuff
-            corr = np.zeros((len(spectra), rv_points))
+            corr = np.zeros((len(spectra), int(rv_points)))
             for i in tqdm(range(len(spectra)), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
                     for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
