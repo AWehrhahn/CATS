@@ -186,18 +186,18 @@ class CrossCorrelationStep(Step, StepIO):
             corr = np.zeros((len(spectra), int(rv_points)))
             for i in tqdm(range(len(spectra)), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
-                    for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
-                        m = np.isnan(corrected_flux[i, left:right])
-                        m |= np.isnan(reference.flux[j, left:right].to_value(1))
-                        m = ~m
-                        # Cross correlate!
-                        corr[i, j] += np.correlate(
-                            corrected_flux[i, left:right][m],
-                            reference.flux[j, left:right][m].to_value(1),
-                            "valid",
-                        )
-                        # Normalize to the number of data points used
-                        corr[i, j] *= m.size / np.count_nonzero(m)
+                    # for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
+                    m = np.isnan(corrected_flux[i])
+                    m |= np.isnan(reference.flux[j].to_value(1))
+                    m = ~m
+                    # Cross correlate!
+                    corr[i, j] += np.correlate(
+                        corrected_flux[i][m],
+                        reference.flux[j][m].to_value(1),
+                        "valid",
+                    )
+                    # Normalize to the number of data points used
+                    corr[i, j] *= m.size / np.count_nonzero(m)
 
             correlation[f"{n}"] = np.copy(corr)
             for i in tqdm(
