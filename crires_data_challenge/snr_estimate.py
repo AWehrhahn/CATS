@@ -5,12 +5,15 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import astroplan as ap
+from scipy.constants import c as c_light_ms
+
+from tqdm import tqdm
 
 from skimage import io
 from skimage import transform as tf
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
-from scipy.stats import ttest_ind, norm
+from scipy.stats import ttest_ind, norm, t
 
 from astropy import units as u
 from astropy.constants import c
@@ -65,6 +68,18 @@ def gaussfit(x, y, p0=None):
     popt, _ = curve_fit(gauss, x, y, p0=p0)
     return gauss(x, *popt), popt
 
+def welch_t(a, b, ua=None, ub=None):
+    # t = (mean(a) - mean(b)) / sqrt(std(a)**2 + std(b)**2)
+    if ua is None:
+        ua = a.std() / np.sqrt(a.size)
+    if ub is None:
+        ub = b.std() / np.sqrt(b.size)
+
+    xa = a.mean()
+    xb = b.mean()
+    t = (xa - xb) / np.sqrt(ua**2 + ub**2)
+    return t
+
 
 # Update IERS tables if necessary
 IERS_Auto()
@@ -83,7 +98,7 @@ star = "WASP-107"
 planet = "b"
 
 # Initialize the CATS runner
-dataset = "WASP-107b_SNR50"
+dataset = "WASP-107b_SNR200"
 base_dir = realpath(join(dirname(__file__), f"../datasets/{dataset}"))
 raw_dir = join(base_dir, "Spectrum_00")
 medium_dir = join(base_dir, "medium")
@@ -134,7 +149,7 @@ print(f"Planet Velocity Kp {velocity_semi_amplitude.to('km/s')}")
 # plt.legend()
 # plt.show()
 
-data = runner.run_module("cross_correlation_reference", load=True)
+# data = runner.run_module("cross_correlation_reference", load=False)
 data = runner.run_module("cross_correlation", load=True)
 spectra = runner.data["spectra"]
 
@@ -173,21 +188,66 @@ phi = (datetime - planet.time_of_transit) / planet.period
 phi = phi.to_value(1)
 # We only care about the fraction
 phi = phi % 1
-c_light = 3e5
+c_light = c_light_ms * 1e-3
 
 interpolator = interp1d(rv, data, kind="linear", bounds_error=False)
 
-vsys = np.linspace(-25, 25, 101)
-kp = np.linspace(0, 150, 300)
+vsys_min, vsys_max = 0, 25
+kp_min, kp_max = 0, 300
+vsys = np.linspace(vsys_min, vsys_max, int((vsys_max-vsys_min+1)//rv_step))
+kp = np.linspace(kp_min, kp_max, int((kp_max-kp_min+1)//rv_step))
 combined = np.zeros((len(kp), len(vsys)))
-for i, vs in enumerate(vsys):
-    for j, k in enumerate(kp):
+for i, vs in enumerate(tqdm(vsys)):
+    for j, k in enumerate(tqdm(kp, leave=False)):
         vp = vs + k * np.sin(2 * np.pi * phi)
         # shifted = [np.interp(vp[i], rv, data[i], left=np.nan, right=np.nan) for i in range(len(vp))]
         shifted = np.diag(interpolator(vp))
         combined[j, i] = np.nansum(shifted)
 
+# Normalize to the number of input spectra
+combined /= data.shape[0]
+combined /= combined.std()
+
+
+# Normalize to median 0
+median = np.nanmedian(combined)
+combined -= median
+
+kp_peak = combined.shape[0] // 2
+kp_width = kp_peak
+
+for i in range(3):
+    # Determine the peak position in vsys and kp
+    kp_width_int = int(np.ceil(kp_width))
+    mean_vsys = np.nanmean(combined[kp_peak-kp_width_int+1:kp_peak+kp_width_int+1, :], axis=0)
+    vsys_peak = np.argmax(mean_vsys)
+
+    # And then fit gaussians to determine the width
+    curve, vsys_popt = gaussfit(
+            vsys,
+            mean_vsys,
+            p0=[mean_vsys[vsys_peak] - np.min(mean_vsys), vsys[vsys_peak], 1, np.min(mean_vsys)],
+    )
+    vsys_width = vsys_popt[2] / rv_step
+
+
+    # Do the same for the planet velocity
+    vsys_width_int = int(np.ceil(vsys_width)) // 4
+    peak = combined[:, vsys_peak - vsys_width_int : vsys_peak + vsys_width_int + 1]
+    mean_kp = np.nanmean(peak, axis=1)
+    kp_peak = np.argmax(mean_kp)
+
+    curve, kp_popt = gaussfit(
+        kp,
+        mean_kp,
+        p0=[mean_kp[kp_peak] - np.min(mean_kp), kp[kp_peak], 1, np.min(mean_kp)],
+    )
+    kp_width = kp_popt[2] / rv_step
+
+# Plot the results
+ax = plt.subplot(121)
 plt.imshow(combined, aspect="auto", origin="lower")
+ax.add_patch(plt.Rectangle((vsys_peak-vsys_width, kp_peak-kp_width), 2 * vsys_width, 2 * kp_width, fill=False, color="red"))
 
 plt.xlabel("vsys [km/s]")
 xticks = plt.xticks()[0][1:-1]
@@ -201,60 +261,55 @@ yticks_labels = np.interp(yticks, np.arange(len(kp)), kp)
 yticks_labels = [f"{y:.3g}" for y in yticks_labels]
 plt.yticks(yticks, labels=yticks_labels)
 
-plt.show()
-
-plt.subplot(211)
-mean = np.nanmean(combined, axis=0)
-vsys_peak = np.argmax(mean)
-try:
-    curve, vsys_popt = gaussfit(
-        vsys[vsys_peak - 10 : vsys_peak + 10],
-        mean[vsys_peak - 10 : vsys_peak + 10],
-        p0=[mean[vsys_peak] - np.min(mean), vsys[vsys_peak], 1, np.min(mean)],
-    )
-    plt.plot(vsys, gauss(vsys, *vsys_popt), "r--")
-except:
-    pass
-plt.plot(vsys, mean)
-plt.vlines(vsys[vsys_peak], np.min(mean), mean[vsys_peak], "k", "--")
+plt.subplot(222)
+plt.plot(vsys, gauss(vsys, *vsys_popt), "r--")
+plt.plot(vsys, mean_vsys)
+plt.vlines(vsys[vsys_peak], np.min(mean_vsys), mean_vsys[vsys_peak], "k", "--")
 plt.xlabel("vsys [km/s]")
-plt.subplot(212)
-peak = combined[:, vsys_peak - 1 : vsys_peak + 2]
-mean = np.nanmean(peak, axis=1)
-kp_peak = np.argmax(mean)
-plt.plot(kp, mean)
-plt.vlines(kp[kp_peak], np.min(mean), mean[kp_peak], "k", "--")
-try:
-    curve, kp_popt = gaussfit(
-        kp,
-        mean,
-        p0=[mean[kp_peak] - np.min(mean), kp[kp_peak], 1, np.min(mean)],
-    )
-    plt.plot(kp, gauss(kp, *kp_popt), "r--")
-except:
-    pass
+
+plt.subplot(224)
+plt.plot(kp, mean_kp)
+plt.vlines(kp[kp_peak], np.min(mean_kp), mean_kp[kp_peak], "k", "--")
+plt.plot(kp, gauss(kp, *kp_popt), "r--")
 plt.xlabel("Kp [km/s]")
+
+plt.suptitle(dataset)
 plt.show()
 
 
 
 # Have to check that this makes sense
-median = np.nanmedian(combined)
-in_trail = combined[:, vsys_peak - 3 : vsys_peak + 5] - median
-out_trail = np.hstack([combined[:, :vsys_peak - 3], combined[:, vsys_peak + 5:]]) - median
+vsys_width = int(np.ceil(vsys_width))
+kp_width = int(np.ceil(kp_width))
 
-hrange = (np.min(combined) - median, np.max(combined)-median)
+mask = np.full(combined.shape, False)
+mask[kp_peak-kp_width:kp_peak+kp_width, vsys_peak - vsys_width : vsys_peak + vsys_width] = True
+
+in_trail = combined[mask].ravel()
+out_trail = combined[~mask].ravel()
+
+hrange = (np.min(combined), np.max(combined))
 bins = 100
-in_values, hbins = np.histogram(in_trail.ravel(), bins=bins, range=hrange, density=True)
-out_values, _ = np.histogram(out_trail.ravel(), bins=bins, range=hrange, density=True)
+in_values, hbins = np.histogram(in_trail, bins=bins, range=hrange, density=True)
+out_values, _ = np.histogram(out_trail, bins=bins, range=hrange, density=True)
 
-tresult = ttest_ind(in_trail.ravel(), out_trail.ravel(), equal_var=False, trim=0.25)
-sigma = norm.isf(tresult.pvalue)
+tresult = ttest_ind(in_trail, out_trail, equal_var=False, trim=0.25)
+# TODO: What is the degrees of freedom
+# If we use the number of points like in the scipy function we get very large sigma values
+# so is it vsys and kp and err?
+df = 3
+pvalue = t.sf(np.abs(tresult.statistic), df)
+sigma = norm.isf(pvalue)
+# sigma = norm.isf(tresult.pvalue)
+
+# Alternative sigma value, based on my understanding of sigmas and Gaussian distributions
+# sigma = np.abs((in_trail.mean() - out_trail.mean()) / (in_trail.std() + out_trail.std()))
+
 
 plt.hist(in_trail.ravel(), bins=hbins, density=True, histtype="step", label="in transit")
 plt.hist(out_trail.ravel(), bins=hbins, density=True, histtype="step", label="out of transit")
 plt.legend()
-plt.title(dataset)
+plt.title(f"{dataset}\nsigma: {sigma}")
 plt.show()
 
 
