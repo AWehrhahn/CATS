@@ -37,7 +37,7 @@ class CollectObservationsStep(Step, SpectrumArrayIO):
                 add = additional_data.iloc[i]
                 time = Time(add["time"], format="jd")
                 airmass = add["airmass"]
-                rv = add["barycentric velocity (Paranal)"] << (u.km / u.s)
+                rv = add["barycentric velocity"] << (u.km / u.s)
 
             spectra = []
             orders = list(range(wave.shape[1]))

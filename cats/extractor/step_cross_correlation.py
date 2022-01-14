@@ -2,33 +2,52 @@ import numpy as np
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from os.path import join
 
 from flex.flex import FlexFile
 
 from scipy.ndimage.filters import gaussian_filter1d
 
-from astropy import units as u
-from petitRADTRANS import Radtrans
-from petitRADTRANS import nat_cst as nc
+from astropy import config, units as u
 
 from ..pysysrem.sysrem import sysrem
-from ..spectrum import Spectrum1D, Spectrum1DIO, SpectrumArray, SpectrumArrayIO
+from ..spectrum import Spectrum1D, Spectrum1DIO
 from .steps import Step, StepIO
-
 
 class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
     filename = "reference_petitRADTRANS.npz"
 
+    def __init__(self, raw_dir, medium_dir, done_dir, configuration=None):
+        super().__init__(raw_dir, medium_dir, done_dir, configuration=configuration)
+
+        try:
+            # Importing petitRADTRANS takes forever...
+            import petitRADTRANS
+            from petitRADTRANS import nat_cst as nc
+            self.petitRADTRANS = petitRADTRANS
+            self.nc = nc
+        except (ImportError, IOError):
+            self.petitRADTRANS = None
+            print(
+                "petitRadtrans could not be imported, please fix that if you want to use it for model spectra"
+            )
+
     def radtrans(self, wrange, star, planet):
+        if self.petitRADTRANS is None:
+            raise RuntimeError(
+                "petitRadtrans could not be imported, please"
+                " fix that if you want to use it for model spectra"
+            )
+
         # 0.8 to 5
         wmin = wrange[0].to_value("um")
         wmax = wrange[1].to_value("um")
         # Initialize atmosphere
         # including the elements in the atmosphere
-        atmosphere = Radtrans(
-            line_species=["H2O", "H2", "CH4"],
+        atmosphere = self.petitRADTRANS.Radtrans(
+            line_species=["CO2","H2O", "H2", "CH4", "CO"],
             # line_species=["H2O", "CO_all_iso", "CH4", "CO2", "Na", "K"],
-            rayleigh_species=["H2", "He"],
+            rayleigh_species=["H2", "H2O", "CO2"],
             continuum_opacities=["H2-H2", "H2-He"],
             wlen_bords_micron=[wmin, wmax],
             mode="lbl",
@@ -43,12 +62,12 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         gravity = planet.surface_gravity.to_value("cm/s**2")
         # reference pressure (for the surface gravity and radius)
         # TODO: ????
-        P0 = 0.01
+        P0 = planet.atm_surface_pressure.to_value("bar")
 
         # Pressure in bar
         # has to be equispaced in log
         print("Setup atmosphere pressures")
-        pressures = np.logspace(-6, 2, 100)
+        pressures = np.logspace(-6, 0, 100)
         atmosphere.setup_opa_structure(pressures)
 
         # Define temperature pressure profile
@@ -56,19 +75,19 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         gamma = 0.4  # ratio between the opacity in the optical and the IR
         T_int = 200.0  # Internal temperature
         # T_equ = 1500.0
-        T_equ = planet.teff_from_stellar(star.teff).to_value("K")
-        temperature = nc.guillot_global(
+        T_equ = planet.equilibrium_temperature(star.teff, star.radius).to_value("K")
+        temperature = self.nc.guillot_global(
             pressures, kappa_IR, gamma, gravity, T_int, T_equ
         )
 
         # Define mass fractions
         mass_fractions = {}
-        mass_fractions["H2"] = 0.74 * np.ones_like(temperature)
-        mass_fractions["He"] = 0.24 * np.ones_like(temperature)
-        mass_fractions["H2O"] = 0.01 * np.ones_like(temperature)
+        mass_fractions["H2"] = 0.0001 * np.ones_like(temperature)
+        mass_fractions["He"] = 0.0001 * np.ones_like(temperature)
+        mass_fractions["H2O"] = 0.02 * np.ones_like(temperature)
         mass_fractions["CH4"] = 0.001 * np.ones_like(temperature)
-        # mass_fractions["CO_all_iso"] = 0.01 * np.ones_like(temperature)
-        # mass_fractions["CO2"] = 0.00001 * np.ones_like(temperature)
+        mass_fractions["CO"] = 0.1 * np.ones_like(temperature)
+        mass_fractions["CO2"] = 0.70 * np.ones_like(temperature)
         # mass_fractions["Na"] = 0.00001 * np.ones_like(temperature)
         # mass_fractions["K"] = 0.000001 * np.ones_like(temperature)
 
@@ -80,8 +99,8 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
             temperature, mass_fractions, gravity, MMW, R_pl=R_pl, P0_bar=P0
         )
         # atmosphere.calc_flux(temperature, mass_fractions, gravity, MMW)
-        wave = nc.c / atmosphere.freq / 1e-4
-        flux = 1 - (atmosphere.transm_rad / nc.r_sun) ** 2
+        wave = self.nc.c / atmosphere.freq / 1e-4
+        flux = 1 - (atmosphere.transm_rad / self.nc.r_sun) ** 2
 
         wave = wave << u.um
         flux = flux << u.one
@@ -121,6 +140,130 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         return ref
 
 
+class PlanetAtmosphereReferencePSGStep(Step, Spectrum1DIO):
+    filename = "reference_PSG.npz"
+    source = "PSG"
+
+    def __init__(self, raw_dir, medium_dir, done_dir, configuration=None):
+        super().__init__(raw_dir, medium_dir, done_dir, configuration=configuration)
+        try:
+            from pypsg import psg
+            self.psg = psg
+        except ImportError:
+            self.psg = None
+            print(
+                "PSG could not be imported, please fix that"
+                " if you want to use it for model spectra"
+            )
+
+    def radtrans(self, wrange, star, planet, config_file=None):
+        if self.psg is None:
+            raise RuntimeError(
+                "PSG could not be imported, please fix that if you"
+                " want to use it for model spectra"
+            )
+        # 0.8 to 5
+        wmin = wrange[0]
+        wmax = wrange[1]
+
+        # Load psg_cfg for this planet
+        if config_file is None:
+            if hasattr(self, "psg_cfg"):
+                config_file = self.psg_cfg
+            else:
+                config_file = join(self.raw_dir, "../psg_cfg.txt")
+        gen = self.psg.PSG(config=config_file)
+        gen.generator.range1 = wmin
+        gen.generator.range2 = wmax
+        gen.generator.resolution = 100_000 * u.one
+
+        gen.object.object = "Exoplanet"
+        gen.object.name = f"{star.name} {planet.name}"
+
+        # TODO: Populate from name
+        # gen.object.diameter = 2 * planet.radius
+        # gen.object.gravity = planet.surface_gravity
+        # gen.object.obs_longitude = star.coordinates.ra
+        # gen.object.obs_latitude = star.coordinates.dec
+        # gen.object.star_distance = star.distance
+        # gen.object.star_velocity = star.radial_velocity
+        # gen.object.star_type = "M"
+        # gen.object.star_temperature = star.teff
+        # gen.object.star_radius = star.radius
+        # gen.object.star_metallicity = star.metallicity
+        # gen.object.period = planet.period
+        # gen.object.periapsis = planet.argument_of_periastron
+        # gen.object.eccentricity = planet.eccentricity
+        # gen.object.inclination = planet.inclination
+
+        # Request time of transit
+
+        # Set atmosphere based on type
+
+        # This takes a while, the first time
+        data = gen.request(psg_type="trn")
+        wave = data["Wavefreq"]
+        flux = data["Total"]
+
+        # flux = 1 - (flux / flux.max())**2
+
+        wave = wave << gen.generator.range_unit
+        flux = flux << u.one
+
+        spec = Spectrum1D(
+            spectral_axis=wave,
+            flux=flux,
+            description="PSG transmission spectrum",
+            source="PSG",
+            reference_frame="barycentric",
+            star=star,
+            planet=planet,
+        )
+
+        return spec
+
+    def run(self, star, planet, detector):
+        rv_padding = self.rv_padding
+        wrange = detector.regions
+        wmin = min([wr.lower for wr in wrange])
+        wmax = max([wr.upper for wr in wrange])
+        # Apply possible radial velocity tolerance of 200 km/s
+        wmin *= 1 - rv_padding / 3e5
+        wmax *= 1 + rv_padding / 3e5
+        ref = self.radtrans([wmin, wmax], star, planet)
+        ref.star = star
+        ref.planet = planet
+
+        # # Rescaled ref to 0 to 1
+        # f = np.sqrt(1 - ref.flux)
+        # f -= f.min()
+        # f /= f.max()
+        # f = 1 - f ** 2
+        # ref.flux[:] = f
+
+        self.save(ref)
+        return ref
+
+
+class PlanetSpectrumReferenceStep(Step):
+    def __new__(cls, *args, configuration=None, **kwargs):
+        if configuration is None:
+            method = "psg"
+        else:
+            method = configuration.get("method", "psg")
+
+        if method == "psg":
+            return PlanetAtmosphereReferencePSGStep(
+                *args, configuration=configuration, **kwargs
+            )
+        elif method == "petitRADTRANS":
+            return PlanetAtmosphereReferencePetitRadtransStep(
+                *args, configuration=configuration, **kwargs
+            )
+        else:
+            raise ValueError("Planet Spectrum generator method not recognized")
+
+
 class CrossCorrelationReferenceStep(Step, Spectrum1DIO):
     filename = "reference_petitRADTRANS.fits"
 
@@ -147,7 +290,9 @@ class CrossCorrelationReferenceStep(Step, Spectrum1DIO):
 
         reference = reference << u.one
         reference = Spectrum1D(
-            spectral_axis=ref_wave, flux=reference, datetime=spectra.datetime[len(spectra) // 2]
+            spectral_axis=ref_wave,
+            flux=reference,
+            datetime=spectra.datetime[len(spectra) // 2],
         )
         # We are only looking at the difference between the median and the observation
         # Thus additional absorption would result in a negative signal at points of large absorption
@@ -165,36 +310,44 @@ class CrossCorrelationStep(Step, StepIO):
         max_nsysrem_after = self.max_sysrem_iterations_afterwards
         rv_range = self.rv_range
         rv_points = self.rv_points
+        skip = self.skip_segments
+
+        skip_mask = np.full(spectra.shape[1], True)
+        for seg in skip:
+            skip_mask[spectra.segments[seg]:spectra.segments[seg+1]] = False
 
         reference = cross_correlation_reference
 
-        # entries past 90 are 'weird'
         flux = spectra.flux.to_value(1)
         flux = flux
-        unc = spectra.uncertainty.array
+        if spectra.uncertainty is not None:
+            unc = spectra.uncertainty.array
+        else:
+            unc = np.ones_like(flux)
 
         correlation = {}
         for n in tqdm(range(max_nsysrem), desc="Sysrem N"):
             corrected_flux = sysrem(flux, num_errors=n, errors=unc)
 
-            # Mask strong tellurics
+            # Normalize by the standard deviation in this wavelength column
             std = np.nanstd(corrected_flux, axis=0)
             std[std == 0] = 1
             corrected_flux /= std
 
-            # Observations 90 to 101 have weird stuff
+            reference_flux = np.copy(reference.flux.to_value(1))
+            reference_flux -= np.nanmean(reference_flux, axis=1)[:, None]
+            reference_flux /= np.nanstd(reference_flux, axis=1)[:, None]
+
+            # Run the cross correlation for all times and radial velocity offsets
             corr = np.zeros((len(spectra), int(rv_points)))
             for i in tqdm(range(len(spectra)), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
-                    # for left, right in zip(spectra.segments[:-1], spectra.segments[1:]):
-                    m = np.isnan(corrected_flux[i])
-                    m |= np.isnan(reference.flux[j].to_value(1))
-                    m = ~m
+                    m = np.isfinite(corrected_flux[i])
+                    m &= np.isfinite(reference.flux[j].to_value(1))
+                    m &= skip_mask
                     # Cross correlate!
                     corr[i, j] += np.correlate(
-                        corrected_flux[i][m],
-                        reference.flux[j][m].to_value(1),
-                        "valid",
+                        corrected_flux[i][m], reference_flux[j][m], "valid",
                     )
                     # Normalize to the number of data points used
                     corr[i, j] *= m.size / np.count_nonzero(m)

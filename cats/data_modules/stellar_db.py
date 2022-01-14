@@ -3,6 +3,7 @@ Get Data from Stellar DB
 """
 
 import logging
+from astropy.coordinates.distances import Distance
 import numpy as np
 
 from functools import lru_cache
@@ -58,7 +59,7 @@ class StellarDb(DataSource):
         if "distance" in data:
             distance = data["distance"]
         elif "parallax" in data:
-            distance = 1 / data["parallax"]
+            distance = Distance(parallax=data["parallax"])
         else:
             distance = None
 
@@ -68,10 +69,10 @@ class StellarDb(DataSource):
             name=name,
             mass=data.get("mass"),
             radius=data.get("radius"),
-            effective_temperature=data.get("t_eff"),
+            teff=data.get("t_eff"),
             logg=data.get("logg"),
             monh=data.get("metallicity"),
-            vturb=data.get("velocity_turbulence", 1 * u.km/u.s),
+            vmac=data.get("velocity_turbulence", 1 * u.km/u.s),
             coordinates=data.get("coordinates"),
             distance=distance,
             radial_velocity=data.get("radial_velocity"),
@@ -83,14 +84,13 @@ class StellarDb(DataSource):
                 name=pname,
                 radius=p.get("radius"),
                 mass=p.get("mass"),
-                inclination=p.get("inclination"),
-                semi_major_axis=p.get("semi_major_axis"),
+                inc=p.get("inclination", 90 * u.deg),
+                sma=p.get("semi_major_axis", 0 * u.AU),
                 period=p.get("period"),
-                eccentricity=p.get("eccentricity"),
-                argument_of_periastron=p.get("periastron"),
+                ecc=p.get("eccentricity"),
+                omega=p.get("periastron", 90 * u.deg),
                 time_of_transit=p.get("transit_epoch"),
-                transit_duration=p.get("transit_duration"),
-                stellar_teff=data.get("t_eff"),
+                transit_duration=p.get("transit_duration", 0 * u.day),
             )
             planets[pname] = planet
 

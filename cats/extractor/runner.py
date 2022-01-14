@@ -17,7 +17,7 @@ from .step_collect import CollectObservationsStep
 from .step_cross_correlation import (
     CrossCorrelationReferenceStep,
     CrossCorrelationStep,
-    PlanetAtmosphereReferencePetitRadtransStep,
+    PlanetSpectrumReferenceStep,
     PlanetRadialVelocityStep,
 )
 from .step_intensities import SpecificIntensitiesSmeStep
@@ -56,7 +56,7 @@ class CatsRunner:
         "stellar_spectrum_combined": StellarSpectrumCombinedStep,
         "planet": PlanetParametersStep,
         "specific_intensities": SpecificIntensitiesSmeStep,
-        "planet_reference_spectrum": PlanetAtmosphereReferencePetitRadtransStep,
+        "planet_reference_spectrum": PlanetSpectrumReferenceStep,
         "cross_correlation_reference": CrossCorrelationReferenceStep,
         "cross_correlation": CrossCorrelationStep,
         "planet_radial_velocity": PlanetRadialVelocityStep,

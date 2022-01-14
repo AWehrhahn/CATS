@@ -3,8 +3,10 @@ import operator as op
 from collections.abc import Sequence
 from copy import copy, deepcopy
 from datetime import datetime
-from os.path import splitext
+from os.path import splitext, dirname
 import inspect
+import os
+from flex.base import FlexExtension
 
 from tqdm import tqdm
 import astropy.constants as const
@@ -28,7 +30,6 @@ from flex.flex import FlexFile
 from flex.extensions.bindata import MultipleDataExtension
 
 logger = logging.getLogger(__name__)
-
 
 class SpectrumBase:
     reference_frame_values = ["barycentric", "telescope", "planet", "star"]
@@ -101,6 +102,7 @@ class SpectrumBase:
         altaz = observer.altaz(self.datetime, target)
         airmass = altaz.secz.value
         return airmass
+
 
     def __flex_save__(self):
         header = self.meta
@@ -203,6 +205,7 @@ class SpectrumBase:
             raise ValueError("Could not determine filetype based on file ending")
 
     def write(self, filename, format=None):
+        os.makedirs(dirname(filename), exist_ok=True)
         if format is None:
             format = self.__class__.determine_filetype_based_on_filename(filename)
         if format == "flex":
@@ -763,7 +766,7 @@ class SpectrumList(Sequence, SpectrumBase):
         primary = fits.PrimaryHDU(header=header)
         secondary = []
         for spec in self:
-            secondary += [spec._get_fits_hdu()]
+            secondary += [spec.get_fits_hdu()]
 
         hdulist = fits.HDUList(hdus=[primary, *secondary])
         hdulist.writeto(fname, overwrite=True)

@@ -47,10 +47,11 @@ def generate_matrix(spectra, errors=None):
     return residuals, errors, median_list, flux
 
 
-def sysrem(input_star_list, num_errors=5, iterations=10, errors=None):
+def sysrem(input_star_list, num_errors=5, iterations=100, errors=None, tolerance=1e-6):
 
     residuals, errors, median_list, star_list = generate_matrix(input_star_list, errors)
     stars_dim, epoch_dim = residuals.shape
+    err_squared = errors ** 2
 
     # print("starting sysrem")
 
@@ -60,24 +61,38 @@ def sysrem(input_star_list, num_errors=5, iterations=10, errors=None):
     # errors are taken out below.
     for n in tqdm(
         range(num_errors), desc="Removing Systematic #", leave=False
-    ):  # The number of linear systematics to remove
+    ): 
+        # Define all the memory we use in the algorithm
+        # Below we just operate in place to make it faster
         c = np.zeros(stars_dim)
         a = np.ones(epoch_dim)
+        c_loc = np.zeros(stars_dim)
+        a_loc = np.zeros(epoch_dim)
+        c_numerator = np.zeros(stars_dim)
+        c_denominator = np.zeros(stars_dim)
+        a_numerator = np.zeros(epoch_dim)
+        a_denominator = np.zeros(epoch_dim)
 
         with warnings.catch_warnings():
             warnings.simplefilter(action="ignore", category=RuntimeWarning)
             # minimize a and c values for a number of iterations, iter
-            for i in range(iterations):
+            for i in tqdm(range(iterations), desc="Converging", leave=False):
                 # Using the initial guesses for each a value of each epoch, minimize c for each star
-                err_squared = errors ** 2
-                numerator = np.nansum(a * residuals / err_squared, axis=1)
-                denominator = np.nansum(a ** 2 / err_squared, axis=1)
-                c = numerator / denominator
+                np.nansum(a * residuals / err_squared, axis=1, out=c_numerator)
+                np.nansum(a ** 2 / err_squared, axis=1, out=c_denominator)
+                np.divide(c_numerator, c_denominator, out=c_loc)
 
                 # Using the c values found above, minimize a for each epoch
-                numerator = np.nansum(c[:, None] * residuals / err_squared, axis=0)
-                denominator = np.nansum(c[:, None] ** 2 / err_squared, axis=0)
-                a = numerator / denominator
+                np.nansum(c_loc[:, None] * residuals / err_squared, axis=0, out=a_numerator)
+                np.nansum(c_loc[:, None] ** 2 / err_squared, axis=0, out=a_denominator)
+                np.divide(a_numerator, a_denominator, out=a_loc)
+
+                diff = np.nanmean((c_loc - c)**2) + np.nanmean((a_loc - a)**2)
+                # Swap the pointers to the memory
+                c, c_loc = c_loc, c
+                a, a_loc = a_loc, a
+                if tolerance is not None and diff < tolerance:
+                    break
 
         # Create a matrix for the systematic errors:
         # syserr = np.zeros((stars_dim, epoch_dim))

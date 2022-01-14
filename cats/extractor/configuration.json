@@ -23,7 +23,8 @@
         "max_sysrem_iterations": 10,
         "max_sysrem_iterations_afterwards": 10,
         "rv_range": 100,
-        "rv_points": 201
+        "rv_points": 201,
+        "skip_segments": []
     },
     "planet_radial_velocity": {
         "rv_range": 100,
