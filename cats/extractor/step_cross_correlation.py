@@ -8,7 +8,8 @@ from flex.flex import FlexFile
 
 from scipy.ndimage.filters import gaussian_filter1d
 
-from astropy import config, units as u
+from astropy import units as u
+from astropy.constants import c
 
 from ..pysysrem.sysrem import sysrem
 from ..spectrum import Spectrum1D, Spectrum1DIO
@@ -310,13 +311,14 @@ class CrossCorrelationStep(Step, StepIO):
         max_nsysrem_after = self.max_sysrem_iterations_afterwards
         rv_range = self.rv_range
         rv_points = self.rv_points
+        rv_step = 2 * rv_range / rv_points
         skip = self.skip_segments
 
         skip_mask = np.full(spectra.shape[1], True)
         for seg in skip:
             skip_mask[spectra.segments[seg]:spectra.segments[seg+1]] = False
 
-        reference = cross_correlation_reference
+        # reference = cross_correlation_reference
 
         flux = spectra.flux.to_value(1)
         flux = flux
@@ -334,20 +336,29 @@ class CrossCorrelationStep(Step, StepIO):
             std[std == 0] = 1
             corrected_flux /= std
 
-            reference_flux = np.copy(reference.flux.to_value(1))
-            reference_flux -= np.nanmean(reference_flux, axis=1)[:, None]
-            reference_flux /= np.nanstd(reference_flux, axis=1)[:, None]
+            # reference_flux = np.copy(reference.flux.to_value(1))
+            # reference_flux -= np.nanmean(reference_flux, axis=1)[:, None]
+            # reference_flux /= np.nanstd(reference_flux, axis=1)[:, None]
+            wave_noshift = spectra.wavelength[0].to_value("AA")
+            c_light = c.to_value("km/s")
 
             # Run the cross correlation for all times and radial velocity offsets
             corr = np.zeros((len(spectra), int(rv_points)))
-            for i in tqdm(range(len(spectra)), leave=False, desc="Observation"):
+            for i in tqdm(range(len(spectra) - 1), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
+                    # Doppler Shift the next spectrum 
+                    rv = -rv_range + j * rv_step
+                    wave_shift = wave_noshift * (1+rv/c_light)
+                    newspectra = np.interp(wave_shift,wave_noshift,corrected_flux[i+1])
+
+                    # Mask bad pixels
                     m = np.isfinite(corrected_flux[i])
-                    m &= np.isfinite(reference.flux[j].to_value(1))
+                    m &= np.isfinite(newspectra[i+1])
                     m &= skip_mask
+
                     # Cross correlate!
                     corr[i, j] += np.correlate(
-                        corrected_flux[i][m], reference_flux[j][m], "valid",
+                        corrected_flux[i][m], newspectra[m], "valid",
                     )
                     # Normalize to the number of data points used
                     corr[i, j] *= m.size / np.count_nonzero(m)
