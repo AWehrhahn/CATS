@@ -34,11 +34,14 @@ class CollectObservationsStep(Step, SpectrumArrayIO):
             flux = hdu[2].data << u.one
 
             if additional_data is not None:
-                add = additional_data.iloc[i]
-                time = Time(add["time"], format="jd")
-                airmass = add["airmass"]
-                rv = add["barycentric velocity"] << (u.km / u.s)
-
+                try:
+                    add = additional_data.iloc[i]
+                    time = Time(add["time"], format="jd")
+                    airmass = add["airmass"]
+                    rv = add["barycentric velocity"] << (u.km / u.s)
+                except KeyError:
+                    additional_data = None
+                    
             spectra = []
             orders = list(range(wave.shape[1]))
             for order in orders:
