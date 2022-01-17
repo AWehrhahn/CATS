@@ -15,6 +15,7 @@ from ..pysysrem.sysrem import sysrem
 from ..spectrum import Spectrum1D, Spectrum1DIO
 from .steps import Step, StepIO
 
+
 class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
     filename = "reference_petitRADTRANS.npz"
 
@@ -25,6 +26,7 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
             # Importing petitRADTRANS takes forever...
             import petitRADTRANS
             from petitRADTRANS import nat_cst as nc
+
             self.petitRADTRANS = petitRADTRANS
             self.nc = nc
         except (ImportError, IOError):
@@ -46,7 +48,7 @@ class PlanetAtmosphereReferencePetitRadtransStep(Step, Spectrum1DIO):
         # Initialize atmosphere
         # including the elements in the atmosphere
         atmosphere = self.petitRADTRANS.Radtrans(
-            line_species=["CO2","H2O", "H2", "CH4", "CO"],
+            line_species=["CO2", "H2O", "H2", "CH4", "CO"],
             # line_species=["H2O", "CO_all_iso", "CH4", "CO2", "Na", "K"],
             rayleigh_species=["H2", "H2O", "CO2"],
             continuum_opacities=["H2-H2", "H2-He"],
@@ -149,6 +151,7 @@ class PlanetAtmosphereReferencePSGStep(Step, Spectrum1DIO):
         super().__init__(raw_dir, medium_dir, done_dir, configuration=configuration)
         try:
             from pypsg import psg
+
             self.psg = psg
         except ImportError:
             self.psg = None
@@ -316,7 +319,7 @@ class CrossCorrelationStep(Step, StepIO):
 
         skip_mask = np.full(spectra.shape[1], True)
         for seg in skip:
-            skip_mask[spectra.segments[seg]:spectra.segments[seg+1]] = False
+            skip_mask[spectra.segments[seg] : spectra.segments[seg + 1]] = False
 
         # reference = cross_correlation_reference
 
@@ -346,14 +349,16 @@ class CrossCorrelationStep(Step, StepIO):
             corr = np.zeros((len(spectra), int(rv_points)))
             for i in tqdm(range(len(spectra) - 1), leave=False, desc="Observation"):
                 for j in tqdm(range(rv_points), leave=False, desc="radial velocity",):
-                    # Doppler Shift the next spectrum 
+                    # Doppler Shift the next spectrum
                     rv = -rv_range + j * rv_step
-                    wave_shift = wave_noshift * (1+rv/c_light)
-                    newspectra = np.interp(wave_shift,wave_noshift,corrected_flux[i+1])
+                    wave_shift = wave_noshift * (1 + rv / c_light)
+                    newspectra = np.interp(
+                        wave_shift, wave_noshift, corrected_flux[i + 1]
+                    )
 
                     # Mask bad pixels
                     m = np.isfinite(corrected_flux[i])
-                    m &= np.isfinite(newspectra[i+1])
+                    m &= np.isfinite(newspectra[i + 1])
                     m &= skip_mask
 
                     # Cross correlate!
